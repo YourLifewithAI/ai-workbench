@@ -10,6 +10,8 @@ export interface RuntimeHandle {
   token: string;
   ephemeral: boolean;
   request<T>(method: string, apiPath: string, body?: unknown): Promise<T>;
+  /** For the one route whose body is a file rather than JSON: knowledge ingestion. */
+  requestBytes<T>(method: string, apiPath: string, bytes: Uint8Array): Promise<T>;
   requestText(apiPath: string): Promise<string>;
   close(): Promise<void>;
 }
@@ -98,6 +100,15 @@ function makeHandle(baseUrl: string, token: string, ephemeral: boolean, close: (
         method,
         headers: { ...headers(), ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      });
+      if (!res.ok) return explain(res);
+      return (await res.json()) as T;
+    },
+    async requestBytes<T>(method: string, apiPath: string, bytes: Uint8Array): Promise<T> {
+      const res = await fetch(`${baseUrl}/api/v1${apiPath}`, {
+        method,
+        headers: { ...headers(), 'Content-Type': 'application/octet-stream' },
+        body: new Uint8Array(bytes),
       });
       if (!res.ok) return explain(res);
       return (await res.json()) as T;

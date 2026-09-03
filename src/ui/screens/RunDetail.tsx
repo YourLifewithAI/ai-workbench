@@ -246,6 +246,16 @@ function EventItem({ e }: { e: EventRecord }) {
 function brief(e: EventRecord): string {
   const p = e.payload;
   const parts: string[] = [];
+  // The memory events carry neither a model nor a reason, and "memory-retrieved" with no line beside it tells a
+  // reader nothing about what the model was actually working from.
+  if (e.type === 'memory-retrieved' && Array.isArray(p['items'])) {
+    const items = p['items'] as { trust: string }[];
+    const untrusted = items.filter((i) => i.trust === 'untrusted').length;
+    return `${items.length} item${items.length === 1 ? '' : 's'}${untrusted ? `, ${untrusted} untrusted` : ''}`;
+  }
+  if ((e.type === 'memory-written' || e.type === 'memory-redacted') && typeof p['scope'] === 'string') {
+    return [p['scope'] + ':' + String(p['ownerId'] ?? ''), typeof p['trust'] === 'string' ? p['trust'] : null].filter(Boolean).join(' · ');
+  }
   if (typeof p['modelId'] === 'string') parts.push(p['modelId']);
   if (typeof p['reason'] === 'string') parts.push(p['reason']);
   if (typeof p['latencyMs'] === 'number') parts.push(seconds(p['latencyMs']));

@@ -18,6 +18,8 @@ import { ToolExecutor, type ApprovalHost } from '../tools/executor.js';
 import { builtinTools } from '../tools/registry.js';
 import { searchProvider, type MockSearchFixture } from '../search/index.js';
 import { RunTaint } from './taint.js';
+import { MemoryStore } from '../memory/store.js';
+import { scopesFor } from './step.js';
 import { MAX_DEPTH, type DelegateHost, type PermissionRequestHost } from '../tools/builtin/delegate.js';
 import type { PushEventKind, RememberRule } from '../../shared/api/index.js';
 import type { RunDetail, RunSummary } from '../../shared/api/index.js';
@@ -103,22 +105,36 @@ export class Engine {
   private readonly steps: StepRunner;
   private readonly workflows: WorkflowExecutor;
   private readonly gates = new Map<string, (d: GateDecision) => void>();
+  /** The live taint of each running run, so a tool can ask what its own run has already consumed (D-17, D-29). */
+  private readonly taints = new Map<string, RunTaint>();
   private readonly approvalGates = new Map<string, (d: ApprovalGateDecision) => void>();
   private expiry: NodeJS.Timeout | null = null;
   readonly reviews: ReviewStore;
   readonly approvals: ApprovalStore;
   readonly tools: ToolExecutor;
+  readonly memory: MemoryStore;
   private push: { notify: (kind: PushEventKind, ids: { id: string; runId: string }) => Promise<unknown> } | null = null;
+
+  /** The live taint of a run, or what the database remembers of one that is no longer in flight. */
+  private taintFor(runId: string): RunTaint {
+    return this.taints.get(runId) ?? RunTaint.load(this.deps.db, runId);
+  }
+
+  private trackTaint(runId: string, taint: RunTaint): RunTaint {
+    this.taints.set(runId, taint);
+    return taint;
+  }
 
   constructor(private readonly deps: EngineDeps) {
     if (!deps.artifacts) throw new Error('The engine needs the Library: tools file their output there, and the broker checks paths against it.');
     const artifacts = deps.artifacts;
     this.reviews = new ReviewStore(deps.db);
     this.approvals = new ApprovalStore(deps.db, () => deps.now?.() ?? new Date());
+    this.memory = new MemoryStore(deps.db, deps.events);
     this.steps = new StepRunner({
       db: deps.db, events: deps.events, workspace: deps.workspace, registry: deps.registry,
       credentials: deps.credentials, redactor: deps.redactor, log: deps.log,
-      fetch: deps.fetch, runtimePort: deps.runtimePort, artifacts,
+      fetch: deps.fetch, runtimePort: deps.runtimePort, artifacts, memory: this.memory,
     });
     // The hosts below close over `this`; nothing calls them during construction, so the cycle between the
     // engine (which starts child runs) and the tools (which ask it to) never has to be broken by a null.
@@ -131,6 +147,15 @@ export class Engine {
         workspaceDir: deps.workspace().paths.dir,
         delegate: this.delegateHost(),
         permissions: this.permissionRequestHost(),
+        memory: {
+          memory: this.memory,
+          artifacts,
+          scopesFor: (agentId, project) => scopesFor(agentId, project),
+          // A run that has read the web remembers untrustingly, whatever it says about what it read (D-17).
+          trustFor: (runId) => (this.taintFor(runId).externalTainted ? 'untrusted' : 'trusted'),
+          markPrivate: (runId) => this.taintFor(runId).markPrivate('a memory or knowledge search returned private content'),
+          knowledgeChunks: () => deps.workspace().config.context.knowledgeChunks,
+        },
         web: {
           maxResponseBytes: () => deps.workspace().config.tools.http.maxResponseBytes,
           timeoutMs: () => deps.workspace().config.tools.http.timeoutMs,
@@ -467,7 +492,7 @@ export class Engine {
       });
     }
 
-    const taint = new RunTaint(this.deps.db, runId);
+    const taint = this.trackTaint(runId, new RunTaint(this.deps.db, runId));
     // A child inherits its parent's taint: what the parent read, the child could be quoting to it (D-29).
     if (input.parent) taint.inherit(RunTaint.load(this.deps.db, input.parent.runId));
 
@@ -527,7 +552,7 @@ export class Engine {
       steps: workflow.definition.steps.map((s) => ({ id: s.id, kind: s.kind, dependsOn: s.dependsOn })),
     });
 
-    const taint = new RunTaint(this.deps.db, runId);
+    const taint = this.trackTaint(runId, new RunTaint(this.deps.db, runId));
     return this.schedule(runId, budgets, now, async (budget, signal) => {
       const result = await this.workflows.run({
         runId, workflow, inputs,
@@ -591,7 +616,7 @@ export class Engine {
         return work();
       })
       .catch((e: unknown) => { this.deps.log.error({ err: e, runId }, 'engine failure'); })
-      .finally(() => { this.inflight.delete(runId); this.drain(); });
+      .finally(() => { this.inflight.delete(runId); this.taints.delete(runId); this.drain(); });
 
     this.inflight.set(runId, { controller, done, queued });
     return { runId, done };
@@ -672,7 +697,7 @@ export class Engine {
         ...(row.project_id ? { project: row.project_id } : {}),
         ...(this.deps.providerOverride ? { provider: this.deps.providerOverride } : {}),
         // A resumed run is the same run: whatever tainted it is still true.
-        taint: RunTaint.load(this.deps.db, runId),
+        taint: this.trackTaint(runId, RunTaint.load(this.deps.db, runId)),
         budget, signal, completed,
       });
       return result.outputs;
