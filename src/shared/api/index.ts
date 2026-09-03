@@ -477,6 +477,137 @@ export const SetGrantRequest = z.object({
 });
 export type SetGrantRequest = z.infer<typeof SetGrantRequest>;
 
+// ---- evaluation (spec/evaluation.md, D-36, D-50, D-52) --------------------------------------------
+
+export const DatasetSummary = z.object({
+  id: z.string(), name: z.string(), version: z.number().int(),
+  /** Frozen the moment an experiment references it: a result always names the cases it actually ran on. */
+  frozen: z.boolean(),
+  cases: z.number().int(),
+  createdAt: z.string(),
+});
+export type DatasetSummary = z.infer<typeof DatasetSummary>;
+
+export const CaseSummary = z.object({
+  id: z.string(),
+  input: z.record(z.string(), z.unknown()),
+  reference: z.unknown().nullable(),
+  metadata: z.record(z.string(), z.unknown()).nullable(),
+});
+export type CaseSummary = z.infer<typeof CaseSummary>;
+
+export const ScoreRecord = z.object({
+  id: z.string(), runId: z.string(), evaluatorId: z.string(), metric: z.string(), value: z.number(),
+  rationale: z.string().nullable(),
+  /** A judge model's opinion. The word "estimate" appears wherever this is true, and it never gates anything. */
+  estimate: z.boolean(),
+  ts: z.string(),
+});
+export type ScoreRecord = z.infer<typeof ScoreRecord>;
+
+export const ExperimentState = z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']);
+export type ExperimentState = z.infer<typeof ExperimentState>;
+
+export const ExperimentSummary = z.object({
+  id: z.string(), name: z.string(),
+  dataset: z.object({ id: z.string(), name: z.string(), version: z.number().int() }).nullable(),
+  target: z.object({ kind: z.enum(['agent', 'workflow']), id: z.string(), version: z.string().nullable() }),
+  models: z.array(z.string()),
+  trials: z.number().int(),
+  state: ExperimentState,
+  error: z.record(z.string(), z.unknown()).nullable(),
+  createdAt: z.string(),
+  finishedAt: z.string().nullable(),
+  counts: z.record(z.string(), z.number()),
+});
+export type ExperimentSummary = z.infer<typeof ExperimentSummary>;
+
+/** One cell of the results table: a case on a model, over `k` trials (D-52). */
+export const ResultCell = z.object({
+  caseId: z.string(),
+  modelId: z.string(),
+  trials: z.number().int(),
+  /**
+   * Per metric: the mean over trials, and pass^k — every trial passing, which is a different claim. `passK` is
+   * null for a metric that is not pass/fail: a judge answering 0.8 has not failed, so "pass^k 0%" would lie.
+   */
+  metrics: z.record(z.string(), z.object({ mean: z.number(), passK: z.number().nullable(), estimate: z.boolean() })),
+  costUsd: z.number(),
+  latencyMs: z.number(),
+  runIds: z.array(z.string()),
+});
+export type ResultCell = z.infer<typeof ResultCell>;
+
+export const ExperimentResults = z.object({
+  experiment: ExperimentSummary,
+  cases: z.array(CaseSummary),
+  cells: z.array(ResultCell),
+  /** Per model, over every case: what a person reads first. */
+  totals: z.array(z.object({
+    modelId: z.string(),
+    metrics: z.record(z.string(), z.object({ mean: z.number(), passK: z.number().nullable(), estimate: z.boolean() })),
+    costUsd: z.number(),
+    latencyMs: z.number(),
+  })),
+});
+export type ExperimentResults = z.infer<typeof ExperimentResults>;
+
+export const CreateDatasetRequest = z.object({
+  name: z.string().min(1),
+  cases: z.array(z.object({
+    input: z.record(z.string(), z.unknown()),
+    reference: z.unknown().optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  })).default([]),
+});
+export type CreateDatasetRequest = z.infer<typeof CreateDatasetRequest>;
+
+export const CreateExperimentRequest = z.object({
+  name: z.string().min(1),
+  datasetId: z.string(),
+  target: z.object({ kind: z.enum(['agent', 'workflow']), id: z.string() }),
+  models: z.array(z.string()).min(1),
+  trials: z.number().int().min(1).max(10).default(3),
+  evaluators: z.array(z.record(z.string(), z.unknown())).default([]),
+  budgets: z.record(z.string(), z.unknown()).optional(),
+  project: z.string().optional(),
+});
+export type CreateExperimentRequest = z.infer<typeof CreateExperimentRequest>;
+
+/** One step, N models, side by side. The cheapest eval there is, and the one most owners actually use. */
+export const CompareRequest = z.object({
+  agentId: z.string(),
+  input: z.string().min(1),
+  models: z.array(z.string()).min(2).max(6),
+  project: z.string().optional(),
+});
+export type CompareRequest = z.infer<typeof CompareRequest>;
+
+export const ComparePane = z.object({
+  modelId: z.string(),
+  runId: z.string(),
+  state: z.string(),
+  output: z.string(),
+  latencyMs: z.number(),
+  costUsd: z.number(),
+  tokensIn: z.number().int(),
+  tokensOut: z.number().int(),
+  error: z.string().nullable(),
+});
+export type ComparePane = z.infer<typeof ComparePane>;
+
+export const CompareResponse = z.object({ compareId: z.string(), panes: z.array(ComparePane) });
+export type CompareResponse = z.infer<typeof CompareResponse>;
+
+/** The pick, stored as a rating on every pane so the choice keeps both sides of itself (D-50). */
+export const ComparePickRequest = z.object({
+  compareId: z.string(),
+  winner: z.object({ runId: z.string(), modelId: z.string() }),
+  panes: z.array(z.object({ runId: z.string(), modelId: z.string() })).min(2),
+  note: z.string().optional(),
+});
+export type ComparePickRequest = z.infer<typeof ComparePickRequest>;
+
 // ---- memory and knowledge (spec/artifacts-and-memory.md, D-17, D-35) ------------------------------
 
 export const MemoryScope = z.enum(['agent', 'user', 'workspace', 'project']);

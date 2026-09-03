@@ -11,6 +11,7 @@ import { registerTrace } from './commands/trace.js';
 import { registerDev } from './commands/dev.js';
 import { registerLibrary } from './commands/library.js';
 import { registerMemory } from './commands/memory.js';
+import { registerEvaluate } from './commands/evaluate.js';
 import { registerReview, registerSchedules } from './commands/review.js';
 import { registerApprovals, registerTools } from './commands/approvals.js';
 
@@ -38,6 +39,7 @@ registerTrace(program, bootstrap);
 registerDev(program, bootstrap);
 registerLibrary(program, bootstrap);
 registerMemory(program, bootstrap);
+registerEvaluate(program, bootstrap);
 registerReview(program, bootstrap);
 registerSchedules(program, bootstrap);
 registerApprovals(program, bootstrap);
