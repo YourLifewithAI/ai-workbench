@@ -1,6 +1,6 @@
 # RUN-11 handoff — Import/export, plugins, credentials UI, docs, packaging
 
-**Branch:** `run/11-packaging` · **Head:** _(filled at push)_ · **Status:** awaiting verification
+**Branch:** `run/11-packaging` · **Head:** `c3ffa14` · **Status:** awaiting verification
 
 ## Built
 - `src/runtime/transfer/bundle.ts` — one envelope for agents, workflows, memory and runs: what it is, what version it speaks, and what the redactor took out on the way. `bundle()` refuses to produce an envelope that changed the payload without leaving a marker, because a bundle that says it redacted nothing when it did would be worse than one that redacts nothing at all.
