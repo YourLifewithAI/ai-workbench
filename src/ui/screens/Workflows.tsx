@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { describeCron } from '../lib/cron';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { ScheduleSummary, WorkflowDetail as WorkflowDetailShape } from '../../shared/api/index.js';
@@ -232,7 +233,7 @@ function Schedules({ workflow }: { workflow: WorkflowDetailShape }) {
               <Card>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm"><span className="font-mono">{s.cron}</span> {s.enabled ? '' : '(paused)'}</p>
+                    <p className="text-sm"><span title={s.cron}>{describeCron(s.cron)}</span> {s.enabled ? '' : '(paused)'}</p>
                     <p className="mt-0.5 text-xs text-gray-700 dark:text-gray-300">
                       Next {s.nextFireAt ? new Date(s.nextFireAt).toLocaleString() : 'never'} · missed windows: {s.catchUp === 'once' ? 'one catch-up run' : 'skipped'}
                       {s.seededFromFile ? ' · first set by the workflow file' : ''}
@@ -240,7 +241,7 @@ function Schedules({ workflow }: { workflow: WorkflowDetailShape }) {
                   </div>
                   <div className="flex gap-2">
                     <Button size="sm" variant="secondary" onClick={() => toggle.mutate(s)} disabled={toggle.isPending}>
-                      {s.enabled ? 'Pause' : 'Resume'}<span className="sr-only"> the {s.cron} schedule</span>
+                      {s.enabled ? 'Pause' : 'Resume'}<span className="sr-only"> the {describeCron(s.cron)} schedule</span>
                     </Button>
                     <Button size="sm" variant="ghost" onClick={() => remove.mutate(s.id)} disabled={remove.isPending}>
                       Delete<span className="sr-only"> the {s.cron} schedule</span>

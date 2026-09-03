@@ -1,6 +1,7 @@
 // What needs you, what is running, and what today cost (ui.md §Dashboard). One request, in that order: the
 // point of this screen is that a person coming back after a day can see the state of things without reading.
 import { useEffect, useState } from 'react';
+import { describeCron } from '../lib/cron';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { money } from '../../shared/summary.js';
@@ -169,7 +170,7 @@ export function Dashboard() {
                 {d.schedules.map((s) => (
                   <li key={s.id} className="flex flex-wrap gap-2">
                     <Link to={`/workflows/${s.workflowId}`} className="underline-offset-4 hover:underline">{s.workflowId}</Link>
-                    <span className="font-mono text-xs text-gray-700 dark:text-gray-300">{s.cron}</span>
+                    <span className="text-gray-700 dark:text-gray-300" title={s.cron}>{describeCron(s.cron)}</span>
                     <span className="text-gray-700 dark:text-gray-300">{s.nextFireAt ? new Date(s.nextFireAt).toLocaleString() : 'never'}</span>
                   </li>
                 ))}
