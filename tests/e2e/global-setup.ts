@@ -28,6 +28,21 @@ export default async function globalSetup(): Promise<void> {
     respond: { text: 'Working on it, one slow chunk at a time, for as long as anyone cares to watch.', chunkDelayMs: 1500 },
   }, null, 2));
 
+  // A run that asks for permission, so the Dashboard has something to approve. `permission.request` is granted
+  // to the Weaver here because the point of the test is the *card*, not whether the tool is reachable.
+  fs.writeFileSync(path.join(ws, 'fixtures', 'aaa-e2e-approve-me.json'), JSON.stringify({
+    match: { lastUserIncludes: 'APPROVE-ME', callIndex: 1 },
+    respond: { text: 'May I?', toolCalls: [{ name: 'permission.request', input: { what: 'save a note beside the draft', why: 'the margin note belongs with it' } }] },
+  }, null, 2));
+  fs.writeFileSync(path.join(ws, 'fixtures', 'aab-e2e-approve-me-2.json'), JSON.stringify({
+    match: { lastUserIncludes: 'APPROVE-ME', callIndex: 2 },
+    respond: { text: 'Thank you. The drill was forty years old.' },
+  }, null, 2));
+  const configFile = path.join(ws, 'config', 'workbench.json');
+  const config = JSON.parse(fs.readFileSync(configFile, 'utf8')) as { grants?: Record<string, unknown> };
+  config.grants = { ...(config.grants ?? {}), weaver: { tools: { 'permission.request': 'allow' } } };
+  fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+
   // A stand-in for Ollama's management API, so the Models screen can be seen polling a local endpoint that
   // really answers — without requiring Ollama to be installed on the machine running the tests.
   const ollama = http.createServer((req, res) => {

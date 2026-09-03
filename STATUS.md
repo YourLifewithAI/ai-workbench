@@ -1,8 +1,8 @@
 # STATUS
 
-**Current run:** RUN-05 — Review queue, blocking gates, resume, scheduler, Dashboard · awaiting verification @ `a85e612`
-**Last verified:** RUN-00 … RUN-04 merged or in review with CI green; the owner's scripts are still outstanding
-**Gates:** `npm run check` green · `npm run dod -- 00 … 05` green · `npm run e2e` 19 passed · Docker smoke: CI job
+**Current run:** RUN-06 — Tool runtime, permissions, approvals, safe tools, delegate · awaiting verification @ `3a7a0a3`
+**Last verified:** RUN-00 … RUN-05 merged with CI green; the owner's scripts are still outstanding
+**Gates:** `npm run check` green · `npm run dod -- 00 … 06` green · `npm run e2e` 21 passed · Docker smoke: CI job
 
 Run agents update this file at the end of a run; the human updates it on acceptance.
 

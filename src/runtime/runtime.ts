@@ -110,6 +110,7 @@ export class Runtime {
       models: (refresh) => this.models(refresh),
       artifacts,
       setNetworkMode: (mode) => this.setNetworkMode(mode),
+      setGrant: (agentId, permissions) => this.setGrant(agentId, permissions),
       db,
       uiDist: pkg.uiDist,
       shutdown: this.shutdown.signal,
@@ -155,8 +156,11 @@ export class Runtime {
       runtimePort: () => portRef.current,
       artifacts,
       ...(opts.fetch ? { fetch: opts.fetch } : {}),
+      ...(opts.now ? { now: opts.now } : {}),
+      persistConfig: (config) => runtime.persistConfig(config),
     });
-    return new Runtime(opts, pkg, workspace, db, redactor, credentials, logHandle, events, registry, engine, portRef, artifacts);
+    const runtime = new Runtime(opts, pkg, workspace, db, redactor, credentials, logHandle, events, registry, engine, portRef, artifacts);
+    return runtime;
   }
 
   /**
@@ -191,6 +195,25 @@ export class Runtime {
     fs.writeFileSync(file, JSON.stringify(current, null, 2) + '\n');
     this.workspace.config.network.mode = mode;
     this.polled = null; // availability depends on the mode, so the next listing re-polls
+  }
+
+  /**
+   * Writes back only the keys the runtime edits — grants, remembered approvals, network mode — so a hand-edited
+   * `workbench.json` keeps its comments-adjacent shape and its unset keys stay unset (defaults still apply).
+   */
+  persistConfig(config: WorkbenchConfig): void {
+    const file = this.workspace.paths.workbenchJson;
+    const current = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+    current['grants'] = config.grants;
+    current['remembered'] = config.remembered;
+    fs.writeFileSync(file, JSON.stringify(current, null, 2) + '\n');
+  }
+
+  /** A human granting or withdrawing a tool. This is the authority; what an agent's own file asks for is not. */
+  setGrant(agentId: string, permissions: unknown): void {
+    this.workspace.config.grants[agentId] = permissions;
+    this.persistConfig(this.workspace.config);
+    this.log.info({ agentId }, 'a grant changed');
   }
 
   /** Picks up edits to agent.json and instructions.md without a restart; a broken file becomes a listed error. */
@@ -242,7 +265,11 @@ export class Runtime {
     this.engine.markInterrupted();
     // A workflow file's `schedule` block seeds a row once; after that the row is the owner's to edit (D-15).
     this.scheduler.seedFromWorkflows(this.workspace.workflows.values());
-    if (!this.opts.noScheduler) this.scheduler.start();
+    if (!this.opts.noScheduler) {
+      this.scheduler.start();
+      // Silence is not consent: a pending approval nobody answers has to become a denial on its own (SEC-12).
+      this.engine.startApprovalExpiry();
+    }
     await this.startMockUpstream();
     this.hosts = acceptedHosts(this.port, this.bind, this.opts.expose ?? []);
     if (!this.ephemeral) {
@@ -272,6 +299,7 @@ export class Runtime {
     if (this.stopped) return;
     this.stopped = true;
     this.scheduler.stop();
+    this.engine.stopApprovalExpiry();
     this.shutdown.abort();
     await this.mockUpstream.stop();
     if (this.server) {

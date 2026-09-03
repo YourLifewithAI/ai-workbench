@@ -105,3 +105,14 @@ Plugins in `<workspace>/plugins/<name>/` are trusted code with the runtime's aut
 ## Imports, exports, served content
 
 Import trust is defined in `agents-and-prompts.md` (D-34) and exports in `data-model.md` (D-35). User HTML is never served from the runtime origin (D-43).
+
+> Amendment (RUN-06, 2026-09-03): what the tool runtime settled.
+>
+> - **`ctx.fs.can(path, mode)`** joins the context: the decision alone, with no I/O. A tool whose storage is not the filesystem — the Library keeps documents in the database — still has to ask, and asking by attempting a write would be worse than asking directly.
+> - **Permission paths are workspace-relative**, and `.` and `/` both mean the workspace root. Anything resolving outside the workspace is refused whatever a grant says.
+> - **The symlink check is on the path as given.** `realpath` has already followed the link by the time a decision is made, so an `lstat` on the resolved path would always say "not a link" and the check would be theatre.
+> - **`permission.request` has no `approvalByDefault`.** Its execute *is* the approval request, and the card it raises names what was asked and why. A generic gate in front of it asks the human the same question twice, with less information the first time. The card's policy line says which rule fired; the risk line carries the what and the why from the args.
+> - **"Remember" is offered only when there is a narrow rule to write.** For `artifact.write` that is `{ tool, path: "<directory>" }` — the directory, not the project and not the tool. For `permission.request` what was asked is prose, so no rule is offered rather than a meaningless one.
+> - **A batched card lists its actions in ask order** (ascending ULID), not in whatever order the rows came back.
+> - **A delegated run bypasses the run queue.** The parent holds a slot and waits for the child, so queueing a delegation behind `execution.maxConcurrentRuns` deadlocks a chain at depth 2.
+> - **A `kind: 'tool'` workflow step runs under a grant named for the workflow** — `grants.<workflowId>` — rather than inventing a wider door than an agent gets. The workspace needs an agent definition with the workflow's id to hold that grant; otherwise the step is refused with a message saying so.

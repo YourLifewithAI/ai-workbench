@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "delegator",
+  "name": "The Editor",
+  "description": "Decides what a piece needs and hands the specialist work to the agent who does it well.",
+  "instructions": {
+    "file": "instructions.md"
+  },
+  "modelPolicy": {
+    "primary": "google/gemini-2.5-flash",
+    "fallbacks": [
+      "google/gemini-2.5-pro"
+    ]
+  },
+  "permissions": {
+    "tools": {
+      "agent.delegate": "allow",
+      "datetime": "allow"
+    }
+  },
+  "review": "none",
+  "output": {
+    "kind": "text"
+  }
+}
