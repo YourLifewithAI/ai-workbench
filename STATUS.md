@@ -1,7 +1,7 @@
 # STATUS
 
-**Current run:** RUN-11 — Import/export, plugins, credentials UI, docs, packaging · awaiting verification
-**Last verified:** RUN-00 … RUN-10 and RUN-12 merged or in review with CI green; the owner's scripts are still outstanding
+**Current run:** none — RUN-00 … RUN-12 are all merged · awaiting the owner's verification scripts
+**Last verified:** every run merged to `main` with CI green on Linux, macOS, Docker and a machine without a sandbox; the owner's scripts in each `runlog/` are still outstanding
 **Gates:** `npm run check` green · `npm run dod -- 00 … 11, 12` green (DoD 07-2 is live-only) · `npm run e2e` 30 passed · Docker smoke and a no-sandbox job: CI
 
 Run agents update this file at the end of a run; the human updates it on acceptance.
