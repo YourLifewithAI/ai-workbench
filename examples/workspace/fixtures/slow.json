@@ -1,0 +1,1 @@
+{ "match": { "lastUserIncludes": "slow" }, "respond": { "text": "…slowly.", "latencyMs": 500 } }

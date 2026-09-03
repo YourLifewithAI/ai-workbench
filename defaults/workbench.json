@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "network": { "mode": "allowlist", "allowLocalAddresses": false },
+  "budgets": { "maxModelCalls": 60, "maxToolCalls": 120, "maxCostUsd": 2.0, "maxWallClockMs": 1800000, "toolCallTimeoutMs": 60000, "dailySpendCapUsd": 20.0 },
+  "execution": { "maxParallelSteps": 4, "maxConcurrentRuns": 2, "escalation": "sensitive-only" },
+  "retention": { "scratchDays": 7, "backups": 5 },
+  "context": { "keepRecentToolResults": 5, "maxToolResultChars": 8000, "memoryItems": 8, "knowledgeChunks": 6 },
+  "search": { "provider": "mock" },
+  "tools": { "http": { "maxResponseBytes": 2097152, "timeoutMs": 20000 } },
+  "mcp": { "servers": [] },
+  "push": { "enabled": true, "events": ["approval-requested", "review-blocking", "run-failed", "scheduled-completed"] },
+  "grants": {},
+  "remembered": []
+}

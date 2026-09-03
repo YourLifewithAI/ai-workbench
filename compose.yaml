@@ -1,0 +1,14 @@
+# One service, no ports published (D-60). With network_mode: host the runtime listens on the host's 127.0.0.1:8787,
+# where `tailscale serve` (deploy.md) fronts it for your devices. Set WORKBENCH_EXPOSE to your tailnet hostname.
+services:
+  workbench:
+    build: .
+    image: ai-workbench:local
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./workspace:/workspace
+    environment:
+      WORKBENCH_PORT: "8787"
+      WORKBENCH_BIND: "127.0.0.1"
+    command: ["start", "--expose", "${WORKBENCH_EXPOSE:-localhost:8787}"]

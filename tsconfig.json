@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["src/runtime/**/*.ts", "src/shared/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "vitest.config.ts", "tsup.config.ts", "playwright.config.ts"],
+  "exclude": ["src/ui/**"]
+}

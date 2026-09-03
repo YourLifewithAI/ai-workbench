@@ -1,0 +1,141 @@
+// The mock provider (D-37): native, scripted by <workspace>/fixtures/*.json, serves any catalog id.
+import fs from 'node:fs';
+import path from 'node:path';
+import { z } from 'zod';
+import type { CatalogEntry, ContentBlock, ModelEvent, ModelRequest, ModelResponse, Usage } from '../../../../shared/model.js';
+import { FinishReason, ModelErrorCode } from '../../../../shared/model.js';
+import type { AdapterContext, ModelAdapter } from '../../adapter.js';
+import { ModelError, modelError } from '../../errors.js';
+
+const Fixture = z.object({
+  match: z.object({
+    modelId: z.string().optional(),
+    systemIncludes: z.string().optional(),
+    lastUserIncludes: z.string().optional(),
+    callIndex: z.number().int().positive().optional(),
+  }).default({}),
+  respond: z.object({
+    text: z.string().optional(),
+    json: z.unknown().optional(),
+    toolCalls: z.array(z.object({ name: z.string(), input: z.unknown() })).optional(),
+    error: ModelErrorCode.optional(),
+    finishReason: FinishReason.optional(),
+    latencyMs: z.number().int().nonnegative().optional(),
+    usage: z.object({ input: z.number().int().nonnegative(), output: z.number().int().nonnegative() }).optional(),
+  }).default({}),
+});
+export type Fixture = z.infer<typeof Fixture>;
+
+export interface MockCall { modelId: string; runId: string | undefined; fixture: string | null; request: Omit<ModelRequest, 'abortSignal'>; ts: string }
+
+export class MockAdapter implements ModelAdapter {
+  readonly id = 'mock';
+  readonly calls: MockCall[] = [];
+  private fixtures: { name: string; fixture: Fixture }[] = [];
+  private readonly counts = new Map<string, number>();
+
+  constructor(private readonly fixturesDir: string | null) {
+    this.reload();
+  }
+
+  reload(): void {
+    this.fixtures = [];
+    if (!this.fixturesDir || !fs.existsSync(this.fixturesDir)) return;
+    for (const name of fs.readdirSync(this.fixturesDir).filter((f) => f.endsWith('.json')).sort()) {
+      const raw = JSON.parse(fs.readFileSync(path.join(this.fixturesDir, name), 'utf8'));
+      const parsed = Fixture.safeParse(raw);
+      if (!parsed.success) throw new Error(`${path.join(this.fixturesDir, name)}: invalid fixture: ${parsed.error.issues.map((i) => i.message).join('; ')}`);
+      this.fixtures.push({ name, fixture: parsed.data });
+    }
+  }
+
+  private lastUserText(req: ModelRequest): string {
+    for (let i = req.messages.length - 1; i >= 0; i--) {
+      const m = req.messages[i]!;
+      if (m.role === 'user') return m.content.filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text').map((b) => b.text).join('\n');
+    }
+    return '';
+  }
+
+  private select(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext): { name: string; fixture: Fixture } | null {
+    const key = `${ctx.runId ?? '-'}|${model.id}`;
+    const index = (this.counts.get(key) ?? 0) + 1;
+    this.counts.set(key, index);
+    const lastUser = this.lastUserText(req);
+    for (const f of this.fixtures) {
+      const m = f.fixture.match;
+      if (m.modelId && !globMatch(m.modelId, model.id)) continue;
+      if (m.systemIncludes && !req.system.includes(m.systemIncludes)) continue;
+      if (m.lastUserIncludes && !lastUser.includes(m.lastUserIncludes)) continue;
+      if (m.callIndex && m.callIndex !== index) continue;
+      return f;
+    }
+    return null;
+  }
+
+  private async respond(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext): Promise<ModelResponse> {
+    const chosen = this.select(model, req, ctx);
+    const { abortSignal } = req;
+    const record: MockCall = { modelId: model.id, runId: ctx.runId, fixture: chosen?.name ?? null, request: stripSignal(req), ts: new Date().toISOString() };
+    this.calls.push(record);
+    const r = chosen?.fixture.respond ?? {};
+    if (r.latencyMs) await sleep(r.latencyMs, abortSignal);
+    if (abortSignal.aborted) throw modelError('Unknown', 'cancelled', { action: 'abort', retryable: false });
+    if (r.error) throw modelError(r.error, `mock fixture ${chosen?.name} raised ${r.error}`);
+    const text = r.text ?? (r.json !== undefined ? JSON.stringify(r.json) : this.lastUserText(req));
+    const content: ContentBlock[] = [];
+    if (text) content.push({ type: 'text', text });
+    (r.toolCalls ?? []).forEach((tc, i) => content.push({ type: 'tool-call', id: `call_${this.calls.length}_${i + 1}`, name: tc.name, input: tc.input }));
+    const usage: Usage = {
+      input: r.usage?.input ?? Math.ceil((req.system.length + JSON.stringify(req.messages).length) / 4),
+      output: r.usage?.output ?? Math.ceil(text.length / 4),
+      raw: { mock: true, fixture: chosen?.name ?? null },
+    };
+    const finishReason = r.finishReason ?? (r.toolCalls?.length ? 'tool-calls' : 'stop');
+    return { content, finishReason, usage };
+  }
+
+  async generate(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext): Promise<ModelResponse> {
+    return this.respond(model, req, ctx);
+  }
+
+  async *stream(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext): AsyncIterable<ModelEvent> {
+    try {
+      const response = await this.respond(model, req, ctx);
+      const text = response.content.filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text').map((b) => b.text).join('');
+      const chunkSize = Math.max(1, Math.ceil(text.length / 4));
+      for (let i = 0; i < text.length; i += chunkSize) {
+        if (req.abortSignal.aborted) { yield { type: 'error', error: modelError('Unknown', 'cancelled', { action: 'abort', retryable: false }).toShape() }; return; }
+        yield { type: 'text-delta', text: text.slice(i, i + chunkSize) };
+      }
+      for (const b of response.content) {
+        if (b.type === 'tool-call') { yield { type: 'tool-call-start', id: b.id, name: b.name }; yield { type: 'tool-call-end', id: b.id, input: b.input }; }
+      }
+      yield { type: 'usage', usage: response.usage };
+      yield { type: 'finish', reason: response.finishReason, response };
+    } catch (e) {
+      const err = e instanceof ModelError ? e.toShape() : modelError('Unknown', String(e)).toShape();
+      yield { type: 'error', error: err };
+    }
+  }
+}
+
+function globMatch(pattern: string, value: string): boolean {
+  const re = new RegExp('^' + pattern.split('*').map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$');
+  return re.test(value);
+}
+
+function stripSignal(req: ModelRequest): Omit<ModelRequest, 'abortSignal'> {
+  const { abortSignal: _ignored, ...rest } = req;
+  void _ignored;
+  return rest;
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) return resolve();
+    const t = setTimeout(() => { signal.removeEventListener('abort', onAbort); resolve(); }, ms);
+    const onAbort = () => { clearTimeout(t); resolve(); };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
