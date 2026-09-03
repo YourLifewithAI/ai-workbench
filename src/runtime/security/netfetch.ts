@@ -1,7 +1,7 @@
 // Tool egress (D-28, D-29). Everything a tool sends goes through here: the mode and allowlist decide first,
 // then DNS is resolved and one address pinned, then the socket dials *that address* with the hostname as SNI.
 // Redirects are followed by hand so every hop is checked again — a 302 is a new destination, not a detail.
-import { Agent, request as undiciRequest } from 'undici';
+import { Agent, buildConnector, request as undiciRequest } from 'undici';
 import { checkEgress, canonicalHost, type DataCategory, type EgressAttempt, type EgressDecision, type EgressPolicy } from './egress.js';
 import { resolveAndPin, systemLookup, type LookupFn } from './dns.js';
 
@@ -19,6 +19,9 @@ export interface NetFetchResponse {
   chain: string[];
 }
 
+/** undici's connector shape, named so the runtime and the engine can pass one through without importing undici. */
+export type NetConnector = buildConnector.connector;
+
 export class NetDeniedError extends Error {
   constructor(readonly decision: EgressDecision, readonly hint?: string) {
     super(decision.reason);
@@ -31,8 +34,11 @@ export interface NetFetchDeps {
   record: (attempt: EgressAttempt, decision: EgressDecision) => void;
   /** Injectable so a test resolves `*.test` to TEST-NET-3 without a DNS server. */
   lookup?: LookupFn | undefined;
-  /** Injectable so a test dials a local server while the checker still sees the pinned public address. */
-  connect?: ((options: unknown, callback: unknown) => void) | undefined;
+  /**
+   * Injectable so a test dials a local server while the checker still sees the pinned public address. It
+   * replaces undici's connector entirely — nesting it inside the connector *options* is not a thing.
+   */
+  connect?: buildConnector.connector | undefined;
   /** Asked before a request the exfiltration rule wants a human to see (D-29). `null` means no rule is wired. */
   askApproval?: ((input: { url: string; method: string; reason: string }) => Promise<{ decision: 'allow' | 'deny'; reason: string }>) | null | undefined;
 }
@@ -115,7 +121,9 @@ export async function guardedFetch(deps: NetFetchDeps, input: NetFetchInput): Pr
     const reason = exfiltrationReason({ ...input, url: current, method }, policy, url);
     if (reason) {
       if (!deps.askApproval) {
-        throw new NetDeniedError({ ...decision, allowed: false, reason }, 'No human is available to approve this, so it is refused.');
+        const denied = { ...decision, allowed: false, reason: `${reason} No human is available to approve it, so it was refused.` };
+        deps.record(attempt, denied);
+        throw new NetDeniedError(denied);
       }
       const outcome = await deps.askApproval({ url: current, method, reason });
       if (outcome.decision !== 'allow') {
@@ -176,21 +184,16 @@ interface DialInput {
 }
 
 async function dial(input: DialInput): Promise<{ status: number; headers: Record<string, string>; body: Buffer; truncated: boolean }> {
-  // The agent's lookup is fixed to the address already checked, so nothing is resolved a second time between
-  // the decision and the socket (SEC-17).
-  const agent = new Agent({
-    connect: {
-      timeout: input.timeoutMs,
-      // `servername` keeps SNI on the hostname while the socket dials the pinned address.
-      servername: input.url.hostname,
-      lookup: (_hostname: string, _options: unknown, callback: (err: Error | null, address: string, family: number) => void) => {
-        callback(null, input.pinned, input.family);
-      },
-      ...(input.connect ? { connect: input.connect } : {}),
+  // The connector's lookup is fixed to the address already checked, so nothing is resolved a second time
+  // between the decision and the socket (SEC-17). `servername` keeps SNI on the hostname regardless.
+  const connector = input.connect ?? buildConnector({
+    timeout: input.timeoutMs,
+    servername: input.url.hostname,
+    lookup: (_hostname: string, _options: unknown, callback: (err: Error | null, address: string, family: number) => void) => {
+      callback(null, input.pinned, input.family);
     },
-    headersTimeout: input.timeoutMs,
-    bodyTimeout: input.timeoutMs,
-  });
+  } as buildConnector.BuildOptions);
+  const agent = new Agent({ connect: connector, headersTimeout: input.timeoutMs, bodyTimeout: input.timeoutMs });
 
   try {
     const response = await undiciRequest(input.url, {

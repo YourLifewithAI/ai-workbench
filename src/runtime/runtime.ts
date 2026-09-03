@@ -21,6 +21,7 @@ import { PushStore, type PushSender } from './push/store.js';
 import { ensureVapidKeys, type VapidKeys } from './push/vapid.js';
 import type { MockSearchFixture } from './search/index.js';
 import type { LookupFn } from './security/dns.js';
+import type { NetConnector } from './security/netfetch.js';
 import type { EgressAttempt, EgressDecision } from './security/egress.js';
 import { Engine } from './engine/run.js';
 import { AdapterRegistry, type FetchLike } from './models/adapter.js';
@@ -66,7 +67,7 @@ export interface RuntimeOptions {
   /** Injected so a test resolves `*.test` to a TEST-NET-3 address with no DNS server (SEC-17). */
   lookup?: LookupFn | undefined;
   /** Injected so a test dials a local server while the checker still sees the pinned public address. */
-  connect?: ((options: unknown, callback: unknown) => void) | undefined;
+  connect?: NetConnector | undefined;
 }
 
 export interface RuntimeFile { port: number; pid: number; startedAt: string }
@@ -197,12 +198,12 @@ export class Runtime {
         ...(opts.connect ? { connect: opts.connect } : {}),
       },
       searchFixture: () => {
-        const file = path.join(workspace.paths.fixtures, 'search.json');
+        const file = path.join(workspace.paths.fixtures, 'search', 'results.json');
         if (!fs.existsSync(file)) return null;
         try {
           return JSON.parse(fs.readFileSync(file, 'utf8')) as MockSearchFixture;
         } catch (e) {
-          logHandle.logger.warn({ err: e, file }, 'fixtures/search.json is not valid JSON');
+          logHandle.logger.warn({ err: e, file }, 'fixtures/search/results.json is not valid JSON');
           return null;
         }
       },

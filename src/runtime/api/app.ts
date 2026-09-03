@@ -377,6 +377,7 @@ export function createApp(deps: AppDeps): Hono {
       tools: tools.map((t): ToolSummary => ({
         id: t.id, version: t.version, description: t.description, tier: t.tier,
         approvalByDefault: t.approvalByDefault ?? false,
+        usesNetwork: t.usesNetwork ?? false,
         inputSchema: toolSpec(t).inputSchema,
       })),
       matrix,
@@ -385,6 +386,18 @@ export function createApp(deps: AppDeps): Hono {
         decision: d.decision, reason: d.reason, errorCode: d.error_code, ts: d.ts,
       })),
       remembered: ws.config.remembered,
+      network: {
+        mode: ws.config.network.mode,
+        allow: ws.config.network.allow,
+        allowLocalAddresses: ws.config.network.allowLocalAddresses,
+        approvalExempt: ws.config.network.approvalExempt,
+        searchProvider: ws.config.search.provider,
+        agents: [...ws.agents.values()].map((agent) => ({
+          agentId: agent.definition.id,
+          ...deps.engine.tools.netPolicyFor(agent),
+          tools: deps.engine.tools.availableTo(agent).filter((t) => t.usesNetwork).map((t) => t.id),
+        })),
+      },
     };
     return json(c, body);
   });
@@ -571,7 +584,10 @@ export function createApp(deps: AppDeps): Hono {
       egress: rows.map(toEgressRecord),
       destinations: calls.map((call) => {
         const entry = catalog.models.find((m) => m.id === call.model_id);
-        const host = rows.find((r) => r.host)?.host ?? null;
+        // Only a model's own egress can name a model's host. Falling back to the first row of any kind made a
+        // researcher's fetch look like the model had received the page.
+        const modelHosts = [...new Set(rows.filter((r) => r.purpose === 'model' && r.host).map((r) => r.host))];
+        const host = modelHosts.length === 1 ? modelHosts[0]! : null;
         return {
           modelId: call.model_id,
           host: entry?.baseUrl ? safeHost(entry.baseUrl) : host,

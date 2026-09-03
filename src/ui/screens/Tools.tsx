@@ -6,6 +6,13 @@ import type { GrantCell } from '../../shared/api/index.js';
 import { api } from '../lib/api.js';
 import { Badge, Card } from '../components/ui/card.js';
 
+const NET_MODE_NOTE: Record<string, string> = {
+  offline: 'no tool reaches the network',
+  'local-only': 'only addresses on this machine',
+  allowlist: 'only the hosts listed below',
+  unrestricted: 'any public host; private addresses are still refused',
+};
+
 const TIER_NOTE: Record<string, string> = {
   read: 'reads something',
   write: 'changes something',
@@ -55,6 +62,7 @@ export function Tools() {
                       <span className="font-mono text-xs">{tool.id}</span>
                       <span className="ml-2 text-xs text-gray-700 dark:text-gray-300">{TIER_NOTE[tool.tier]}</span>
                       {tool.approvalByDefault ? <Badge tone="busy" className="ml-2">always asks</Badge> : null}
+                      {tool.usesNetwork ? <Badge tone="busy" className="ml-2">leaves the machine</Badge> : null}
                     </th>
                     {(agents.data?.agents ?? []).map((agent) => {
                       const cell = cellFor(agent.id, tool.id);
@@ -85,6 +93,64 @@ export function Tools() {
             </table>
           </div>
           {setGrant.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{setGrant.error.message}</p> : null}
+
+          <h2 className="mt-8 text-lg font-medium">Where they may go</h2>
+          <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+            A granted network tool still only reaches what the policy allows. This is the policy as the fetch path
+            computes it: the workspace's, narrowed by each agent's own.
+          </p>
+          <Card className="mt-2">
+            <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
+              <dt className="text-gray-700 dark:text-gray-300">Workspace</dt>
+              <dd><span className="font-mono text-xs">{q.data.network.mode}</span>{NET_MODE_NOTE[q.data.network.mode] ? <span className="ml-2 text-gray-700 dark:text-gray-300">{NET_MODE_NOTE[q.data.network.mode]}</span> : null}</dd>
+              <dt className="text-gray-700 dark:text-gray-300">Allowed hosts</dt>
+              <dd>{q.data.network.allow.length ? <span className="font-mono text-xs break-all">{q.data.network.allow.join(', ')}</span> : <span className="text-gray-700 dark:text-gray-300">none listed</span>}</dd>
+              <dt className="text-gray-700 dark:text-gray-300">Local addresses</dt>
+              <dd>{q.data.network.allowLocalAddresses ? 'reachable' : 'refused, including anything DNS resolves to one'}</dd>
+              <dt className="text-gray-700 dark:text-gray-300">Sends without asking</dt>
+              <dd>{q.data.network.approvalExempt.length ? <span className="font-mono text-xs break-all">{q.data.network.approvalExempt.join(', ')}</span> : <span className="text-gray-700 dark:text-gray-300">nowhere: a send that carries private data asks you first</span>}</dd>
+              <dt className="text-gray-700 dark:text-gray-300">Search</dt>
+              <dd className="font-mono text-xs">{q.data.network.searchProvider}</dd>
+            </dl>
+          </Card>
+          <div className="mt-2 overflow-x-auto" tabIndex={0}>
+            <table className="w-full text-left text-sm">
+              <caption className="sr-only">The effective network policy for each agent</caption>
+              <thead>
+                <tr className="border-b border-gray-200 text-gray-700 dark:border-gray-800 dark:text-gray-300">
+                  <th scope="col" className="py-2 pr-3 font-medium">Agent</th>
+                  <th scope="col" className="py-2 pr-3 font-medium">Network tools</th>
+                  <th scope="col" className="py-2 pr-3 font-medium">Mode</th>
+                  <th scope="col" className="py-2 pr-3 font-medium">May reach</th>
+                </tr>
+              </thead>
+              <tbody>
+                {q.data.network.agents.map((agent) => (
+                  <tr key={agent.agentId} className="border-b border-gray-100 dark:border-gray-800">
+                    <th scope="row" className="py-2 pr-3 font-normal">{agent.agentId}</th>
+                    <td className="py-2 pr-3">
+                      {agent.tools.length
+                        ? <span className="font-mono text-xs break-all">{agent.tools.join(', ')}</span>
+                        : <span className="text-gray-700 dark:text-gray-300">none granted</span>}
+                    </td>
+                    <td className="py-2 pr-3 font-mono text-xs">{agent.mode}</td>
+                    <td className="py-2 pr-3">
+                      {/* The policy is only half the answer: an agent with no network tool has no way out at all. */}
+                      {agent.tools.length === 0
+                        ? <span className="text-gray-700 dark:text-gray-300">nothing: it has no way out</span>
+                        : agent.mode === 'offline'
+                          ? <span className="text-gray-700 dark:text-gray-300">nothing</span>
+                          : agent.mode === 'unrestricted'
+                            ? <span className="text-gray-700 dark:text-gray-300">anything public</span>
+                            : agent.allow.length
+                              ? <span className="font-mono text-xs break-all">{agent.allow.join(', ')}</span>
+                              : <span className="text-gray-700 dark:text-gray-300">nothing: the allowlist is empty</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
           <h2 className="mt-8 text-lg font-medium">What each tool does</h2>
           <ul className="mt-2 space-y-2">

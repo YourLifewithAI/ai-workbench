@@ -13,7 +13,7 @@ import type { RunTaint } from '../engine/taint.js';
 import { PRIVATE_TOOLS } from '../engine/taint.js';
 import { EMPTY_PERMISSIONS, effectivePermissions, grantFor, narrowestMode, type ToolDecision } from '../security/permissions.js';
 import type { WorkbenchConfig } from '../../shared/workspace.js';
-import type { Permissions } from '../../shared/permissions.js';
+import type { NetworkMode, Permissions } from '../../shared/permissions.js';
 import { toolError, type ToolContext, type ToolDefinition, type ToolResult } from '../../shared/tool.js';
 import type { GrantCell, RememberRule } from '../../shared/api/index.js';
 import type { LoadedAgent } from '../../shared/agent.js';
@@ -43,7 +43,7 @@ export interface ExecutorDeps {
     policy: NetFetchDeps['policy'];
     record: NetFetchDeps['record'];
     lookup?: NetFetchDeps['lookup'];
-    connect?: NetFetchDeps['connect'];
+    connect?: NetFetchDeps['connect'] | undefined;
     /** The runtime's own port, refused as a destination in every mode. */
     runtimePort?: (() => number | null) | undefined;
   } | undefined;
@@ -91,6 +91,16 @@ export class ToolExecutor {
       effective: decision.allowed,
       reason: decision.reason,
     };
+  }
+
+  /**
+   * Where this agent may actually go: the workspace policy narrowed by the agent's own grant, computed the same
+   * way the fetch path computes it, so the Tools screen shows what would really happen rather than a paraphrase.
+   */
+  netPolicyFor(agent: LoadedAgent): { mode: NetworkMode; allow: string[]; allowLocalAddresses: boolean } {
+    const base = this.deps.net?.policy() ?? { mode: this.deps.config().network.mode, allow: this.deps.config().network.allow, allowLocalAddresses: this.deps.config().network.allowLocalAddresses };
+    const granted = grantFor(this.deps.config(), agent.definition.id) ?? EMPTY_PERMISSIONS;
+    return narrowPolicy(base, granted);
   }
 
   /** Which tools this agent may actually see. A tool the model cannot call should not be in its prompt. */
@@ -221,13 +231,7 @@ export class ToolExecutor {
     const target = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
     const method = (init?.method ?? 'GET').toUpperCase();
     // The effective policy is the workspace's, narrowed by whatever the agent and the workflow allow (D-26).
-    const base = net.policy();
-    const effective = {
-      mode: narrowestMode(base.mode, permissions.net.mode),
-      allow: base.allow.filter((entry) => permissions.net.allow.length === 0 || permissions.net.allow.includes(entry)),
-      allowLocalAddresses: base.allowLocalAddresses && permissions.net.allowLocalAddresses,
-      runtimePort: net.runtimePort?.() ?? base.runtimePort,
-    };
+    const effective = { ...narrowPolicy(net.policy(), permissions), runtimePort: net.runtimePort?.() ?? net.policy().runtimePort };
 
     try {
       const response = await guardedFetch(
@@ -361,4 +365,17 @@ function withTimeout<T>(promise: Promise<T>, ms: number, toolId: string, signal:
       (e: unknown) => { clearTimeout(timer); signal.removeEventListener('abort', onAbort); reject(e as Error); },
     );
   });
+}
+
+/** The workspace policy narrowed by one agent's grant (D-26): the narrower mode, the intersection of the
+ * allowlists, and local addresses only where both say so. An empty agent allowlist narrows nothing. */
+function narrowPolicy(
+  base: { mode: NetworkMode; allow: string[]; allowLocalAddresses: boolean },
+  permissions: Permissions,
+): { mode: NetworkMode; allow: string[]; allowLocalAddresses: boolean } {
+  return {
+    mode: narrowestMode(base.mode, permissions.net.mode),
+    allow: base.allow.filter((entry) => permissions.net.allow.length === 0 || permissions.net.allow.includes(entry)),
+    allowLocalAddresses: base.allowLocalAddresses && permissions.net.allowLocalAddresses,
+  };
 }

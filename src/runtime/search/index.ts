@@ -9,7 +9,7 @@ export interface SearchDeps {
   provider: 'brave' | 'searxng' | 'mock';
   searxngUrl?: string | undefined;
   braveKey?: (() => string | undefined) | undefined;
-  /** `<workspace>/fixtures/search.json`, already read. `null` when there is none. */
+  /** `<workspace>/fixtures/search/results.json`, already read. `null` when there is none. */
   fixture?: (() => MockSearchFixture | null) | undefined;
 }
 

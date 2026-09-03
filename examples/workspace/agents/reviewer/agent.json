@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "reviewer",
+  "name": "The Reviewer",
+  "description": "Reads a briefing as its reader would and says what is missing, unsupported, or padding.",
+  "instructions": { "file": "instructions.md" },
+  "modelPolicy": { "primary": "google/gemini-2.5-flash", "fallbacks": ["google/gemini-2.5-pro"] },
+  "review": "none",
+  "output": { "kind": "text" }
+}

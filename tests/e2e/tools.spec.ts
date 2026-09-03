@@ -71,3 +71,16 @@ test('@run-06 a pending approval is allowed from the Dashboard with the keyboard
     .toBe('completed');
   await expect(page.getByText('Nothing is waiting on you.').or(page.getByText(/would like a rating/))).toBeVisible({ timeout: 20_000 });
 });
+
+test('@run-07 the Tools screen says where each agent may actually go', async ({ page }) => {
+  await page.goto(base() + '/tools#token=' + token());
+  await expect(page.getByRole('heading', { name: 'Where they may go' })).toBeVisible();
+  // The workspace policy, in the words the checker uses.
+  await expect(page.getByText('only the hosts listed below')).toBeVisible();
+  await expect(page.getByText('refused, including anything DNS resolves to one')).toBeVisible();
+
+  // And the row for the agent that has the network tools, showing the mode the fetch path would compute.
+  const row = page.getByRole('row').filter({ has: page.getByRole('rowheader', { name: 'researcher' }) });
+  await expect(row).toContainText('allowlist');
+  await expectNoA11yViolations(page, 'Tools — network policy');
+});

@@ -67,6 +67,8 @@ export interface ToolDefinition<I = unknown, O = unknown> {
   credentials?: string[] | undefined;
   /** Approval is required whatever the grant says. `shell` and non-GET HTTP are the cases this exists for. */
   approvalByDefault?: boolean | undefined;
+  /** This tool leaves the machine. The network policy applies on top of the grant, and the Tools screen says so. */
+  usesNetwork?: boolean | undefined;
   execute(input: I, ctx: ToolContext): Promise<ToolResult<O>>;
 }
 

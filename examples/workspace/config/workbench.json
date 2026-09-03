@@ -12,6 +12,21 @@
         "calc": "allow",
         "datetime": "allow"
       }
+    },
+    "researcher": {
+      "tools": {
+        "web.search": "allow",
+        "http.fetch": "allow"
+      },
+      "net": {
+        "mode": "allowlist",
+        "allow": [],
+        "allowLocalAddresses": false,
+        "approvalExempt": []
+      }
     }
+  },
+  "search": {
+    "provider": "mock"
   }
 }

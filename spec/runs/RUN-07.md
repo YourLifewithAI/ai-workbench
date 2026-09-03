@@ -11,6 +11,10 @@
 - `examples/workspace/agents/{planner,researcher,synthesizer,reviewer}/` and `workflows/research-briefing.workflow.json`: Planner (`outputSchema: { questions: string[] }`) → `map` over `steps.plan.output.questions` into Researcher (`web.search` + `http.fetch`) → Synthesizer (`output.document: "briefings/{{inputs.topic}}.md"`) → Reviewer; at least two distinct model ids; `net.mode: allowlist` in the example grants; a `schedule` block (daily) that seeds the table; review non-blocking.
 - Tools screen shows network tools and the effective network policy per agent.
 
+> Amendment (RUN-07, 2026-09-03): the synthesizer's `output.document` is `{{inputs.topic}}.md`, not
+> `briefings/{{inputs.topic}}.md`. A document path is relative to the run's project, which is already `briefings`,
+> so the brief's path filed everything under `briefings/briefings/`.
+
 **Do not.** Add filesystem tools outside the project, shell, code, MCP, or non-GET requests.
 
 **Definition of done** (`npm run dod -- 07`).

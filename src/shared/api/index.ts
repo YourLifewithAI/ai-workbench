@@ -1,7 +1,7 @@
 // HTTP contract (spec/api-and-cli.md). The UI and the CLI share these schemas.
 import { z } from 'zod';
 import { RunKind, RunState, Spent, EventRecord } from '../events.js';
-import { Budgets } from '../permissions.js';
+import { Budgets, NetworkMode } from '../permissions.js';
 
 export const ApiErrorCode = z.enum(['unauthorized', 'forbidden', 'not_found', 'validation', 'conflict', 'budget', 'unavailable', 'internal']);
 export const ApiError = z.object({ error: z.object({ code: ApiErrorCode, message: z.string(), details: z.unknown().optional() }) });
@@ -380,6 +380,8 @@ export const ToolSummary = z.object({
   tier: z.enum(['read', 'write', 'execute']),
   /** True when every call needs a human decision whatever the grant says. */
   approvalByDefault: z.boolean(),
+  /** True when the tool leaves the machine, so the network policy applies on top of the grant. */
+  usesNetwork: z.boolean(),
   inputSchema: z.record(z.string(), z.unknown()),
 });
 export type ToolSummary = z.infer<typeof ToolSummary>;
@@ -409,12 +411,36 @@ export const ToolDenial = z.object({
 });
 export type ToolDenial = z.infer<typeof ToolDenial>;
 
+/** Where an agent may actually go: the workspace policy already narrowed by that agent's grant (D-26). */
+export const AgentNetPolicy = z.object({
+  agentId: z.string(),
+  mode: NetworkMode,
+  allow: z.array(z.string()),
+  allowLocalAddresses: z.boolean(),
+  /** The network tools this agent may actually use. Empty means the policy is moot: it has no way out. */
+  tools: z.array(z.string()),
+});
+export type AgentNetPolicy = z.infer<typeof AgentNetPolicy>;
+
+export const NetworkSummary = z.object({
+  mode: NetworkMode,
+  allow: z.array(z.string()),
+  allowLocalAddresses: z.boolean(),
+  /** Hosts a tool may POST to without asking a human first. */
+  approvalExempt: z.array(z.string()),
+  searchProvider: z.string(),
+  agents: z.array(AgentNetPolicy),
+});
+export type NetworkSummary = z.infer<typeof NetworkSummary>;
+
 export const ToolsResponse = z.object({
   tools: z.array(ToolSummary),
   matrix: z.array(GrantCell),
   denials: z.array(ToolDenial),
   /** Approvals a human agreed to remember, so they can be seen and taken back. */
   remembered: z.array(RememberRule),
+  /** The effective network policy, per agent: the half of a tool grant that is not in the matrix. */
+  network: NetworkSummary,
 });
 export type ToolsResponse = z.infer<typeof ToolsResponse>;
 

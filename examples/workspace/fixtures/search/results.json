@@ -1,0 +1,29 @@
+{
+  "queries": [
+    {
+      "match": "local-first",
+      "results": [
+        {
+          "title": "Local-first software: you own your data",
+          "url": "https://allowed.test/local-first",
+          "snippet": "Seven principles for software that keeps working when the network does not."
+        },
+        {
+          "title": "A year of CRDTs in production",
+          "url": "https://allowed.test/crdts-in-production",
+          "snippet": "What broke, what did not, and what we would do differently."
+        }
+      ]
+    },
+    {
+      "match": "sync",
+      "results": [
+        {
+          "title": "Sync engines, compared",
+          "url": "https://allowed.test/sync-engines",
+          "snippet": "Six sync engines and the tradeoffs each one makes."
+        }
+      ]
+    }
+  ]
+}

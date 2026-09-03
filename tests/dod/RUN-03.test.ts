@@ -159,9 +159,10 @@ describe('RUN-03 surface: projects API and path safety', () => {
     const rt = await startRuntime(ws);
     try {
       const h = { Authorization: `Bearer ${rt.token}`, 'Content-Type': 'application/json' };
-      const created = await fetch(`${rt.baseUrl}/api/v1/projects`, { method: 'POST', headers: h, body: JSON.stringify({ slug: 'briefings', name: 'Briefings' }) });
+      // A slug the example workspace does not ship: a project that already exists is the *second* case here.
+      const created = await fetch(`${rt.baseUrl}/api/v1/projects`, { method: 'POST', headers: h, body: JSON.stringify({ slug: 'dispatches', name: 'Dispatches' }) });
       expect(created.status).toBe(201);
-      const again = await fetch(`${rt.baseUrl}/api/v1/projects`, { method: 'POST', headers: h, body: JSON.stringify({ slug: 'briefings', name: 'Briefings' }) });
+      const again = await fetch(`${rt.baseUrl}/api/v1/projects`, { method: 'POST', headers: h, body: JSON.stringify({ slug: 'dispatches', name: 'Dispatches' }) });
       expect(again.status).toBe(409);
       const bad = await fetch(`${rt.baseUrl}/api/v1/projects`, { method: 'POST', headers: h, body: JSON.stringify({ slug: 'Not A Slug', name: 'x' }) });
       expect(bad.status).toBe(400);

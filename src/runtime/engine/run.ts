@@ -27,6 +27,7 @@ import type { LoadedWorkflow } from '../../shared/workflow.js';
 import type { WorkbenchConfig } from '../../shared/workspace.js';
 import type { EgressAttempt, EgressDecision } from '../security/egress.js';
 import type { LookupFn } from '../security/dns.js';
+import type { NetConnector } from '../security/netfetch.js';
 import { applyDefaults, validateJson } from '../../shared/jsonschema.js';
 
 export interface EngineDeps {
@@ -52,9 +53,9 @@ export interface EngineDeps {
   net?: {
     record: (attempt: EgressAttempt, decision: EgressDecision) => void;
     lookup?: LookupFn | undefined;
-    connect?: ((options: unknown, callback: unknown) => void) | undefined;
+    connect?: NetConnector | undefined;
   } | undefined;
-  /** `<workspace>/fixtures/search.json`, read by the runtime for the mock provider. */
+  /** `<workspace>/fixtures/search/results.json`, read by the runtime for the mock provider. */
   searchFixture?: (() => MockSearchFixture | null) | undefined;
 }
 

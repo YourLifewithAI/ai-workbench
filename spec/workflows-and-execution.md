@@ -44,6 +44,11 @@ const Workflow = z.object({
 
 **Names.** `inputs.*` is the run's validated input. `steps.<id>.output` is a step's output: the final text, or the validated JSON when `outputSchema` is set. A `map` step's output is an array in item order; each item runs as a step with id `<mapId>[<n>]` and its own `run_steps` row and events. `item` is the current element inside a map. `project.documents["<path>"]` is the latest version's text of a document in the run's project. A template reference to `steps.x` implies `dependsOn: ["x"]`; the validator adds the edge and rejects cycles.
 
+> Amendment (RUN-07, 2026-09-03): the implied edge counts wherever the reference appears, not only in a template —
+> a step's `when` and a `map`'s `over` imply it too, and so does an inner step's own `when` (the edge lands on the
+> map). Without this a `map` over `steps.plan.output.questions` started at the same moment as `plan` and failed on
+> `"steps.plan" is not available here`, which is what the research briefing did on its first run.
+
 **Semantics.** Independent steps run in parallel up to `execution.maxParallelSteps` (default 4). A step whose `when` is falsy is skipped with a `step-skipped` event; its output is `null` and dependents still run. The first failed step aborts running siblings and fails the run. `retries` re-runs a step from its beginning after a model error or an `outputSchema` failure (validated with a JSON Schema draft 2020-12 validator, after the model layer's one repair turn). A step's `model` template replaces the agent's primary and keeps the agent's `fallbacks[]`, so `map` over a list of model ids with `model: "{{item}}"` is an ensemble; `examples/workspace/workflows/ensemble-draft.workflow.json` maps three ids into `weaver` and feeds the array to the `judge` agent, whose `output` is `{ kind: 'json', schema: { winner: number, rationale: string } }`.
 
 A run names its **project** at start (`--project`, the run form, or `defaultProject`). `output.document` is a document path in that project; a re-run creates a new version of the same path.

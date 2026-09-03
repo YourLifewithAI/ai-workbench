@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "synthesizer",
+  "name": "The Synthesizer",
+  "description": "Turns several researched answers into one briefing a person will actually read.",
+  "instructions": { "file": "instructions.md" },
+  "modelPolicy": { "primary": "google/gemini-2.5-pro", "fallbacks": ["google/gemini-2.5-flash"] },
+  "review": "none",
+  "output": { "kind": "document" }
+}

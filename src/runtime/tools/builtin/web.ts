@@ -7,7 +7,10 @@ import TurndownService from 'turndown';
 import { Permissions } from '../../../shared/permissions.js';
 import { toolError, type ToolDefinition } from '../../../shared/tool.js';
 
-const NET_ONLY = Permissions.parse({ net: { mode: 'allowlist', allow: [], allowLocalAddresses: false } });
+// The most these tools can ever be granted: the network, and nothing else. It names no mode on purpose — the
+// mode is the workspace's, the agent's, the workflow's and the run's to set (tools-and-security.md §Egress),
+// and a ceiling of `allowlist` here would put `unrestricted` out of reach of the only two tools that use it.
+const NET_ONLY = Permissions.parse({ net: { allow: [], allowLocalAddresses: false } });
 
 export interface WebToolDeps {
   maxResponseBytes: () => number;
@@ -46,6 +49,7 @@ export function webTools(deps: WebToolDeps): ToolDefinition[] {
     }),
     tier: 'read',
     maxPermissions: NET_ONLY,
+    usesNetwork: true,
     execute: async (input, ctx) => {
       let response: Response;
       try {
@@ -101,6 +105,7 @@ export function webTools(deps: WebToolDeps): ToolDefinition[] {
     }),
     tier: 'read',
     maxPermissions: NET_ONLY,
+    usesNetwork: true,
     credentials: ['brave'],
     execute: async (input, ctx) => {
       const provider = deps.search();
