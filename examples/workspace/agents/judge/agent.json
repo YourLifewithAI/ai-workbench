@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "judge",
+  "name": "The Judge",
+  "description": "Reads several drafts of the same scene and picks one, with a reason a writer can argue with.",
+  "instructions": {
+    "file": "instructions.md"
+  },
+  "modelPolicy": {
+    "primary": "google/gemini-2.5-flash",
+    "fallbacks": [
+      "google/gemini-2.5-pro"
+    ]
+  },
+  "review": "none",
+  "output": {
+    "kind": "json",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "winner": { "type": "integer", "minimum": 0 },
+        "rationale": { "type": "string", "minLength": 1 }
+      },
+      "required": ["winner", "rationale"],
+      "additionalProperties": false
+    }
+  }
+}

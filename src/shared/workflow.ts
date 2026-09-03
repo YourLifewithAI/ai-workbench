@@ -27,7 +27,8 @@ const AgentStep = z.object({
   model: z.string().optional(),
   input: Template,
   outputSchema: JsonSchema.optional(),
-  output: z.object({ document: z.string().optional() }).optional(),
+  /** `document: null` files nothing: the step's output is intermediate, whatever the agent's own default says. */
+  output: z.object({ document: z.string().nullable().optional() }).optional(),
 });
 
 const ToolStep = z.object({ ...StepCommon, kind: z.literal('tool'), tool: z.string(), input: Template });
@@ -88,7 +89,12 @@ export interface ValidationResult {
   order: string[];
 }
 
-const ROOTS = new Set(['inputs', 'steps', 'project', 'item', 'run']);
+/**
+ * Every name a workflow template may start with. `runId` and `agentId` are the two an `output.document` path
+ * usually wants, and they are the same names an agent's own `output.document` uses, so a path written in one
+ * place reads the same in the other.
+ */
+const ROOTS = new Set(['inputs', 'steps', 'project', 'item', 'run', 'runId', 'agentId']);
 
 /**
  * Everything that must hold before a workflow runs: ids unique, references resolvable, edges acyclic, and the
@@ -165,7 +171,7 @@ function checkExpr(source: string, at: string, errors: ValidationIssue[]): void 
 
 function templatesOf(step: Step): TemplateValue[] {
   if (step.kind === 'agent') {
-    return [step.input, ...(step.model ? [step.model] : []), ...(step.output?.document ? [step.output.document] : [])];
+    return [step.input, ...(step.model ? [step.model] : []), ...(typeof step.output?.document === 'string' ? [step.output.document] : [])];
   }
   if (step.kind === 'tool') return [step.input];
   return templatesOf(step.step);

@@ -134,3 +134,20 @@ export function parseJsonOutput(text: string): { ok: true; value: unknown } | { 
     return { ok: false, message: `the model's output is not valid JSON: ${(e as Error).message}` };
   }
 }
+
+/**
+ * Fills in top-level `default`s the caller did not supply. Only one level deep: a workflow's run form is a flat
+ * set of inputs by design (the schema is what generates it), so nested defaults would be a promise the form
+ * cannot keep.
+ */
+export function applyDefaults(value: Record<string, unknown>, schema: JsonSchema): Record<string, unknown> {
+  const properties = schema['properties'];
+  if (typeof properties !== 'object' || properties === null) return value;
+  const out = { ...value };
+  for (const [key, child] of Object.entries(properties as Record<string, unknown>)) {
+    if (key in out || typeof child !== 'object' || child === null) continue;
+    const fallback = (child as Record<string, unknown>)['default'];
+    if (fallback !== undefined) out[key] = fallback;
+  }
+  return out;
+}

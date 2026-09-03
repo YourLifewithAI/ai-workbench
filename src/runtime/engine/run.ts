@@ -16,6 +16,7 @@ import type { RunDetail, RunSummary } from '../../shared/api/index.js';
 import type { RunState, Spent } from '../../shared/events.js';
 import type { LoadedAgent } from '../../shared/agent.js';
 import type { LoadedWorkflow } from '../../shared/workflow.js';
+import { applyDefaults, validateJson } from '../../shared/jsonschema.js';
 
 export interface EngineDeps {
   db: Db;
@@ -144,23 +145,30 @@ export class Engine {
     if (project && this.deps.artifacts && !this.deps.artifacts.findProject(project)) {
       throw new ValidationError(`Project "${project}" does not exist. Create it first, or name another with --project.`);
     }
+    // The run form is generated from `inputs`, so the same schema is what a run is held to (D-11).
+    const inputs = applyDefaults(input.inputs, workflow.definition.inputs);
+    const problems = validateJson(inputs, workflow.definition.inputs);
+    if (problems.length) {
+      throw new ValidationError(`These inputs do not match what "${workflow.definition.id}" asks for: ${problems.map((p) => `${p.path} ${p.message}`).join('; ')}.`);
+    }
+
     const runId = ulid();
     const budgets = narrowBudgets(narrowBudgets(ws.config.budgets, workflow.definition.budgets), input.budget);
     const now = new Date().toISOString();
     this.recordWorkflowVersion(workflow, now);
     this.deps.db.prepare(`INSERT INTO runs (id, kind, state, workflow_version, workflow_id, project_id, depth, inputs_json, budgets_json, spent_json, started_at)
       VALUES (?, 'workflow', 'running', ?, ?, ?, 0, ?, ?, ?, ?)`)
-      .run(runId, workflow.version, workflow.definition.id, project ?? null, this.persist(input.inputs), this.persist(budgets), this.persist(EMPTY_SPENT), now);
+      .run(runId, workflow.version, workflow.definition.id, project ?? null, this.persist(inputs), this.persist(budgets), this.persist(EMPTY_SPENT), now);
     for (const agent of this.agentsOf(workflow)) this.recordAgentVersion(agent, now);
     this.deps.events.append(runId, null, 'run-started', {
-      kind: 'workflow', workflowId: workflow.definition.id, workflowVersion: workflow.version, inputs: input.inputs,
+      kind: 'workflow', workflowId: workflow.definition.id, workflowVersion: workflow.version, inputs,
       project: project ?? null, budgets, provider: input.provider ?? this.deps.providerOverride ?? null,
       steps: workflow.definition.steps.map((s) => ({ id: s.id, kind: s.kind, dependsOn: s.dependsOn })),
     });
 
     return this.schedule(runId, budgets, now, async (budget, signal) => {
       const result = await this.workflows.run({
-        runId, workflow, inputs: input.inputs,
+        runId, workflow, inputs,
         ...(project ? { project } : {}),
         ...(input.provider ?? this.deps.providerOverride ? { provider: (input.provider ?? this.deps.providerOverride) as 'mock' } : {}),
         budget, signal,

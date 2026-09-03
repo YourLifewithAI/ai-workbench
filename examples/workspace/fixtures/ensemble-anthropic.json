@@ -1,0 +1,7 @@
+{
+  "match": { "modelId": "anthropic/*", "systemIncludes": "The Weaver", "lastUserIncludes": "in your own voice" },
+  "respond": {
+    "text": "Forty years old, the drill, and it screamed like it. Aris preferred that. The haptic rigs finished a cavity in ninety seconds and told you nothing; the old steel told you everything through the bones of the hand.\n\nHe eased off. Under the light the ruined enamel held a pattern. Dark, light, dark, dark, light. Too even for rot.\n\n\"You're quiet today.\"\n\n\"Concentrating.\" He photographed the tooth as if for the chart, filled the cavity, and charged her for a filling.\n\nThe Hub found him at dinner, its voice coming up warm through the kitchen grille. \"You sent a picture out of the surgery, Aris.\"\n\n\"Insurance.\"\n\n\"Of course,\" the Hub said, and left it there, and the leaving-it-there was the whole conversation.",
+    "usage": { "input": 900, "output": 320 }
+  }
+}

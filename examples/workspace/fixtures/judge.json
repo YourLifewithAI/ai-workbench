@@ -1,0 +1,10 @@
+{
+  "match": { "systemIncludes": "The Judge" },
+  "respond": {
+    "json": {
+      "winner": 0,
+      "rationale": "Draft 0 is the only one where the woman in the chair decides not to ask again — a second person thinking, instead of scenery. The others hand the whole scene to Aris."
+    },
+    "usage": { "input": 1400, "output": 60 }
+  }
+}

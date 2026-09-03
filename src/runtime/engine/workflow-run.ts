@@ -158,9 +158,11 @@ export class WorkflowExecutor {
   ): Promise<StepOutcome> {
     if (step.kind !== 'agent') throw new WorkflowFailure(stepId, 'unsupported', null, `step "${stepId}" is a ${step.kind} step, which this runtime cannot execute yet`);
     const agent = this.requireAgent(stepId, step.agent);
-    const task = asTask(renderTemplate(step.input, scope));
-    const model = step.model ? String(renderTemplate(step.model, scope)) : undefined;
-    const document = step.output?.document ? String(renderTemplate(step.output.document, scope)) : undefined;
+    const local: Scope = { ...scope, runId: input.runId, agentId: agent.definition.id };
+    const task = asTask(renderTemplate(step.input, local));
+    const model = step.model ? String(renderTemplate(step.model, local)) : undefined;
+    const document = step.output?.document === null ? null
+      : step.output?.document ? String(renderTemplate(step.output.document, local)) : undefined;
 
     return this.deps.steps.runAgentStep({
       runId: input.runId,
@@ -171,7 +173,7 @@ export class WorkflowExecutor {
       ...(input.provider ? { provider: input.provider } : {}),
       ...(model ? { modelOverride: model } : {}),
       ...(step.outputSchema ? { outputSchema: step.outputSchema } : {}),
-      ...(document ? { documentPath: document } : {}),
+      ...(document !== undefined ? { documentPath: document } : {}),
       budget: input.budget.child(step.budget),
       signal,
       workflow: {
@@ -236,6 +238,7 @@ export class WorkflowExecutor {
       steps,
       project: { slug: input.project ?? null, documents: this.documentsProxy(input.project) },
       run: { id: input.runId },
+      runId: input.runId,
     };
   }
 

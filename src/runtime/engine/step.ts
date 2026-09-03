@@ -67,8 +67,8 @@ export interface AgentStepInput {
   modelOverride?: string | undefined;
   /** The step's schema, else the agent's `output.schema`. */
   outputSchema?: JsonSchema | undefined;
-  /** Where the output is filed. Omitted means "the agent's default, if it writes documents at all". */
-  documentPath?: string | undefined;
+  /** Where the output is filed. Omitted means the agent's default; `null` means file nothing. */
+  documentPath?: string | null | undefined;
   budget: RunBudget;
   signal: AbortSignal;
   workflow?: { id: string; stepId: string; upstream: string[]; downstream: string[] } | undefined;
@@ -411,6 +411,7 @@ export class StepRunner {
 
   /** The step's `output.document`, else the agent's, else nothing. `{{runId}}` and `{{agentId}}` resolve here. */
   private documentPathFor(input: AgentStepInput): string | null {
+    if (input.documentPath === null) return null;
     const template = input.documentPath
       ?? (input.agent.definition.output.kind === 'document'
         ? input.agent.definition.output.document ?? `${input.agent.definition.id}/${input.runId}.md`
