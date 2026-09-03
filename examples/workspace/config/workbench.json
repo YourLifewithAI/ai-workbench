@@ -1,1 +1,17 @@
-{ "schemaVersion": 1 }
+{
+  "schemaVersion": 1,
+  "grants": {
+    "delegator": {
+      "tools": {
+        "agent.delegate": "allow",
+        "datetime": "allow"
+      }
+    },
+    "architect": {
+      "tools": {
+        "calc": "allow",
+        "datetime": "allow"
+      }
+    }
+  }
+}

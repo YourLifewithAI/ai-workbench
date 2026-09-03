@@ -429,7 +429,7 @@ export class Engine {
         if (!again) return { output: outcome.output };
         feedback = again.redo;
       }
-    });
+    }, input.parent !== undefined);
   }
 
   startWorkflowRun(input: StartWorkflowRunInput): { runId: string; done: Promise<void> } {
@@ -481,7 +481,14 @@ export class Engine {
    * `execution.maxConcurrentRuns` runs at a time; the rest sit in `queued` until a slot frees. The promise a
    * caller gets back covers the whole wait, so a blocking CLI run behaves the same queued or not.
    */
-  private schedule(runId: string, budgets: ReturnType<typeof narrowBudgets>, startedAt: string, body: (budget: RunBudget, signal: AbortSignal) => Promise<Record<string, unknown>>): { runId: string; done: Promise<void> } {
+  private schedule(
+    runId: string,
+    budgets: ReturnType<typeof narrowBudgets>,
+    startedAt: string,
+    body: (budget: RunBudget, signal: AbortSignal) => Promise<Record<string, unknown>>,
+    /** A delegated run never queues: its parent is holding a slot and waiting for it, so queueing would deadlock. */
+    bypassQueue = false,
+  ): { runId: string; done: Promise<void> } {
     const controller = new AbortController();
     const startedMs = Date.parse(startedAt);
 
@@ -498,7 +505,7 @@ export class Engine {
 
     const limit = Math.max(1, this.deps.workspace().config.execution.maxConcurrentRuns);
     const runningNow = [...this.inflight.values()].filter((i) => !i.queued).length;
-    const queued = runningNow >= limit;
+    const queued = !bypassQueue && runningNow >= limit;
 
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });

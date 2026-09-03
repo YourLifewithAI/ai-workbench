@@ -92,7 +92,9 @@ export class ApprovalStore {
     const batches = new Map<string, ApprovalRow[]>();
     for (const row of rows) batches.set(row.batch_id, [...(batches.get(row.batch_id) ?? []), row]);
 
-    return [...batches.values()].map((group) => {
+    return [...batches.values()].map((unordered) => {
+      // Ids are ULIDs, so ascending id is the order the model asked in — which is the order to show them.
+      const group = [...unordered].sort((a, b) => a.id.localeCompare(b.id));
       const first = group[0]!;
       const run = this.db.prepare('SELECT agent_id, workflow_id, project_id FROM runs WHERE id = ?')
         .get(first.run_id) as { agent_id: string | null; workflow_id: string | null; project_id: string | null } | undefined;

@@ -139,8 +139,10 @@ export class Broker {
 
   async write(candidate: string, data: string): Promise<void> {
     const target = this.decide(candidate, 'write');
-    // A symlink at the destination would write through to wherever it points, past every check above.
-    const existing = await fsp.lstat(target).catch(() => null);
+    // The check is on the path as given, not on what it resolves to: `realpath` has already followed the link,
+    // so lstat-ing the resolved path would always say "not a link" and the whole check would be theatre.
+    const asGiven = path.isAbsolute(candidate) ? candidate : path.resolve(this.policy.workspaceDir, candidate);
+    const existing = await fsp.lstat(asGiven).catch(() => null);
     if (existing?.isSymbolicLink()) {
       throw new PolicyError('PermissionDenied', `"${candidate}" is a symbolic link. Writing through one would land somewhere the policy never saw.`);
     }

@@ -73,8 +73,9 @@ export function permissionRequestTool(host: PermissionRequestHost): ToolDefiniti
     output: z.object({ granted: z.boolean(), reason: z.string() }),
     tier: 'write',
     maxPermissions: NO_PERMISSIONS,
-    // Asking for authority is exactly the thing a human must see: this never runs without a decision.
-    approvalByDefault: true,
+    // No `approvalByDefault`: this tool's whole execute *is* the approval request, and the card it raises says
+    // what was asked and why. A generic gate in front of it would ask the human the same question twice, with
+    // less information the first time.
     execute: async (input, ctx) => {
       const outcome = await host.ask({ runId: ctx.runId, stepId: ctx.stepId, what: input.what, why: input.why, signal: ctx.signal });
       return { ok: true, output: { granted: outcome.decision === 'allow', reason: outcome.reason } };

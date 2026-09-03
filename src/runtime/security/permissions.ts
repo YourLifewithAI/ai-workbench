@@ -67,9 +67,13 @@ function under(candidate: string, root: string): boolean {
   return c === r || c.startsWith(r);
 }
 
+/**
+ * Permission paths are workspace-relative. `.` and `/` both mean the workspace root and normalise to the empty
+ * string, so every path is "under" them — anything outside the workspace is refused by the broker regardless.
+ */
 function normalize(value: string): string {
   const trimmed = value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
-  return trimmed === '' ? '/' : `${trimmed}/`;
+  return trimmed === '' || trimmed === '.' || trimmed === '/' ? '' : `${trimmed}/`;
 }
 
 function intersectTools(a: Record<string, 'allow' | 'deny'>, b: Record<string, 'allow' | 'deny'>): Record<string, 'allow' | 'deny'> {
