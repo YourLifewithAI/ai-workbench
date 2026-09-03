@@ -18,16 +18,20 @@ export function stateTone(state: RunSummary['state']): 'good' | 'bad' | 'busy' |
   return 'neutral';
 }
 
-/** Keeps the runs list live: any run-* event on the workspace stream refetches it (no reload needed, DoD 4). */
-export function useLiveRuns() {
+/** Keeps a screen live: any run-* event on the workspace stream refetches the keys it names (no reload needed). */
+export function useLiveRuns(keys: string[] = ['runs']) {
   const client = useQueryClient();
+  const watched = keys.join(',');
   useEffect(() => {
     const controller = new AbortController();
     let cancelled = false;
     const loop = async (): Promise<void> => {
       while (!cancelled) {
         try {
-          await subscribeSse('/runs/events', (m) => { if (m.event && m.event.startsWith('run-')) void client.invalidateQueries({ queryKey: ['runs'] }); }, controller.signal);
+          await subscribeSse('/runs/events', (m) => {
+            if (!m.event?.startsWith('run-')) return;
+            for (const key of watched.split(',')) void client.invalidateQueries({ queryKey: [key] });
+          }, controller.signal);
         } catch {
           // 401 ends the session elsewhere; anything else retries after a pause
         }
@@ -36,7 +40,7 @@ export function useLiveRuns() {
     };
     void loop();
     return () => { cancelled = true; controller.abort(); };
-  }, [client]);
+  }, [client, watched]);
 }
 
 export function useRunExample() {

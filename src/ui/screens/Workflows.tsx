@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import type { WorkflowDetail as WorkflowDetailShape } from '../../shared/api/index.js';
+import type { ScheduleSummary, WorkflowDetail as WorkflowDetailShape } from '../../shared/api/index.js';
 import { api } from '../lib/api.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { RunGraph } from '../components/RunGraph.js';
@@ -102,6 +102,7 @@ export function WorkflowDetail() {
           ) : null}
 
           <RunForm workflow={q.data} />
+          <Schedules workflow={q.data} />
         </>
       ) : null}
     </section>
@@ -188,5 +189,104 @@ function RunForm({ workflow }: { workflow: WorkflowDetailShape }) {
       {start.isError ? <p role="alert" className="text-sm text-red-700 dark:text-red-300">{start.error.message}</p> : null}
       <Button type="submit" disabled={start.isPending}>{start.isPending ? 'Starting…' : 'Start run'}</Button>
     </form>
+  );
+}
+
+/** Common shapes, so the usual schedule is a click rather than five fields of cron the owner has to remember. */
+const PRESETS: { label: string; cron: string }[] = [
+  { label: 'Every hour', cron: '0 * * * *' },
+  { label: 'Every day at 07:00', cron: '0 7 * * *' },
+  { label: 'Weekdays at 09:00', cron: '0 9 * * 1-5' },
+  { label: 'Every Monday at 08:00', cron: '0 8 * * 1' },
+];
+
+function Schedules({ workflow }: { workflow: WorkflowDetailShape }) {
+  const client = useQueryClient();
+  const q = useQuery({ queryKey: ['schedules'], queryFn: api.schedules });
+  const mine = (q.data ?? []).filter((s) => s.workflowId === workflow.id);
+  const [cron, setCron] = useState(PRESETS[1]!.cron);
+  const [catchUp, setCatchUp] = useState<'none' | 'once'>('none');
+
+  const invalidate = (): void => { void client.invalidateQueries({ queryKey: ['schedules'] }); };
+  const add = useMutation({
+    mutationFn: () => api.upsertSchedule({ workflowId: workflow.id, cron, catchUp, ...(workflow.defaultProject ? { project: workflow.defaultProject } : {}) }),
+    onSuccess: invalidate,
+  });
+  const toggle = useMutation({
+    mutationFn: (s: ScheduleSummary) => api.upsertSchedule({ workflowId: s.workflowId, cron: s.cron, inputs: s.inputs, catchUp: s.catchUp, enabled: !s.enabled, ...(s.project ? { project: s.project } : {}) }, s.id),
+    onSuccess: invalidate,
+  });
+  const remove = useMutation({ mutationFn: (id: string) => api.removeSchedule(id), onSuccess: invalidate });
+
+  return (
+    <section className="mt-8 max-w-2xl" aria-labelledby="schedule-title">
+      <h2 id="schedule-title" className="text-lg font-semibold">Schedule it</h2>
+      <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+        A scheduled run is an ordinary run: it appears on the Dashboard and in Runs, and it is bounded by the same budgets.
+      </p>
+
+      {mine.length ? (
+        <ul className="mt-3 space-y-2">
+          {mine.map((s) => (
+            <li key={s.id}>
+              <Card>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm"><span className="font-mono">{s.cron}</span> {s.enabled ? '' : '(paused)'}</p>
+                    <p className="mt-0.5 text-xs text-gray-700 dark:text-gray-300">
+                      Next {s.nextFireAt ? new Date(s.nextFireAt).toLocaleString() : 'never'} · missed windows: {s.catchUp === 'once' ? 'one catch-up run' : 'skipped'}
+                      {s.seededFromFile ? ' · first set by the workflow file' : ''}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => toggle.mutate(s)} disabled={toggle.isPending}>
+                      {s.enabled ? 'Pause' : 'Resume'}<span className="sr-only"> the {s.cron} schedule</span>
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => remove.mutate(s.id)} disabled={remove.isPending}>
+                      Delete<span className="sr-only"> the {s.cron} schedule</span>
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">Not scheduled.</p>
+      )}
+
+      <form className="mt-4 space-y-3" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>
+        <div>
+          <label htmlFor="cron" className="block text-sm font-medium">When</label>
+          <p id="cron-hint" className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">Five fields, minute first, in this machine&apos;s time zone.</p>
+          <div className="mt-1 flex flex-wrap gap-2">
+            <input
+              id="cron"
+              value={cron}
+              aria-describedby="cron-hint"
+              onChange={(e) => setCron(e.target.value)}
+              className="rounded-md border border-gray-300 bg-white p-2 font-mono text-sm dark:border-gray-700 dark:bg-gray-950"
+            />
+            {PRESETS.map((p) => (
+              <Button key={p.cron} type="button" size="sm" variant="secondary" onClick={() => setCron(p.cron)}>{p.label}</Button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label htmlFor="catch-up" className="block text-sm font-medium">If the runtime was down</label>
+          <select
+            id="catch-up"
+            value={catchUp}
+            onChange={(e) => setCatchUp(e.target.value as 'none' | 'once')}
+            className="mt-1 rounded-md border border-gray-300 bg-white p-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+          >
+            <option value="none">Skip what was missed</option>
+            <option value="once">Run once to catch up</option>
+          </select>
+        </div>
+        {add.isError ? <p role="alert" className="text-sm text-red-700 dark:text-red-300">{add.error.message}</p> : null}
+        <Button type="submit" disabled={add.isPending}>{add.isPending ? 'Adding…' : 'Add schedule'}</Button>
+      </form>
+    </section>
   );
 }

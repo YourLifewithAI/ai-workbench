@@ -202,7 +202,11 @@ export const WorkflowSummary = z.object({
   file: z.string(),
   defaultProject: z.string().nullable(),
   inputs: z.record(z.string(), z.unknown()),
-  steps: z.array(z.object({ id: z.string(), kind: z.string(), agent: z.string().nullable(), dependsOn: z.array(z.string()) })),
+  steps: z.array(z.object({
+    id: z.string(), kind: z.string(), agent: z.string().nullable(), dependsOn: z.array(z.string()),
+    /** A blocking gate: the run stops here until a human decides (D-13). */
+    review: z.enum(['none', 'blocking']).default('none'),
+  })),
   hasSchedule: z.boolean(),
 });
 export type WorkflowSummary = z.infer<typeof WorkflowSummary>;

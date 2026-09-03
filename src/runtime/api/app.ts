@@ -558,7 +558,7 @@ function workflowSummary(workflow: LoadedWorkflow): WorkflowSummary {
     file: path.basename(workflow.file),
     defaultProject: d.defaultProject ?? null,
     inputs: d.inputs,
-    steps: d.steps.map((s) => ({ id: s.id, kind: s.kind, agent: s.kind === 'agent' ? s.agent : null, dependsOn: [...(edges.get(s.id) ?? [])] })),
+    steps: d.steps.map((s) => ({ id: s.id, kind: s.kind, agent: s.kind === 'agent' ? s.agent : null, dependsOn: [...(edges.get(s.id) ?? [])], review: s.review })),
     hasSchedule: d.schedule !== undefined,
   };
 }

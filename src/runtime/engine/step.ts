@@ -254,6 +254,9 @@ export class StepRunner {
             modelId: entry.id, response, usage: response.usage, costUsd, latencyMs: Date.now() - t0,
             promptVersion, agentVersion: agent.version, spent: budget.snapshot(),
           });
+          // The run row carries what has been spent so far, not only what it cost in the end: a budget bar
+          // that only moves when the run finishes is not a budget bar.
+          this.deps.db.prepare('UPDATE runs SET spent_json = ? WHERE id = ?').run(this.persist(budget.snapshot()), runId);
           return { response, entry };
         } catch (e) {
           if (e instanceof StepFailure) throw e;

@@ -97,3 +97,14 @@ One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` �
 > - `GET /api/v1/workflows` → `{ workflows, errors }`; `GET /api/v1/workflows/:id` adds the definition, the validator's advisory smells, and the topological order. A workflow's `steps[].dependsOn` in these responses is the *effective* set — declared dependencies plus every edge a template reference implies — because a graph drawn from the declared set alone shows independent steps where the file describes a pipeline.
 > - `RunSummary` carries `budgets` (what the run may spend) alongside `spent`, so a list can draw the bar without a second request. `StepSummary` carries `parentStepId` and `mapIndex`, set on a map item.
 > - CLI: `workbench run workflow <id>` (`--inputs-file`, repeatable `--input k=value`, `--project`, `--provider`, `--max-model-calls`, `--max-cost-usd`, `--detach`) and `workbench runs cancel <runId>`.
+
+> Amendment (RUN-05, 2026-09-03): the review, rating, schedule and dashboard surfaces.
+>
+> - `GET /api/v1/reviews?state=open|unreviewed|pending|…`; `POST /api/v1/reviews/:id` with `{ decision, feedback? }` (a rejection without feedback is a 400 — the step re-runs with what you say, so "no" on its own would change nothing); deciding an already-decided review is a 409.
+> - `POST /api/v1/ratings` with `{ runId, stepId, versionId?, value: 1-5, note? }`. `GET /documents/:id` joins ratings by version id.
+> - `GET/POST /api/v1/schedules`, `DELETE /api/v1/schedules/:id`. `POST` with `?id=` edits an existing one.
+> - `POST /api/v1/runs/:id/resume`.
+> - `GET /api/v1/dashboard` answers "what needs me" in one request: blocking reviews, failed and interrupted runs, running runs with their budgets, today's spend against the cap, and the next scheduled runs.
+> - `runs.spent_json` is updated after every model call, not only when the run ends: a budget bar that moves only at the end is not a budget bar.
+> - CLI: `workbench review list|show|continue|reject|dismiss|rate`, `workbench runs resume`, `workbench schedules list|add|remove`.
+> - A blocking CLI run (`run workflow` without `--detach`) stops when the run parks and prints the review id: no amount of polling produces a human, and the ephemeral runtime the CLI started is the only thing that could have decided it. Deciding a gate from the CLI requires a *live* runtime, because deciding it from a second process would leave the first holding a waiter that never resolves.

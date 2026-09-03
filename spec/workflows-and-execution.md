@@ -90,9 +90,15 @@ At 80% of `maxModelCalls`, `maxToolCalls`, or `maxCostUsd` a `budget-warning` ev
 
 **Cancel** is an API call and a button on every running run. It aborts every in-flight model call through `AbortSignal`, refuses further tool calls, records `run-cancelled`, and commits nothing from interrupted steps. Cancelling a queued run cancels it; cancelling a finished run is a 409.
 
+> Amendment (RUN-05, 2026-09-03): a rejected step is finished only in the database's opinion — resume excludes it and carries the human's feedback into the re-run. Resuming a run held by an *undecided* blocking gate is refused: that run is not stuck, it is waiting, and resuming past it would ignore the human. `waiting_review` is therefore *not* marked `interrupted` on startup: the review row is durable, and deciding it resumes the run.
+
+> Amendment (RUN-05, 2026-09-03): `review-requested` is a new event type, emitted when a blocking gate parks a run. Reusing `approval-requested` would have been convenient and wrong: the security queue is a different queue with different stakes (D-13).
+
 **Resume.** Events are the source of truth. On startup every `running` run becomes `interrupted` (from RUN-04; the resume command arrives in RUN-05). Resume restarts from the last completed step; an in-progress step re-runs from its beginning; completed steps and their artifact versions are not duplicated.
 
 ## Scheduler (D-15)
+
+> Amendment (RUN-05, 2026-09-03): the scheduler uses `croner` for the cron arithmetic only; the loop that decides what to fire is ours, so a test can drive it with an injected clock rather than waiting on wall time. A due schedule is always advanced past *now* after firing, which is what makes `catchUp: 'once'` one run for everything missed rather than one run per missed window.
 
 Schedules live in the `schedules` table and are edited in the Workflows screen. A workflow file's `schedule` block seeds a row the first time the file is loaded and is otherwise ignored. The scheduler is in-process (`croner`, local time zone), honors `execution.maxConcurrentRuns`, and creates ordinary runs with the schedule's inputs. `catchUp: once` fires one run for a window missed while the runtime was down; `none` skips it. Scheduled runs are ordinary runs and are observable like any other (`api-and-cli.md`).
 
