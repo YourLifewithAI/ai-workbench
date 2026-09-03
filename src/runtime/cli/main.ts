@@ -12,6 +12,7 @@ import { registerDev } from './commands/dev.js';
 import { registerLibrary } from './commands/library.js';
 import { registerMemory } from './commands/memory.js';
 import { registerEvaluate } from './commands/evaluate.js';
+import { registerCredentials, registerPlugins } from './commands/transfer.js';
 import { registerReview, registerSchedules } from './commands/review.js';
 import { registerApprovals, registerTools } from './commands/approvals.js';
 
@@ -40,6 +41,8 @@ registerDev(program, bootstrap);
 registerLibrary(program, bootstrap);
 registerMemory(program, bootstrap);
 registerEvaluate(program, bootstrap);
+registerPlugins(program, bootstrap);
+registerCredentials(program, bootstrap);
 registerReview(program, bootstrap);
 registerSchedules(program, bootstrap);
 registerApprovals(program, bootstrap);

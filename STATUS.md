@@ -1,8 +1,8 @@
 # STATUS
 
-**Current run:** RUN-10 — Evaluation and compare · awaiting verification
-**Last verified:** RUN-00 … RUN-09 and RUN-12 merged or in review with CI green; the owner's scripts are still outstanding
-**Gates:** `npm run check` green · `npm run dod -- 00 … 10, 12` green (DoD 07-2 is live-only) · `npm run e2e` 29 passed · Docker smoke and a no-sandbox job: CI
+**Current run:** RUN-11 — Import/export, plugins, credentials UI, docs, packaging · awaiting verification
+**Last verified:** RUN-00 … RUN-10 and RUN-12 merged or in review with CI green; the owner's scripts are still outstanding
+**Gates:** `npm run check` green · `npm run dod -- 00 … 11, 12` green (DoD 07-2 is live-only) · `npm run e2e` 30 passed · Docker smoke and a no-sandbox job: CI
 
 Run agents update this file at the end of a run; the human updates it on acceptance.
 

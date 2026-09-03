@@ -1,5 +1,5 @@
 // Every call carries the bearer token; SSE is fetch-based (never EventSource) so it can too.
-import type { AgentDetail, AgentListResponse, ApprovalItem, ApprovalListResponse, CompareRequest, ComparePickRequest, CompareResponse, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, DashboardResponse, DatasetSummary, DeleteMemoryResponse, ExperimentResults, ExperimentSummary, DiffResponse, DocumentDetail, DocumentSummary, GrantCell, KnowledgeSearchResponse, MemoryItem, MemoryResponse, MemoryTracesResponse, ModelListResponse, PrivacyResponse, Project, PushEventKind, PushSubscription, PushSubscriptionsResponse, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunSummary, ScheduleListResponse, ScheduleSummary, SetGrantRequest, SettingsResponse, SubscribePushRequest, ToolsResponse, UpsertScheduleRequest, WorkflowDetail, WorkflowListResponse } from '../../shared/api/index.js';
+import type { AgentDetail, AgentListResponse, ApprovalItem, ApprovalListResponse, CompareRequest, ComparePickRequest, CompareResponse, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, DashboardResponse, DatasetSummary, DeleteMemoryResponse, ExperimentResults, ExperimentSummary, DiffResponse, DocumentDetail, DocumentSummary, GrantCell, KnowledgeSearchResponse, MemoryItem, MemoryResponse, MemoryTracesResponse, ModelListResponse, PrivacyResponse, Project, PushEventKind, PushSubscription, PushSubscriptionsResponse, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunSummary, ScheduleListResponse, ScheduleSummary, SetGrantRequest, SettingsResponse, UpdateSettingsRequest, SubscribePushRequest, ToolsResponse, UpsertScheduleRequest, WorkflowDetail, WorkflowListResponse } from '../../shared/api/index.js';
 import type { EventRecord } from '../../shared/events.js';
 import { getToken, markUnauthorized } from './auth.js';
 
@@ -82,6 +82,15 @@ export const api = {
     apiFetch('/compare', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<CompareResponse>),
   comparePick: (body: ComparePickRequest): Promise<{ compareId: string; ratings: number }> =>
     apiFetch('/compare/pick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<{ compareId: string; ratings: number }>),
+  setCredential: (name: string, apiKey: string | null): Promise<{ providersConfigured: string[] }> =>
+    apiFetch('/settings/credentials', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, apiKey }) })
+      .then((r) => r.json() as Promise<{ providersConfigured: string[] }>),
+  updateSettings: (patch: UpdateSettingsRequest): Promise<{ ok: boolean; restartRequired: boolean }> =>
+    apiFetch('/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch) })
+      .then((r) => r.json() as Promise<{ ok: boolean; restartRequired: boolean }>),
+  trustPlugin: (name: string, version: string): Promise<{ trusted: string }> =>
+    apiFetch('/plugins/trust', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, version }) })
+      .then((r) => r.json() as Promise<{ trusted: string }>),
   trace: (id: string): Promise<string> => apiFetch(`/runs/${encodeURIComponent(id)}/trace.jsonl`).then((r) => r.text()),
   createRun: (body: CreateRunRequest): Promise<{ runId: string }> =>
     apiFetch('/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<{ runId: string }>),

@@ -1,12 +1,17 @@
 # AI Workbench
 
-A local-first, model-agnostic runtime for automated multi-agent, multi-model workflows. Models are a replaceable substrate; everything private (config, agents, runs, memory, keys) lives in one workspace directory you own; the runtime is one process on one port that never faces the public internet.
+A local-first, model-agnostic runtime for automated multi-agent, multi-model workflows.
 
-**Status:** RUN-00 (foundation and security floor) is built and awaiting human verification. See [`STATUS.md`](STATUS.md) and [`runlog/RUN-00.md`](runlog/RUN-00.md). Only the mock provider exists so far; real providers arrive in RUN-02.
+Models are a replaceable substrate. Everything private — config, agents, runs, memory, keys — lives in one
+workspace directory you own. The runtime is one process on one port that never faces the public internet, and
+every capability it has is denied until you grant it.
 
-## Quick start
+**Status:** RUN-00 … RUN-12 are built. See [`STATUS.md`](STATUS.md) for what is verified and what is not, and
+[`runlog/`](runlog/) for what each run actually did.
 
-Requires Node 22.
+## Ten minutes
+
+Requires Node 22. Deno is optional and unlocks the code-execution tools; the workbench says so if it is missing.
 
 ```sh
 npm ci && npm run build
@@ -14,25 +19,81 @@ node dist/cli.js init ~/my-workspace
 node dist/cli.js start --workspace ~/my-workspace
 ```
 
-`start` prints one line, a URL ending in `#token=…`. Open it. The Welcome path runs the example agent on the built-in mock provider and shows you its trace. Headless, without a running runtime:
+`start` prints one line: a URL ending in `#token=…`. Open it. The Welcome path runs the example agent on the
+built-in mock provider — no key, no network — and shows you its trace.
+
+Then, in the UI:
+
+1. **Run something.** Workflows → `story-pipeline` → run it. Watch the graph fill in step by step.
+2. **Read a trace.** Runs → the run you just made. Every model call, every tool call, every byte that tried to
+   leave the machine, in order.
+3. **Grant a tool.** Tools → the matrix. Nothing is granted until you say so, and the screen says what each
+   tool would be able to reach.
+4. **Approve something.** Grant `shell` to an agent and run it: the run parks and waits for you.
+5. **Rate something.** Review → rate the output 1–5. That is the beginning of your own eval set.
+
+Headless, with no runtime running — every command starts an ephemeral one for its own duration:
 
 ```sh
 node dist/cli.js run agent echo --input "hello" --provider mock --json --workspace ~/my-workspace
 node dist/cli.js trace <runId> --workspace ~/my-workspace
+node dist/cli.js doctor --workspace ~/my-workspace
 ```
 
-## How this repository is built
+## Using a real model
 
-The specification in [`spec/`](spec/) is the source of truth. It is written to be executed by coding agents in sequential runs (`spec/runs/RUN-nn.md`), each with a definition of done that is a command, not a judgment: `npm run check`, `npm run dod -- nn`, `npm run e2e`. Every run ends with a handoff in `runlog/` and a human verification script. The protocol is in [`spec/runs/README.md`](spec/runs/README.md); `AGENTS.md` is the entry point for an agent.
+```sh
+echo "$YOUR_KEY" | node dist/cli.js settings set-credential google --workspace ~/my-workspace
+```
+
+The key goes into `config/credentials.json` at mode 0600 and is never read back out — not by the UI, not by the
+API, not into a trace. `WORKBENCH_CRED_GOOGLE` works too, if you would rather it lived in your environment.
+Providers today: Google (Gemini), Anthropic, and anything OpenAI-compatible, including local endpoints like
+Ollama and LM Studio. Adding one is writing an adapter that passes the contract suite — see `CONTRIBUTING.md`.
+
+## What it does
+
+- **Agents** are directories: `agent.json` plus `instructions.md`. Sections in the file become sections in the
+  prompt, in order, and the prompt is in the trace.
+- **Workflows** are a DAG in one JSON file: steps that name agents, tools, or a `map` over a list. A reference
+  to another step's output *is* the dependency; there is nothing else to declare.
+- **The Library** keeps every version of everything an agent wrote, with the run that wrote it.
+- **Memory** is what agents carry between runs, with provenance. An item written by a run that had read the web
+  is `untrusted`, and untrusted memory reaches a model fenced as data — never as an instruction.
+- **Review** is where you rate and reject; **Approvals** is where the runtime waits for you before it does
+  something that cannot be undone. They are different queues on purpose.
+- **Evaluate** compares models on your own work: one step, N models, side by side, and a pick that becomes data.
+- **The phone**: the UI installs to a Home Screen and can send you a notification when something needs you.
 
 ## Security floor
 
-Bound to `127.0.0.1`, bearer token per start (0600 file, printed once), Host and Origin checked before the token, strict CSP, credentials in a 0600 file or `WORKBENCH_CRED_*` and redacted from every trace, log, and response, child processes get an explicit allowlisted environment, and a secret scanner in the check gate. Tests for each of these live in `tests/security/` and stay forever (`spec/sec-catalog.md`).
+Bound to `127.0.0.1`; a bearer token per start (0600 file, printed once); Host and Origin checked before the
+token; strict CSP; credentials in a 0600 file and redacted from every trace, log and response; child processes
+get an explicitly constructed environment; a secret scanner in the check gate.
+
+Beyond that floor: every tool is denied until granted, and the grant matrix is the authority — what an agent
+asks for in its own file is a request. Code runs in a Deno sandbox with no network and no filesystem beyond what
+you granted, reaching its tools through a bridge where every check still applies. Every outbound request is
+checked against the network policy *before* DNS, re-checked on every redirect, and pinned so the address the
+checker approved is the address the socket gets. A run that has read your private data and then reaches for a
+host nobody allowed waits for you.
+
+Each of these has a test in `tests/security/` that stays forever ([`spec/sec-catalog.md`](spec/sec-catalog.md)).
 
 ## Deploying
 
-[`deploy.md`](deploy.md): Docker on a VPS, reached over a Tailscale tailnet. The runtime is never exposed directly.
+[`deploy.md`](deploy.md): Docker on a VPS reached over a Tailscale tailnet, with a Caddy alternative for people
+without one. The runtime is never exposed directly, in any of them.
+
+## How this repository is built
+
+The specification in [`spec/`](spec/) is the source of truth. It is written to be executed by coding agents in
+sequential runs (`spec/runs/RUN-nn.md`), each with a definition of done that is a command rather than a
+judgment: `npm run check`, `npm run dod -- nn`, `npm run e2e`. Every run ends with a handoff in `runlog/` and a
+human verification script. The protocol is in [`spec/runs/README.md`](spec/runs/README.md); `AGENTS.md` is the
+entry point for an agent.
 
 ## License and contact
 
-Apache-2.0 (see `LICENSE` and `NOTICE`). Security reports: `SECURITY.md`. Questions: `SUPPORT.md`.
+Apache-2.0 (see `LICENSE` and `NOTICE`). Security reports: [`SECURITY.md`](SECURITY.md). Questions:
+[`SUPPORT.md`](SUPPORT.md). Contributing, including the adapter on-ramp: [`CONTRIBUTING.md`](CONTRIBUTING.md).

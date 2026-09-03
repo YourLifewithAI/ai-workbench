@@ -5,6 +5,7 @@ import type { Command } from 'commander';
 import type { Bootstrap } from '../../bootstrap.js';
 import type { DocumentDetail, DocumentSummary, Project } from '../../../shared/api/index.js';
 import { registerImportKnowledge } from './memory.js';
+import { registerTransfer } from './transfer.js';
 import { CliError, connect } from '../client.js';
 import { guarded, out, outJson, resolveWorkspace, wantsJson } from '../context.js';
 import { openWorkspaceStore } from '../store.js';
@@ -128,6 +129,8 @@ export function registerLibrary(program: Command, bootstrap: Bootstrap): void {
   const importCmd = program.command('import').description('import into this workspace from a folder');
   // `import knowledge` lives with the memory commands: it is the same run's work and the same screens read it.
   registerImportKnowledge(importCmd, bootstrap);
+  // …and agents, workflows, memory and runs live with the rest of the transfer story (RUN-11).
+  registerTransfer(exportCmd, importCmd, bootstrap);
   importCmd
     .command('project <dir>')
     .description('recreate an exported project here')

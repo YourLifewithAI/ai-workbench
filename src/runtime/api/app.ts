@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { ApprovalDecisionRequest, CompareRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
+import { ApprovalDecisionRequest, CompareRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
@@ -15,6 +15,7 @@ import type { PushStore } from '../push/store.js';
 import { ingestKnowledge, UnsupportedKnowledgeFormat } from '../knowledge/ingest.js';
 import { DEFAULT_LIMITS, type SandboxLimits } from '../sandbox/deno.js';
 import { exportDataset, importDataset } from '../evaluation/transfer.js';
+import { bundle, openBundle, parseWorkflowBundle, stripAgentTrust, BundleShapeError, BundleVersionError, MemoryBundle } from '../transfer/bundle.js';
 import { TERMINAL_EVENTS, type EventStore } from '../engine/events.js';
 import { securityHeaders, hostOriginGuard, bearerGuard } from '../security/auth.js';
 import type { Redactor } from '../security/redaction.js';
@@ -44,6 +45,16 @@ export interface AppDeps {
   /** The sandbox as the Tools screen shows it (RUN-09), and the MCP servers that came up. */
   sandbox?: (() => { available: boolean; path: string | null; limits: SandboxLimits }) | undefined;
   mcp?: { status: () => McpServerSummary[] } | undefined;
+  /** What the plugin loader found at startup (RUN-11), for Settings. */
+  plugins?: (() => PluginStatusSummary[]) | undefined;
+  /** Writes an imported agent to disk as files, like any other agent. */
+  writeAgent: (definition: unknown, sections: { name: string; text: string }[]) => { id: string };
+  writeWorkflow: (workflow: unknown) => { id: string };
+  /** Records that a human accepted "this code runs with full access" for one plugin *version* (D-32). */
+  trustPlugin: (key: string) => void;
+  /** Writes the 0600 credentials file. `null` removes one. The value is never read back out (SEC-05). */
+  setCredential: (name: string, apiKey: string | null) => void;
+  updateSettings: (patch: Record<string, unknown>) => void;
   /** Re-reads agent definitions from disk; the Agents screen calls it after an edit. */
   reloadAgents: () => { loaded: number; errors: BrokenAgent[] };
   /** The catalog with availability; `refresh` re-polls local endpoints first. */
@@ -838,6 +849,162 @@ export function createApp(deps: AppDeps): Hono {
     }
   });
 
+  // ---- export, import, plugins and settings (D-32, D-34, SEC-25/26/27) ---------------------------------
+
+  app.get('/api/v1/export/agent/:id', (c) => {
+    const agent = deps.workspace().agents.get(c.req.param('id'));
+    if (!agent) return fail(c, 'not_found', `There is no agent called "${c.req.param('id')}".`, 404);
+    return json(c, bundle('agent', { definition: agent.definition, sections: agent.sections, version: agent.version }, deps.redactor));
+  });
+
+  app.get('/api/v1/export/workflow/:id', (c) => {
+    const workflow = deps.workspace().workflows.get(c.req.param('id'));
+    if (!workflow) return fail(c, 'not_found', `There is no workflow called "${c.req.param('id')}".`, 404);
+    return json(c, bundle('workflow', workflow.definition, deps.redactor));
+  });
+
+  app.get('/api/v1/export/memory', (c) => {
+    const scope = c.req.query('scope');
+    const items = deps.engine.memory.search({ ...(scope ? { scope: scope as 'workspace' } : {}), limit: 1000 });
+    // Trust does not travel: what another workspace trusted is not something this one knows anything about.
+    return json(c, bundle('memory', {
+      items: items.map((i) => ({ scope: i.scope, ownerId: i.ownerId, content: i.content, createdAt: i.createdAt, expiresAt: i.expiresAt })),
+    }, deps.redactor));
+  });
+
+  app.get('/api/v1/export/runs', (c) => {
+    const ids = (c.req.query('ids') ?? '').split(',').map((id) => id.trim()).filter(Boolean);
+    if (!ids.length) return fail(c, 'validation', 'Name the runs with `?ids=a,b,c`.', 400);
+    const runs = ids.map((id) => ({ run: deps.engine.getRun(id), events: deps.events.list(id) })).filter((r) => r.run !== null);
+    if (!runs.length) return fail(c, 'not_found', 'None of those runs exist.', 404);
+    return json(c, bundle('runs', { runs }, deps.redactor));
+  });
+
+  app.post('/api/v1/import/agent', async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    try {
+      const envelope = openBundle(raw, 'agent');
+      const payload = envelope.payload as { definition?: unknown; sections?: { name: string; text: string }[] };
+      const { definition, stripped } = stripAgentTrust(payload.definition);
+      // Written to disk as files, like every other agent: an imported agent is not a special kind of agent.
+      const written = deps.writeAgent(definition, payload.sections ?? []);
+      const body: ImportResult = { kind: 'agent', id: written.id, stripped, redactions: envelope.redactions };
+      return json(c, body, 201);
+    } catch (e) {
+      if (e instanceof BundleVersionError || e instanceof BundleShapeError) return fail(c, 'validation', e.message, 400);
+      return mapError(c, e);
+    }
+  });
+
+  app.post('/api/v1/import/workflow', async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    try {
+      const envelope = openBundle(raw, 'workflow');
+      const workflow = parseWorkflowBundle(envelope.payload);
+      const written = deps.writeWorkflow(workflow);
+      // A workflow's `permissions` block is a ceiling, and a ceiling from a file is still only a ceiling: it
+      // cannot grant anything its steps' agents were not already granted.
+      const body: ImportResult = {
+        kind: 'workflow', id: written.id,
+        stripped: workflow.permissions ? ['its permissions block, which is a ceiling and grants nothing'] : [],
+        redactions: envelope.redactions,
+      };
+      return json(c, body, 201);
+    } catch (e) {
+      if (e instanceof BundleVersionError || e instanceof BundleShapeError) return fail(c, 'validation', e.message, 400);
+      return mapError(c, e);
+    }
+  });
+
+  app.post('/api/v1/import/memory', async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    try {
+      const envelope = openBundle(raw, 'memory');
+      const parsed = MemoryBundle.safeParse(envelope.payload);
+      if (!parsed.success) return fail(c, 'validation', 'A memory bundle is `{ items: [{ scope, ownerId, content }] }`.', 400);
+      for (const item of parsed.data.items) {
+        // Imported memory is `untrusted` by construction: it came from outside this workspace (D-17).
+        deps.engine.memory.remember({
+          scope: item.scope, ownerId: item.ownerId, content: item.content, source: 'import', trust: 'untrusted',
+          ...(item.expiresAt ? { expiresAt: item.expiresAt } : {}),
+        });
+      }
+      const body: ImportResult = {
+        kind: 'memory', id: `${parsed.data.items.length} item(s)`,
+        stripped: ['their trust: imported memory is untrusted, because it came from another workspace'],
+        redactions: envelope.redactions,
+      };
+      return json(c, body, 201);
+    } catch (e) {
+      if (e instanceof BundleVersionError || e instanceof BundleShapeError) return fail(c, 'validation', e.message, 400);
+      return mapError(c, e);
+    }
+  });
+
+  app.post('/api/v1/plugins/trust', async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = TrustPluginRequest.safeParse(raw);
+    if (!parsed.success) return fail(c, 'validation', 'Expected { name, version }.', 400, parsed.error.issues);
+    // Per name *and* version: a new version of a plugin is new code, and asks again (D-32).
+    deps.trustPlugin(`${parsed.data.name}@${parsed.data.version}`);
+    return json(c, { trusted: `${parsed.data.name}@${parsed.data.version}`, restartRequired: true }, 202);
+  });
+
+  app.put('/api/v1/settings/credentials', async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = SetCredentialRequest.safeParse(raw);
+    if (!parsed.success) return fail(c, 'validation', 'Expected { name, apiKey } — or { name, apiKey: null } to remove one.', 400, parsed.error.issues);
+    try {
+      deps.setCredential(parsed.data.name, parsed.data.apiKey);
+      // The names, never the values: a credential this workbench holds is not readable back out of it (SEC-05).
+      return json(c, { providersConfigured: deps.credentials.names(), restartRequired: true }, 202);
+    } catch (e) {
+      return mapError(c, e);
+    }
+  });
+
+  app.put('/api/v1/settings', async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = UpdateSettingsRequest.safeParse(raw);
+    if (!parsed.success) return fail(c, 'validation', 'Expected some of { budgets, retention, execution, mcp, push }.', 400, parsed.error.issues);
+    try {
+      deps.updateSettings(parsed.data);
+      return json(c, { ok: true, restartRequired: parsed.data.mcp !== undefined }, 202);
+    } catch (e) {
+      return mapError(c, e);
+    }
+  });
+
   app.get('/api/v1/settings', (c) => {
     const ws = deps.workspace();
     const body: SettingsResponse = {
@@ -849,6 +1016,9 @@ export function createApp(deps: AppDeps): Hono {
       retention: ws.config.retention,
       providersConfigured: deps.credentials.names(),
       sandbox: { deno: deps.denoAvailable() },
+      mcpServers: ws.config.mcp.servers,
+      push: ws.config.push,
+      plugins: deps.plugins?.() ?? [],
     };
     return json(c, body);
   });

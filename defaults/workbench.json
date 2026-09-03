@@ -41,6 +41,9 @@
   "mcp": {
     "servers": []
   },
+  "plugins": {
+    "trusted": []
+  },
   "push": {
     "enabled": true,
     "events": [

@@ -46,6 +46,22 @@ export type RunDetail = z.infer<typeof RunDetail>;
 
 export const RunListResponse = z.object({ runs: z.array(RunSummary) });
 
+/** A plugin, as Settings shows it: what it says it is, whether it ran, and whether anyone said it could. */
+export const PluginStatusSummary = z.object({
+  name: z.string(),
+  version: z.string(),
+  kind: z.enum(['adapter', 'tool', 'evaluator']),
+  capabilities: z.array(z.string()),
+  description: z.string().nullable(),
+  loaded: z.boolean(),
+  error: z.string().nullable(),
+  /** False until a human has been shown the warning for this exact version and said yes (D-32). */
+  acknowledged: z.boolean(),
+  /** The words shown before it runs, from the runtime, so the screen and the CLI say the same thing. */
+  warning: z.string(),
+});
+export type PluginStatusSummary = z.infer<typeof PluginStatusSummary>;
+
 export const SettingsResponse = z.object({
   workspacePath: z.string(),
   workspaceName: z.string(),
@@ -55,6 +71,10 @@ export const SettingsResponse = z.object({
   retention: z.record(z.string(), z.number()),
   providersConfigured: z.array(z.string()),
   sandbox: z.object({ deno: z.boolean() }),
+  /** What is configured, and what a person can change here (RUN-11). */
+  mcpServers: z.array(z.unknown()).default([]),
+  push: z.object({ enabled: z.boolean(), events: z.array(z.string()) }).optional(),
+  plugins: z.array(PluginStatusSummary).default([]),
 });
 export type SettingsResponse = z.infer<typeof SettingsResponse>;
 
@@ -476,6 +496,38 @@ export const SetGrantRequest = z.object({
   grant: z.enum(['allow', 'deny', 'unset']),
 });
 export type SetGrantRequest = z.infer<typeof SetGrantRequest>;
+
+// ---- transfer, plugins and settings (spec/tools-and-security.md, D-32, D-34) ----------------------
+
+
+export const TrustPluginRequest = z.object({ name: z.string(), version: z.string() });
+export type TrustPluginRequest = z.infer<typeof TrustPluginRequest>;
+
+export const ImportResult = z.object({
+  kind: z.enum(['agent', 'workflow', 'memory']),
+  id: z.string(),
+  /** What the import refused to carry over: permissions arrive as requests, never as grants (D-34). */
+  stripped: z.array(z.string()),
+  /** What the *export* had already redacted, echoed so the person importing knows (SEC-26). */
+  redactions: z.array(z.string()),
+});
+export type ImportResult = z.infer<typeof ImportResult>;
+
+/** Writing a credential: the value goes to the 0600 file and is never read back out (SEC-05). */
+export const SetCredentialRequest = z.object({
+  name: z.string().regex(/^[a-z0-9-]+$/, 'lowercase letters, digits and hyphens'),
+  apiKey: z.string().min(1).nullable(),
+});
+export type SetCredentialRequest = z.infer<typeof SetCredentialRequest>;
+
+export const UpdateSettingsRequest = z.object({
+  budgets: z.record(z.string(), z.unknown()).optional(),
+  retention: z.record(z.string(), z.unknown()).optional(),
+  execution: z.record(z.string(), z.unknown()).optional(),
+  mcp: z.object({ servers: z.array(z.unknown()) }).optional(),
+  push: z.object({ enabled: z.boolean(), events: z.array(z.string()) }).optional(),
+});
+export type UpdateSettingsRequest = z.infer<typeof UpdateSettingsRequest>;
 
 // ---- evaluation (spec/evaluation.md, D-36, D-50, D-52) --------------------------------------------
 
