@@ -96,3 +96,6 @@ Vocabularies: `runs.kind ∈ agent | workflow | experiment`; `runs.state ∈ que
 | memory | JSONL of items in chosen scopes |
 | runs | JSONL of events for the chosen runs, redacted, plus `manifest.json` |
 | workspace | all of the above and `config/workbench.json`; never credentials, the token, or `runtime.json` |
+
+
+> Amendment (RUN-04, 2026-09-03): `document_versions.partial` is written for the first time — it marks a version produced by a wrap-up turn rather than by a step that finished (D-14). It had existed since RUN-03 with nothing to set it, and the INSERT was passing a literal `0`.

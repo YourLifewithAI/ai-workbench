@@ -88,3 +88,12 @@ The secret scan is a small in-repo scanner over tracked files plus `dist/` (excl
 ## JSONL trace
 
 One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` — the `events` row with `payload` parsed. Types: `run-started, run-queued, step-started, step-completed, step-failed, step-skipped, model-started, model-completed, model-aborted, fallback-selected, provider-meta-dropped, tool-requested, permission-decided, approval-requested, approval-decided, tool-completed, egress-denied, memory-retrieved, memory-written, memory-redacted, artifact-written, review-decided, budget-warning, run-cancelled, run-completed, run-failed, run-interrupted`. Payloads are in `data-model.md`. Debugging a run is reading this file.
+
+
+> Amendment (RUN-04, 2026-09-03): the workflow surface.
+>
+> - `POST /api/v1/runs` accepts `kind: 'workflow'`; `overrides.budget` narrows the run's budgets (narrowing only, D-20).
+> - `POST /api/v1/runs/:id/cancel` → 202, 404 for an unknown run, 409 for one that already finished.
+> - `GET /api/v1/workflows` → `{ workflows, errors }`; `GET /api/v1/workflows/:id` adds the definition, the validator's advisory smells, and the topological order. A workflow's `steps[].dependsOn` in these responses is the *effective* set — declared dependencies plus every edge a template reference implies — because a graph drawn from the declared set alone shows independent steps where the file describes a pipeline.
+> - `RunSummary` carries `budgets` (what the run may spend) alongside `spent`, so a list can draw the bar without a second request. `StepSummary` carries `parentStepId` and `mapIndex`, set on a map item.
+> - CLI: `workbench run workflow <id>` (`--inputs-file`, repeatable `--input k=value`, `--project`, `--provider`, `--max-model-calls`, `--max-cost-usd`, `--detach`) and `workbench runs cancel <runId>`.
