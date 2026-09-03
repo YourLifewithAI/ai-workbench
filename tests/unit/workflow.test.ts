@@ -47,14 +47,11 @@ describe('the validator', () => {
     expect(messages.some((m) => m.includes('nonsense'))).toBe(true);
   });
 
-  it('refuses the features later runs add, naming the run that adds each', () => {
-    const wf = parse([{ id: 'a', kind: 'tool', tool: 'web.search', input: '{{inputs.topic}}' }]);
-    const messages = validateWorkflow(wf).errors.map((e) => e.message);
-    expect(messages.some((m) => m.includes('RUN-06'))).toBe(true);
-  });
-
-  it('accepts a blocking review gate, which RUN-05 implements', () => {
-    const wf = parse([{ id: 'b', kind: 'agent', agent: 'x', input: '{{inputs.topic}}', review: 'blocking' }]);
+  it('accepts every step kind the schema has: tool steps run as of RUN-06', () => {
+    const wf = parse([
+      { id: 'a', kind: 'tool', tool: 'calc', input: { expression: '2 + 2' } },
+      { id: 'b', kind: 'agent', agent: 'x', input: '{{steps.a.output}}', review: 'blocking' },
+    ]);
     expect(validateWorkflow(wf).errors).toEqual([]);
   });
 

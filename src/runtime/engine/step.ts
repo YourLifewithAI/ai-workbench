@@ -19,7 +19,10 @@ import { harnessSection } from './harness.js';
 import { WRAP_UP_INSTRUCTION } from './budget.js';
 import type { BudgetKind, BudgetStop, RunBudget } from './budget.js';
 import { parseJsonOutput, validateJson } from '../../shared/jsonschema.js';
+import { toolSpec } from '../../shared/tool.js';
+import type { ExecutedCall, ToolExecutor } from '../tools/executor.js';
 import type { CatalogEntry, CompiledRequest, ContentBlock, JsonSchema, Message, ModelErrorShape, ModelResponse } from '../../shared/model.js';
+import type { Permissions } from '../../shared/permissions.js';
 import type { LoadedAgent } from '../../shared/agent.js';
 
 /** Two retries after the first attempt, per model, when the error says `retry` (model-layer.md §Errors). */
@@ -53,6 +56,8 @@ export interface StepDeps {
   /** The runtime's own port, refused as a destination in every mode. */
   runtimePort?: (() => number | null) | undefined;
   artifacts?: ArtifactStore | undefined;
+  /** Present from RUN-06. Absent means no tool can be called, which is the safe direction to fail. */
+  tools?: ToolExecutor | undefined;
 }
 
 export interface AgentStepInput {
@@ -74,6 +79,10 @@ export interface AgentStepInput {
   workflow?: { id: string; stepId: string; upstream: string[]; downstream: string[] } | undefined;
   /** What the human said when they rejected the previous attempt, appended to the task rather than the system. */
   feedback?: string | undefined;
+  /** A workflow's `permissions` block: a ceiling over every step, never a widening. */
+  workflowCeiling?: Permissions | undefined;
+  /** Where this run's tools keep their scratch. */
+  scratchDir?: string | undefined;
   parentStepId?: string | undefined;
   mapIndex?: number | undefined;
 }
@@ -93,6 +102,11 @@ export interface StepOutcome {
 
 export class StepRunner {
   constructor(private readonly deps: StepDeps) {}
+
+  /** Tools are attached after construction: they need the engine, and the engine needs this. */
+  attachTools(executor: ToolExecutor): void {
+    this.deps.tools = executor;
+  }
 
   async runAgentStep(input: AgentStepInput): Promise<StepOutcome> {
     const { runId, stepId, agent } = input;
@@ -132,6 +146,10 @@ export class StepRunner {
       ? `${input.task}\n\n---\nA human reviewed your previous attempt and asked for this instead:\n\n${input.feedback}`
       : input.task;
     const transcript: Message[] = [{ role: 'user', content: [{ type: 'text', text: task }] }];
+    const available = this.deps.tools?.availableTo(agent, input.workflowCeiling) ?? [];
+    const specs = available.map(toolSpec);
+    // Rounds of tool results, oldest first: past `keepRecentToolResults` the older ones are masked (D-47).
+    const rounds: ExecutedCall[][] = [];
     let repairs = 0;
     let wrapUp: BudgetStop | null = null;
 
@@ -153,11 +171,12 @@ export class StepRunner {
         }
       }
 
-      const prompt = assemblePrompt(agent, task, this.harnessFor(input, wrapUp !== null), { knowledge });
+      const prompt = assemblePrompt(agent, task, this.harnessFor(input, wrapUp !== null, available.map((t) => t.id)), { knowledge });
       const request: CompiledRequest = {
         ...prompt.compiled,
-        messages: transcript,
-        tools: [], // RUN-06 fills this from the agent's grant; the wrap-up turn always sends none.
+        // The wrap-up turn always sends none: its whole point is that nothing new starts (D-14).
+        messages: this.mask(transcript, rounds),
+        tools: wrapUp ? [] : specs,
         ...(schema ? { outputSchema: schema } : {}),
       };
       const { response, entry } = await this.callWithFallback(input, candidates, request, prompt.promptVersion);
@@ -172,10 +191,20 @@ export class StepRunner {
       transcript.push({ role: 'assistant', content: response.content });
       const calls = response.content.filter((b): b is Extract<ContentBlock, { type: 'tool-call' }> => b.type === 'tool-call');
 
-      // The tool loop is in place before tools exist (RUN-06): a call to a tool the agent does not have comes
-      // back as a failed result the model can read, never as a crash.
+      // A call to a tool the agent does not have comes back as a failed result the model can read, never as a
+      // crash: the model is not to be punished for a mistake it can recover from.
       if (calls.length && !wrapUp) {
-        transcript.push({ role: 'tool', content: calls.map((call) => this.refuseTool(input, call)) });
+        const executed = await this.executeTools(input, calls);
+        rounds.push(executed);
+        transcript.push({
+          role: 'tool',
+          content: executed.map((e) => ({
+            type: 'tool-result' as const,
+            callId: e.callId,
+            ok: e.result.ok,
+            output: e.result.ok ? e.result.output : e.result.error,
+          })),
+        });
         continue;
       }
 
@@ -201,21 +230,73 @@ export class StepRunner {
     }
   }
 
-  private refuseTool(input: AgentStepInput, call: Extract<ContentBlock, { type: 'tool-call' }>): ContentBlock {
-    input.budget.recordToolCall();
-    this.deps.events.append(input.runId, input.stepId, 'tool-requested', { callId: call.id, tool: call.name, input: call.input });
-    const output = { error: { code: 'UnknownTool', message: `There is no tool called "${call.name}". Continue without it, and say so if it matters.` } };
-    this.deps.events.append(input.runId, input.stepId, 'tool-completed', { callId: call.id, tool: call.name, ok: false, output });
-    return { type: 'tool-result', callId: call.id, ok: false, output };
+  private async executeTools(input: AgentStepInput, calls: Extract<ContentBlock, { type: 'tool-call' }>[]): Promise<ExecutedCall[]> {
+    for (let i = 0; i < calls.length; i++) input.budget.recordToolCall();
+
+    const executor = this.deps.tools;
+    if (!executor) {
+      // No executor means no tool can run. Saying so is better than pretending one failed for another reason.
+      return calls.map((call) => {
+        this.deps.events.append(input.runId, input.stepId, 'tool-requested', { callId: call.id, tool: call.name, input: call.input });
+        const error = { code: 'UnknownTool' as const, message: `There is no tool called "${call.name}". Carry on without it, and say so if it matters.` };
+        this.deps.events.append(input.runId, input.stepId, 'tool-completed', { callId: call.id, tool: call.name, ok: false, error });
+        return { callId: call.id, tool: call.name, result: { ok: false as const, error } };
+      });
+    }
+
+    const ws = this.deps.workspace();
+    return executor.run(calls.map((c) => ({ id: c.id, name: c.name, input: c.input })), {
+      runId: input.runId,
+      stepId: input.stepId,
+      agent: input.agent,
+      project: input.project ?? null,
+      scratchDir: input.scratchDir ?? `${ws.paths.runs}/${input.runId}`,
+      ...(input.workflowCeiling ? { workflowCeiling: input.workflowCeiling } : {}),
+      signal: input.signal,
+      timeoutMs: input.budget.limits.toolCallTimeoutMs,
+    });
   }
 
-  private harnessFor(input: AgentStepInput, wrapUp: boolean): string {
+  /**
+   * Context discipline (D-47). Once the loop has passed `keepRecentToolResults` rounds, the older results are
+   * replaced in the *compiled prompt* by a line saying where to find them. The transcript object and the trace
+   * both keep everything; only what is sent shrinks, and the agent can always read the result back.
+   */
+  private mask(transcript: Message[], rounds: ExecutedCall[][]): Message[] {
+    const keep = this.deps.workspace().config.context.keepRecentToolResults;
+    if (rounds.length <= keep) return transcript;
+
+    const masked = new Map<string, string>();
+    for (const round of rounds.slice(0, rounds.length - keep)) {
+      for (const call of round) {
+        if (!call.result.ok) continue;
+        masked.set(call.callId, call.fullResultPath
+          ? `[result of ${call.tool} call ${call.callId} masked — artifact.read({ path: "${call.fullResultPath}" }) to recover]`
+          : `[result of ${call.tool} call ${call.callId} masked — it is in this run's trace]`);
+      }
+    }
+    if (!masked.size) return transcript;
+
+    return transcript.map((message) => {
+      if (message.role !== 'tool') return message;
+      return {
+        ...message,
+        content: message.content.map((block) => {
+          if (block.type !== 'tool-result') return block;
+          const note = masked.get(block.callId);
+          return note ? { ...block, output: note } : block;
+        }),
+      };
+    });
+  }
+
+  private harnessFor(input: AgentStepInput, wrapUp: boolean, tools: string[]): string {
     const ws = this.deps.workspace();
     return harnessSection({
       agentId: input.agent.definition.id,
       runId: input.runId,
       ...(input.workflow ? { workflow: input.workflow } : {}),
-      tools: [],
+      tools: wrapUp ? [] : tools,
       budgetLine: input.budget.remainingLine(),
       scratchDir: `runs/${input.runId}`,
       retentionDays: ws.config.retention.scratchDays,

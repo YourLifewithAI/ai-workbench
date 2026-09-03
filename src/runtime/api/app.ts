@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { CreateProjectRequest, CreateRunRequest, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetNetworkModeRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type DashboardResponse, type EgressRecord, type HealthResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
+import { ApprovalDecisionRequest, CreateProjectRequest, CreateRunRequest, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetNetworkModeRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type DashboardResponse, type EgressRecord, type HealthResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
@@ -20,6 +20,7 @@ import type { Logger } from '../log/index.js';
 import type { BrokenAgent, Workspace } from '../workspace/loader.js';
 import type { LoadedAgent } from '../../shared/agent.js';
 import { validateWorkflow, type LoadedWorkflow } from '../../shared/workflow.js';
+import { toolSpec } from '../../shared/tool.js';
 import type { BudgetOverride } from '../engine/budget.js';
 
 export interface AppDeps {
@@ -40,6 +41,8 @@ export interface AppDeps {
   models: (refresh: boolean) => Promise<ModelListResponse>;
   /** The one-click network switch (ui.md §UX rules): writes the mode to config and reloads it. */
   setNetworkMode: (mode: SetNetworkModeRequest['mode']) => void;
+  /** A human granting or withdrawing a tool. This is the authority; what an agent's file asks for is not. */
+  setGrant: (agentId: string, permissions: unknown) => void;
   artifacts: ArtifactStore;
   db: Db;
   uiDist: string;
@@ -290,6 +293,81 @@ export function createApp(deps: AppDeps): Hono {
     }
   });
 
+  // ---- approvals: the security queue (D-13) ---------------------------------------------------
+  app.get('/api/v1/approvals', (c) => {
+    const state = c.req.query('state');
+    const body: ApprovalListResponse = { approvals: deps.engine.approvals.list((state ?? 'pending') as 'pending') };
+    return json(c, body);
+  });
+
+  app.post('/api/v1/approvals/:id', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = ApprovalDecisionRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'Expected { decision: "allow" | "allow-remember" | "deny", actionId? }.', 400, parsed.error.issues);
+    try {
+      deps.engine.decideApproval(c.req.param('id'), parsed.data.decision, parsed.data.actionId);
+      return json(c, { decided: true }, 202);
+    } catch (e) {
+      return mapError(c, e);
+    }
+  });
+
+  // ---- tools and the grant matrix (D-26) ------------------------------------------------------
+  app.get('/api/v1/tools', (c) => {
+    const ws = deps.workspace();
+    const tools = deps.engine.tools.catalog();
+    const matrix: GrantCell[] = [];
+    for (const agent of ws.agents.values()) {
+      for (const tool of tools) matrix.push(deps.engine.tools.grantCell(agent, tool));
+    }
+    const denials = deps.db.prepare("SELECT * FROM tool_calls WHERE decision = 'denied' ORDER BY ts DESC LIMIT 50").all() as {
+      id: string; run_id: string; step_id: string; agent_id: string | null; tool: string; decision: string; reason: string | null; error_code: string | null; ts: string;
+    }[];
+    const body: ToolsResponse = {
+      tools: tools.map((t): ToolSummary => ({
+        id: t.id, version: t.version, description: t.description, tier: t.tier,
+        approvalByDefault: t.approvalByDefault ?? false,
+        inputSchema: toolSpec(t).inputSchema,
+      })),
+      matrix,
+      denials: denials.map((d): ToolDenial => ({
+        id: d.id, runId: d.run_id, stepId: d.step_id, agentId: d.agent_id, tool: d.tool,
+        decision: d.decision, reason: d.reason, errorCode: d.error_code, ts: d.ts,
+      })),
+      remembered: ws.config.remembered,
+    };
+    return json(c, body);
+  });
+
+  app.put('/api/v1/tools/grants', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = SetGrantRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'Expected { agentId, toolId, grant: "allow" | "deny" | "unset" }.', 400, parsed.error.issues);
+    const ws = deps.workspace();
+    if (!ws.agents.has(parsed.data.agentId)) return fail(c, 'not_found', `There is no agent called "${parsed.data.agentId}".`, 404);
+    if (!deps.engine.tools.catalog().some((t) => t.id === parsed.data.toolId)) return fail(c, 'not_found', `There is no tool called "${parsed.data.toolId}".`, 404);
+
+    const existing = (ws.config.grants[parsed.data.agentId] ?? {}) as { tools?: Record<string, string> };
+    const tools = { ...(existing.tools ?? {}) };
+    if (parsed.data.grant === 'unset') delete tools[parsed.data.toolId];
+    else tools[parsed.data.toolId] = parsed.data.grant;
+    deps.setGrant(parsed.data.agentId, { ...existing, tools });
+
+    const agent = ws.agents.get(parsed.data.agentId)!;
+    const tool = deps.engine.tools.catalog().find((t) => t.id === parsed.data.toolId)!;
+    return json(c, deps.engine.tools.grantCell(agent, tool));
+  });
+
   // ---- schedules (D-15) -----------------------------------------------------------------------
   app.get('/api/v1/schedules', (c) => {
     const body: ScheduleListResponse = { schedules: deps.scheduler.list() };
@@ -327,6 +405,7 @@ export function createApp(deps: AppDeps): Hono {
     const budgets = deps.workspace().config.budgets;
     const body: DashboardResponse = {
       needsYou: reviews.filter((r) => r.blocking),
+      approvals: deps.engine.approvals.list('pending'),
       unreviewed: reviews.filter((r) => !r.blocking).length,
       failed: runs.filter((r) => r.state === 'failed' || r.state === 'interrupted').slice(0, 10),
       running: runs.filter((r) => r.state === 'running' || r.state === 'queued' || r.state === 'waiting_review'),

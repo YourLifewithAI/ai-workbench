@@ -306,22 +306,6 @@ export const UpsertScheduleRequest = z.object({
 });
 export type UpsertScheduleRequest = z.infer<typeof UpsertScheduleRequest>;
 
-// ---- the Dashboard (spec/ui.md §Dashboard) ------------------------------------------------------
-
-export const DashboardResponse = z.object({
-  /** Blocking gates: a run is standing still until one of these is decided. */
-  needsYou: z.array(ReviewItem),
-  /** How many outputs are waiting for a rating. Nothing is blocked by them. */
-  unreviewed: z.number().int().nonnegative(),
-  failed: z.array(RunSummary),
-  running: z.array(RunSummary),
-  spentTodayUsd: z.number(),
-  dailySpendCapUsd: z.number(),
-  schedules: z.array(ScheduleSummary),
-  networkMode: z.string(),
-});
-export type DashboardResponse = z.infer<typeof DashboardResponse>;
-
 // ---- approvals (spec/tools-and-security.md §Approvals, D-13, D-57) -----------------------------
 
 /** Exactly `{ tool, path | host }` — the narrowest rule "remember" can write, and nothing wider. */
@@ -368,3 +352,75 @@ export const ApprovalDecisionRequest = z.object({
   actionId: z.string().optional(),
 });
 export type ApprovalDecisionRequest = z.infer<typeof ApprovalDecisionRequest>;
+
+// ---- the Dashboard (spec/ui.md §Dashboard) ------------------------------------------------------
+
+export const DashboardResponse = z.object({
+  /** Blocking gates: a run is standing still until one of these is decided. */
+  needsYou: z.array(ReviewItem),
+  /** Approvals: a run is standing still until someone says whether an action may happen (D-13). */
+  approvals: z.array(ApprovalItem),
+  /** How many outputs are waiting for a rating. Nothing is blocked by them. */
+  unreviewed: z.number().int().nonnegative(),
+  failed: z.array(RunSummary),
+  running: z.array(RunSummary),
+  spentTodayUsd: z.number(),
+  dailySpendCapUsd: z.number(),
+  schedules: z.array(ScheduleSummary),
+  networkMode: z.string(),
+});
+export type DashboardResponse = z.infer<typeof DashboardResponse>;
+
+// ---- tools and grants (spec/ui.md §Tools) --------------------------------------------------------
+
+export const ToolSummary = z.object({
+  id: z.string(),
+  version: z.string(),
+  description: z.string(),
+  tier: z.enum(['read', 'write', 'execute']),
+  /** True when every call needs a human decision whatever the grant says. */
+  approvalByDefault: z.boolean(),
+  inputSchema: z.record(z.string(), z.unknown()),
+});
+export type ToolSummary = z.infer<typeof ToolSummary>;
+
+/** One cell of the grant matrix: what the agent asked for, what a human actually gave it. */
+export const GrantCell = z.object({
+  agentId: z.string(),
+  toolId: z.string(),
+  requested: z.boolean(),
+  granted: z.enum(['allow', 'deny', 'unset']),
+  /** The decision as the broker would make it right now, with the reason it would give. */
+  effective: z.boolean(),
+  reason: z.string(),
+});
+export type GrantCell = z.infer<typeof GrantCell>;
+
+export const ToolDenial = z.object({
+  id: z.string(),
+  runId: z.string(),
+  stepId: z.string(),
+  agentId: z.string().nullable(),
+  tool: z.string(),
+  decision: z.string(),
+  reason: z.string().nullable(),
+  errorCode: z.string().nullable(),
+  ts: z.string(),
+});
+export type ToolDenial = z.infer<typeof ToolDenial>;
+
+export const ToolsResponse = z.object({
+  tools: z.array(ToolSummary),
+  matrix: z.array(GrantCell),
+  denials: z.array(ToolDenial),
+  /** Approvals a human agreed to remember, so they can be seen and taken back. */
+  remembered: z.array(RememberRule),
+});
+export type ToolsResponse = z.infer<typeof ToolsResponse>;
+
+export const SetGrantRequest = z.object({
+  agentId: z.string(),
+  toolId: z.string(),
+  grant: z.enum(['allow', 'deny', 'unset']),
+});
+export type SetGrantRequest = z.infer<typeof SetGrantRequest>;

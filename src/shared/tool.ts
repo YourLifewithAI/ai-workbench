@@ -1,7 +1,7 @@
 // Tools (D-25). A definition is data plus one `execute`; everything a tool is allowed to touch arrives through
 // its context, so a tool never imports `node:fs` and never calls `fetch` — the broker is the only door.
 import { z } from 'zod';
-import { Permissions } from './permissions.js';
+import type { Permissions } from './permissions.js';
 import type { JsonSchema, ToolSpec } from './model.js';
 
 export const ToolTier = z.enum(['read', 'write', 'execute']);
@@ -62,7 +62,7 @@ export interface ToolDefinition<I = unknown, O = unknown> {
   output: z.ZodType<O>;
   tier: ToolTier;
   /** The most this tool can ever be granted; the effective permission is an intersection, never a union (D-26). */
-  maxPermissions: z.infer<typeof Permissions>;
+  maxPermissions: Permissions;
   /** Credential names it may receive. Anything not named here is invisible to it. */
   credentials?: string[] | undefined;
   /** Approval is required whatever the grant says. `shell` and non-GET HTTP are the cases this exists for. */

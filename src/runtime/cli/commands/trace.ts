@@ -31,8 +31,14 @@ export function registerTrace(program: Command, bootstrap: Bootstrap): void {
 function summarize(e: EventRecord): string {
   const p = e.payload;
   const parts: string[] = [];
-  for (const key of ['agentId', 'modelId', 'adapter', 'reason', 'costUsd', 'latencyMs']) {
+  for (const key of ['agentId', 'tool', 'modelId', 'adapter', 'decision', 'reason', 'costUsd', 'latencyMs']) {
     if (p[key] !== undefined && p[key] !== null) parts.push(`${key}=${String(p[key])}`);
+  }
+  // A denial is the line a human is looking for when they open a trace, so it says so in the summary.
+  if (p['allowed'] === false) parts.unshift('DENIED');
+  if (e.type === 'tool-completed' && p['ok'] === false) {
+    const error = p['error'] as { code?: string } | undefined;
+    parts.unshift(error?.code ?? 'failed');
   }
   if (typeof p['output'] === 'string') parts.push(`output=${JSON.stringify(p['output'].slice(0, 60))}${p['output'].length > 60 ? '…' : ''}`);
   if (e.type === 'model-started' && p['request'] && typeof p['request'] === 'object') {

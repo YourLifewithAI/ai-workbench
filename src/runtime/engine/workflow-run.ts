@@ -7,6 +7,7 @@ import type { Logger } from '../log/index.js';
 import type { EventStore } from './events.js';
 import type { RunBudget } from './budget.js';
 import { StepFailure, type StepOutcome, type StepRunner } from './step.js';
+import type { ToolExecutor } from '../tools/executor.js';
 import { evaluate, parseExpr, ReferenceError_, truthy, type Scope } from '../../shared/expr.js';
 import { renderTemplate } from '../../shared/template.js';
 import { mapItemStepId, validateWorkflow, type LoadedWorkflow, type MapStep, type Step } from '../../shared/workflow.js';
@@ -30,6 +31,8 @@ export interface WorkflowDeps {
   artifacts?: ArtifactStore | undefined;
   steps: StepRunner;
   review: ReviewHost;
+  /** Runs a `kind: 'tool'` step. The same executor the agent loop uses, so the same policy decides. */
+  tools: ToolExecutor;
 }
 
 export interface WorkflowRunInput {
@@ -165,6 +168,7 @@ export class WorkflowExecutor {
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
         if (step.kind === 'map') return { skipped: false, value: await this.runMap(input, step, scope, signal) };
+        if (step.kind === 'tool') return { skipped: false, value: await this.runTool(input, step, scope(), signal) };
         // A rejected step re-runs with the feedback appended, which is not one of `retries` — a human asking
         // for something different is not the same as a model failing (workflows-and-execution.md §Review).
         for (;;) {
@@ -210,6 +214,8 @@ export class WorkflowExecutor {
       ...(document !== undefined ? { documentPath: document } : {}),
       ...(feedback ? { feedback } : {}),
       budget: input.budget.child(step.budget),
+      ...(input.workflow.definition.permissions ? { workflowCeiling: input.workflow.definition.permissions } : {}),
+      scratchDir: `${this.deps.workspace().paths.runs}/${input.runId}`,
       signal,
       workflow: {
         id: input.workflow.definition.id,
@@ -220,6 +226,38 @@ export class WorkflowExecutor {
       ...(parentStepId ? { parentStepId } : {}),
       ...(mapIndex !== undefined ? { mapIndex } : {}),
     });
+  }
+
+  /**
+   * A tool step: no model, no transcript, just the call and its result. The permission decision is the same one
+   * an agent's call gets — a workflow author does not get a wider door than an agent does.
+   */
+  private async runTool(input: WorkflowRunInput, step: Extract<Step, { kind: 'tool' }>, scope: Scope, signal: AbortSignal): Promise<unknown> {
+    const ws = this.deps.workspace();
+    // A tool step has no agent, so it runs as the workflow itself: its grant is `grants.<workflowId>`.
+    const asAgent = ws.agents.get(input.workflow.definition.id);
+    if (!asAgent) {
+      throw new WorkflowFailure(step.id, 'tool_step_needs_grant', { tool: step.tool },
+        `Step "${step.id}" calls the tool "${step.tool}" directly. A tool step runs under a grant named for the workflow, so this workspace needs an agent definition called "${input.workflow.definition.id}" to hold it — or use an agent step.`);
+    }
+    this.markRow(input.runId, step.id, 'running', 'tool');
+    this.deps.events.append(input.runId, step.id, 'step-started', { stepId: step.id, kind: 'tool', tool: step.tool });
+
+    const [executed] = await this.deps.tools.run([{ id: `${step.id}-1`, name: step.tool, input: renderTemplate(step.input, scope) }], {
+      runId: input.runId, stepId: step.id, agent: asAgent, project: input.project ?? null,
+      scratchDir: `${ws.paths.runs}/${input.runId}`,
+      ...(input.workflow.definition.permissions ? { workflowCeiling: input.workflow.definition.permissions } : {}),
+      signal, timeoutMs: input.budget.limits.toolCallTimeoutMs,
+    });
+    input.budget.recordToolCall();
+    if (!executed || !executed.result.ok) {
+      const error = executed?.result.ok === false ? executed.result.error : { code: 'ToolError', message: 'the tool returned nothing' };
+      throw new WorkflowFailure(step.id, error.code, error, error.message);
+    }
+    this.deps.db.prepare('UPDATE run_steps SET state = ?, output_json = ?, finished_at = ? WHERE run_id = ? AND step_id = ?')
+      .run('completed', JSON.stringify(executed.result.output), new Date().toISOString(), input.runId, step.id);
+    this.deps.events.append(input.runId, step.id, 'step-completed', { stepId: step.id, kind: 'tool', tool: step.tool });
+    return executed.result.output;
   }
 
   /** `map` runs its inner step once per item, `concurrency` at a time; the output is an array in item order. */

@@ -12,7 +12,7 @@ import { EMPTY_PERMISSIONS, effectivePermissions, grantFor, type ToolDecision } 
 import type { WorkbenchConfig } from '../../shared/workspace.js';
 import type { Permissions } from '../../shared/permissions.js';
 import { toolError, type ToolContext, type ToolDefinition, type ToolResult } from '../../shared/tool.js';
-import type { RememberRule } from '../../shared/api/index.js';
+import type { GrantCell, RememberRule } from '../../shared/api/index.js';
 import type { LoadedAgent } from '../../shared/agent.js';
 
 export interface ToolCall { id: string; name: string; input: unknown }
@@ -59,6 +59,25 @@ export interface ExecutedCall {
 
 export class ToolExecutor {
   constructor(private readonly deps: ExecutorDeps) {}
+
+  /** Every tool that exists, granted or not — the Tools screen shows the whole catalogue. */
+  catalog(): ToolDefinition[] {
+    return [...this.deps.tools.values()].sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  /** One cell of the grant matrix: what was asked, what was given, and what the broker would decide now. */
+  grantCell(agent: LoadedAgent, tool: ToolDefinition): GrantCell {
+    const granted = grantFor(this.deps.config(), agent.definition.id)?.tools[tool.id];
+    const decision = this.decisionFor(agent, tool);
+    return {
+      agentId: agent.definition.id,
+      toolId: tool.id,
+      requested: agent.definition.permissions.tools[tool.id] === 'allow',
+      granted: granted ?? 'unset',
+      effective: decision.allowed,
+      reason: decision.reason,
+    };
+  }
 
   /** Which tools this agent may actually see. A tool the model cannot call should not be in its prompt. */
   availableTo(agent: LoadedAgent, workflowCeiling?: Permissions): ToolDefinition[] {

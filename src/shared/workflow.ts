@@ -114,7 +114,6 @@ export function validateWorkflow(workflow: Workflow): ValidationResult {
 
   for (const [index, step] of workflow.steps.entries()) {
     const at = `steps[${index}]`;
-    checkUnsupported(step, at, errors);
 
     for (const dependency of step.dependsOn) {
       if (!steps.has(dependency)) errors.push({ path: `${at}.dependsOn`, message: `"${dependency}" is not a step in this workflow` });
@@ -142,20 +141,12 @@ export function validateWorkflow(workflow: Workflow): ValidationResult {
       checkExpr(step.over, `${at}.over`, errors);
       if (step.step.kind === 'map') errors.push({ path: `${at}.step`, message: 'a map may not contain another map (one level of nesting)' });
       if (step.step.dependsOn.length) errors.push({ path: `${at}.step.dependsOn`, message: 'a map\'s inner step runs per item and cannot declare dependencies' });
-      checkUnsupported(step.step, `${at}.step`, errors);
     }
   }
 
   const order = topologicalOrder(edges, errors);
   smells.push(...detectSmells(workflow, steps, edges));
   return { errors, smells, edges, order };
-}
-
-/** Features later runs add: refused by name, so a workflow file never half-works. */
-function checkUnsupported(step: Step, at: string, errors: ValidationIssue[]): void {
-  if (step.kind === 'tool') {
-    errors.push({ path: `${at}.kind`, message: 'tool steps arrive in RUN-06, when tools exist. Use an agent step for now.' });
-  }
 }
 
 function checkExpr(source: string, at: string, errors: ValidationIssue[]): void {

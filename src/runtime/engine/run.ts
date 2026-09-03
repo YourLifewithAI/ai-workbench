@@ -13,10 +13,16 @@ import { RunBudget, narrowBudgets, type BudgetOverride } from './budget.js';
 import { StepFailure, StepRunner } from './step.js';
 import { WorkflowExecutor, WorkflowFailure, type ReviewHost } from './workflow-run.js';
 import { MAX_REJECTIONS, ReviewStore, type ReviewDecision } from '../review/store.js';
+import { ApprovalStore, type ApprovalDecision } from '../approvals/store.js';
+import { ToolExecutor, type ApprovalHost } from '../tools/executor.js';
+import { builtinTools } from '../tools/registry.js';
+import { MAX_DEPTH, type DelegateHost, type PermissionRequestHost } from '../tools/builtin/delegate.js';
+import type { RememberRule } from '../../shared/api/index.js';
 import type { RunDetail, RunSummary } from '../../shared/api/index.js';
 import type { RunState, Spent } from '../../shared/events.js';
 import type { LoadedAgent } from '../../shared/agent.js';
 import type { LoadedWorkflow } from '../../shared/workflow.js';
+import type { WorkbenchConfig } from '../../shared/workspace.js';
 import { applyDefaults, validateJson } from '../../shared/jsonschema.js';
 
 export interface EngineDeps {
@@ -34,10 +40,15 @@ export interface EngineDeps {
   runtimePort?: (() => number | null) | undefined;
   /** The Library. Present from RUN-03; a run without a project still runs, it just has nowhere to file output. */
   artifacts?: ArtifactStore | undefined;
+  /** The clock approvals expire against. A test drives it; production leaves it alone. */
+  now?: (() => Date) | undefined;
+  /** Writes `config/workbench.json` back, for a remembered approval and an edited grant. */
+  persistConfig?: ((config: WorkbenchConfig) => void) | undefined;
 }
 
 /** One human decision, handed to whichever run is parked behind it. */
 interface GateDecision { decision: ReviewDecision; feedback?: string | undefined }
+interface ApprovalGateDecision { decision: 'allow' | 'deny'; reason: string }
 
 export class NotFoundError extends Error { constructor(m: string) { super(m); this.name = 'NotFoundError'; } }
 export class ValidationError extends Error { constructor(m: string) { super(m); this.name = 'ValidationError'; } }
@@ -50,6 +61,8 @@ export interface StartAgentRunInput {
   provider?: 'mock' | undefined;
   modelOverride?: string | undefined;
   budget?: BudgetOverride | undefined;
+  /** Set when this run is a delegation: it nests in the parent's trace and counts against the parent (D-12). */
+  parent?: { runId: string; stepId: string; depth: number } | undefined;
 }
 
 export interface StartWorkflowRunInput {
@@ -77,19 +90,210 @@ export class Engine {
   private readonly steps: StepRunner;
   private readonly workflows: WorkflowExecutor;
   private readonly gates = new Map<string, (d: GateDecision) => void>();
+  private readonly approvalGates = new Map<string, (d: ApprovalGateDecision) => void>();
+  private expiry: NodeJS.Timeout | null = null;
   readonly reviews: ReviewStore;
+  readonly approvals: ApprovalStore;
+  readonly tools: ToolExecutor;
 
   constructor(private readonly deps: EngineDeps) {
+    if (!deps.artifacts) throw new Error('The engine needs the Library: tools file their output there, and the broker checks paths against it.');
+    const artifacts = deps.artifacts;
     this.reviews = new ReviewStore(deps.db);
+    this.approvals = new ApprovalStore(deps.db, () => deps.now?.() ?? new Date());
     this.steps = new StepRunner({
       db: deps.db, events: deps.events, workspace: deps.workspace, registry: deps.registry,
       credentials: deps.credentials, redactor: deps.redactor, log: deps.log,
-      fetch: deps.fetch, runtimePort: deps.runtimePort, artifacts: deps.artifacts,
+      fetch: deps.fetch, runtimePort: deps.runtimePort, artifacts,
     });
+    // The hosts below close over `this`; nothing calls them during construction, so the cycle between the
+    // engine (which starts child runs) and the tools (which ask it to) never has to be broken by a null.
+    this.tools = new ToolExecutor({
+      db: deps.db, events: deps.events, log: deps.log, redactor: deps.redactor, credentials: deps.credentials,
+      config: () => deps.workspace().config,
+      workspaceDir: deps.workspace().paths.dir,
+      tools: builtinTools({
+        artifacts,
+        workspaceDir: deps.workspace().paths.dir,
+        delegate: this.delegateHost(),
+        permissions: this.permissionRequestHost(),
+      }),
+      approvals: this.approvalHost(),
+    });
+    this.steps.attachTools(this.tools);
     this.workflows = new WorkflowExecutor({
       db: deps.db, events: deps.events, workspace: deps.workspace, log: deps.log,
-      artifacts: deps.artifacts, steps: this.steps, review: this.reviewHost(),
+      artifacts, steps: this.steps, review: this.reviewHost(), tools: this.tools,
     });
+  }
+
+  // ---- approvals (D-13) ----------------------------------------------------------------------------------
+
+  /**
+   * A tool call that policy marks sensitive parks the run in `waiting_approval` and waits. The decision comes
+   * back as a tool result the agent reads — an approval is a fact about the world, not an exception.
+   */
+  private approvalHost(): ApprovalHost {
+    return {
+      request: async ({ runId, stepId, tool, args, policy, remember, signal }) => {
+        const row = this.approvals.open({ runId, stepId, tool, args, policy, ...(remember ? { remember } : {}) });
+        this.deps.db.prepare("UPDATE runs SET state = 'waiting_approval' WHERE id = ?").run(runId);
+        this.deps.events.append(runId, stepId, 'approval-requested', {
+          approvalId: row.id, batchId: row.batch_id, tool, args, policy, expiresAt: row.expires_at,
+        });
+
+        const outcome = await this.waitForApproval(row.id, signal);
+        this.deps.db.prepare("UPDATE runs SET state = 'running' WHERE id = ?").run(runId);
+        this.deps.events.append(runId, stepId, 'approval-decided', {
+          approvalId: row.id, tool, decision: outcome.decision, reason: outcome.reason,
+        });
+        return outcome;
+      },
+    };
+  }
+
+  private waitForApproval(approvalId: string, signal: AbortSignal): Promise<ApprovalGateDecision> {
+    return new Promise<ApprovalGateDecision>((resolve) => {
+      const settle = (d: ApprovalGateDecision): void => {
+        signal.removeEventListener('abort', onAbort);
+        this.approvalGates.delete(approvalId);
+        resolve(d);
+      };
+      // A cancelled run does not get its approval: the safe answer when nobody is deciding is no.
+      const onAbort = (): void => settle({ decision: 'deny', reason: 'the run was cancelled' });
+      if (signal.aborted) { onAbort(); return; }
+      signal.addEventListener('abort', onAbort, { once: true });
+      this.approvalGates.set(approvalId, settle);
+    });
+  }
+
+  /** The human decided. `allow-remember` also writes the narrowest rule to workspace config (SEC-12). */
+  decideApproval(idOrBatch: string, decision: ApprovalDecision, actionId?: string): void {
+    const rows = actionId
+      ? [this.approvals.byId(actionId)].filter((r): r is NonNullable<typeof r> => r !== null)
+      : this.approvals.list('pending').find((b) => b.batchId === idOrBatch)?.actions.map((a) => this.approvals.byId(a.id)).filter((r): r is NonNullable<typeof r> => r !== null)
+        ?? [this.approvals.byId(idOrBatch)].filter((r): r is NonNullable<typeof r> => r !== null);
+    if (!rows.length) throw new NotFoundError(`There is no pending approval for "${actionId ?? idOrBatch}".`);
+
+    for (const row of rows) {
+      if (row.state !== 'pending') continue;
+      this.approvals.decide(row.id, decision);
+      if (decision === 'allow-remember' && row.remember_json) {
+        this.remember(JSON.parse(row.remember_json) as RememberRule);
+      }
+      const waiting = this.approvalGates.get(row.id);
+      waiting?.({
+        decision: decision === 'deny' ? 'deny' : 'allow',
+        reason: decision === 'deny' ? 'a human refused it' : 'a human allowed it',
+      });
+    }
+  }
+
+  /** Writes exactly one narrow rule. Never the whole tool, never a wildcard, never more than was asked. */
+  private remember(rule: RememberRule): void {
+    const ws = this.deps.workspace();
+    const already = ws.config.remembered.some((r) => r.tool === rule.tool && r.host === rule.host && r.path === rule.path);
+    if (already) return;
+    ws.config.remembered.push({ tool: rule.tool, ...(rule.host ? { host: rule.host } : {}), ...(rule.path ? { path: rule.path } : {}) });
+    this.deps.persistConfig?.(ws.config);
+    this.deps.log.info({ rule }, 'remembered an approval');
+  }
+
+  /** Anything past its deadline becomes a denial, and whatever was waiting on it is told (SEC-12). */
+  expireApprovals(now?: Date): number {
+    const expired = this.approvals.expire(now ?? this.deps.now?.() ?? new Date());
+    for (const row of expired) {
+      this.deps.events.append(row.run_id, row.step_id, 'approval-decided', { approvalId: row.id, tool: row.tool, decision: 'deny', reason: 'timeout' });
+      this.approvalGates.get(row.id)?.({ decision: 'deny', reason: 'timeout' });
+    }
+    return expired.length;
+  }
+
+  /** Production wakes on a timer; a test calls `expireApprovals` with the clock it controls. */
+  startApprovalExpiry(everyMs = 30_000): void {
+    if (this.expiry) return;
+    this.expiry = setInterval(() => { this.expireApprovals(); }, everyMs);
+    this.expiry.unref?.();
+  }
+
+  stopApprovalExpiry(): void {
+    if (this.expiry) clearInterval(this.expiry);
+    this.expiry = null;
+  }
+
+  // ---- delegation (D-12) ---------------------------------------------------------------------------------
+
+  /**
+   * A child run: `parent_run_id`, `depth = parent + 1`, a budget carved from the parent's remainder, and
+   * permissions that are the child's grant ∩ the parent's effective. It cannot do anything the parent could
+   * not, and it never sees the parent's transcript — only the brief the planner wrote (D-48, SEC-13).
+   */
+  private delegateHost(): DelegateHost {
+    return {
+      delegate: async ({ parentRunId, parentStepId, agentId, brief, model, maxModelCalls, signal }) => {
+        const parent = this.deps.db.prepare('SELECT * FROM runs WHERE id = ?').get(parentRunId) as (RunRow & { depth: number }) | undefined;
+        if (!parent) return { ok: false, code: 'ToolError', message: `Run "${parentRunId}" is gone.` };
+        const depth = (parent.depth ?? 0) + 1;
+        if (depth > MAX_DEPTH) {
+          return { ok: false, code: 'DelegationDepthExceeded', message: `This is delegation level ${depth}; ${MAX_DEPTH} is the limit.` };
+        }
+
+        const ws = this.deps.workspace();
+        const agent = ws.agents.get(agentId);
+        if (!agent) {
+          const broken = ws.brokenAgents.find((b) => b.id === agentId);
+          return { ok: false, code: 'NotFound', message: broken ? `Agent "${agentId}" failed to load: ${broken.message}` : `There is no agent called "${agentId}" in this workspace.` };
+        }
+
+        // The child's budget comes out of what the parent has left, so a chain cannot spend more than one run.
+        const parentBudgets = JSON.parse(parent.budgets_json) as ReturnType<typeof narrowBudgets>;
+        const parentSpent = JSON.parse(parent.spent_json) as Spent;
+        const remainingCalls = Math.max(0, parentBudgets.maxModelCalls - parentSpent.modelCalls);
+        const remainingCost = Math.max(0, parentBudgets.maxCostUsd - parentSpent.costUsd);
+        if (remainingCalls < 1 || remainingCost <= 0) {
+          return { ok: false, code: 'BudgetExceeded', message: 'This run has no budget left to give a child. Finish with what you have.' };
+        }
+        const childBudget = {
+          maxModelCalls: Math.max(1, Math.min(maxModelCalls ?? remainingCalls, remainingCalls)),
+          maxCostUsd: remainingCost,
+        };
+
+        const child = this.startAgentRun({
+          agentId,
+          inputs: { input: brief },
+          ...(parent.project_id ? { project: parent.project_id } : {}),
+          ...(model ? { modelOverride: model } : {}),
+          budget: childBudget,
+          parent: { runId: parentRunId, stepId: parentStepId, depth },
+        });
+        const onAbort = (): void => { try { this.cancel(child.runId); } catch { /* already finished */ } };
+        signal.addEventListener('abort', onAbort, { once: true });
+        try {
+          await child.done;
+        } finally {
+          signal.removeEventListener('abort', onAbort);
+        }
+
+        const detail = this.getRun(child.runId);
+        if (!detail || detail.state !== 'completed') {
+          const error = detail?.error as { message?: string } | undefined;
+          return { ok: false, code: 'ToolError', message: `The delegated run ${child.runId} ${detail?.state ?? 'vanished'}: ${error?.message ?? 'no details'}` };
+        }
+        // The parent pays for the child, so a chain shows up in one place.
+        this.deps.db.prepare('UPDATE runs SET spent_json = ? WHERE id = ?')
+          .run(this.persist({ ...parentSpent, costUsd: round(parentSpent.costUsd + detail.spent.costUsd), modelCalls: parentSpent.modelCalls + detail.spent.modelCalls }), parentRunId);
+        return { ok: true, runId: child.runId, output: String(detail.outputs?.['output'] ?? ''), costUsd: detail.spent.costUsd };
+      },
+    };
+  }
+
+  private permissionRequestHost(): PermissionRequestHost {
+    return {
+      ask: async ({ runId, stepId, what, why, signal }) => this.approvalHost().request({
+        runId, stepId, tool: 'permission.request', args: { what, why },
+        policy: `The agent asked for permission to ${what}, because: ${why}`, signal,
+      }),
+    };
   }
 
   // ---- review (D-13) -------------------------------------------------------------------------------------
@@ -188,14 +392,22 @@ export class Engine {
     const runId = ulid();
     const budgets = narrowBudgets(narrowBudgets(ws.config.budgets, agent.definition.budgets), input.budget);
     const now = new Date().toISOString();
-    this.deps.db.prepare(`INSERT INTO runs (id, kind, state, agent_version, agent_id, project_id, depth, inputs_json, budgets_json, spent_json, started_at)
-      VALUES (?, 'agent', 'running', ?, ?, ?, 0, ?, ?, ?, ?)`)
-      .run(runId, agent.version, agent.definition.id, input.project ?? null, this.persist(input.inputs), this.persist(budgets), this.persist(EMPTY_SPENT), now);
+    this.deps.db.prepare(`INSERT INTO runs (id, kind, state, agent_version, agent_id, project_id, parent_run_id, depth, inputs_json, budgets_json, spent_json, started_at)
+      VALUES (?, 'agent', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(runId, agent.version, agent.definition.id, input.project ?? null, input.parent?.runId ?? null, input.parent?.depth ?? 0,
+        this.persist(input.inputs), this.persist(budgets), this.persist(EMPTY_SPENT), now);
     this.recordAgentVersion(agent, now);
     this.deps.events.append(runId, null, 'run-started', {
       kind: 'agent', agentId: agent.definition.id, agentVersion: agent.version, inputs: input.inputs,
       project: input.project ?? null, budgets, provider: input.provider ?? this.deps.providerOverride ?? null,
+      ...(input.parent ? { parentRunId: input.parent.runId, parentStepId: input.parent.stepId, depth: input.parent.depth } : {}),
     });
+    // The parent's trace shows the child as an event of its own, so a delegation is not a gap in the story.
+    if (input.parent) {
+      this.deps.events.append(input.parent.runId, input.parent.stepId, 'run-started', {
+        kind: 'agent', childRunId: runId, agentId: agent.definition.id, depth: input.parent.depth, delegated: true,
+      });
+    }
 
     return this.schedule(runId, budgets, now, async (budget, signal) => {
       const task = typeof input.inputs['input'] === 'string' ? (input.inputs['input'] as string) : JSON.stringify(input.inputs);
@@ -539,6 +751,10 @@ export class Engine {
 const EMPTY_SPENT: Spent = { modelCalls: 0, toolCalls: 0, costUsd: 0, wallClockMs: 0 };
 const ACTIVE_STATES = new Set<RunState>(['queued', 'running', 'waiting_review', 'waiting_approval']);
 const RESUMABLE_STATES = new Set<RunState>(['interrupted', 'waiting_review', 'failed']);
+
+function round(value: number): number {
+  return Math.round(value * 1e8) / 1e8;
+}
 
 function reasonOf(e: unknown): string {
   if (e instanceof StepFailure) return e.reason;
