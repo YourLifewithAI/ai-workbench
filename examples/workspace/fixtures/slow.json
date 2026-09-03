@@ -1,1 +1,10 @@
-{ "match": { "lastUserIncludes": "slow" }, "respond": { "text": "…slowly.", "latencyMs": 500 } }
+{
+  "match": {
+    "lastUserIncludes": "slow"
+  },
+  "respond": {
+    "text": "\u2026slowly.",
+    "latencyMs": 500,
+    "chunkDelayMs": 120
+  }
+}

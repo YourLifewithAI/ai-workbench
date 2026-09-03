@@ -30,6 +30,11 @@ Order of checks: `Host`/`Origin` (403) before token (401). Requests without an `
 
 Shapes used everywhere: `inputs` is an object (`run agent --input <text>` sends `{ input: <text> }`; workflows take their `inputs` schema); a single-agent run's `outputs` is `{ output: <text | validated JSON> }`, a workflow's is its `outputs` record; `spent` is `{ modelCalls, toolCalls, costUsd, wallClockMs }`. `POST /runs` returns 202. `GET /runs` items are `{ id, kind, state, agentId?, workflowId?, project?, startedAt, finishedAt?, spent }`.
 
+> Amendment (RUN-01, 2026-09-03): `GET /runs/:id/events` also carries transient `model-delta` frames
+> (`{ runId, stepId, modelId, kind: 'text' | 'reasoning', text }`) so a client can watch tokens arrive. They
+> carry no SSE `id`, are never stored, and never appear in `trace.jsonl` — a reconnecting client's `after=<seq>`
+> cursor is therefore unaffected by them.
+
 Long-running runs are observable from any client: a reconnecting client passes the last `seq`, and a closed tab loses nothing.
 
 ## CLI (`workbench`, alias `wb`) — D-45

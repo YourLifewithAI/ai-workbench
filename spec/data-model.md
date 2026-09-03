@@ -76,6 +76,11 @@ Vocabularies: `runs.kind ∈ agent | workflow | experiment`; `runs.state ∈ que
 
 ## Rules
 
+> Amendment (RUN-01, 2026-09-03): streamed tokens are *shown, not stored*. The engine emits `model-delta` on the live
+> bus only; nothing is written to `events`, because the `model-completed` payload already holds the whole
+> response. One row per token would bloat every trace without adding a fact, and would break `after=<seq>`
+> resume by advancing the cursor past rows a reconnecting client can never replay.
+
 - **Events carry full payloads.** `model-started` stores the compiled request; `model-completed` stores the normalized response and usage. Tool events store inputs and the full result. This is what the trace viewer renders and what reproducibility means here.
 - **Every persisted JSON has `schemaVersion`** (`schema_v` on events). A reader that meets a newer version refuses with a message naming both versions; an older version renders best-effort.
 - **Migrations** are numbered SQL files (`0001_init.sql`, …) in `src/runtime/db/migrations/`, copied into `dist/`. When any are pending, the database is first copied with the SQLite online backup API to `data/backups/<iso-timestamp>-pre-<target-version>.sqlite` (none when the file does not yet exist; `retention.backups` kept), then all pending migrations are applied inside one transaction. A database newer than the code refuses to open. Downgrade is restoring a backup.

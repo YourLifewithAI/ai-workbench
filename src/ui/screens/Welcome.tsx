@@ -27,11 +27,24 @@ export function Welcome() {
           {settings.data ? <p><span className="font-medium">{settings.data.workspaceName}</span> <span className="break-all font-mono text-xs text-gray-600 dark:text-gray-400">{settings.data.workspacePath}</span></p> : null}
         </Step>
 
-        <Step n={2} title="Pick a provider" done={provider !== null} why="Models are a replaceable substrate. The mock provider answers from scripted fixtures, so you can learn the workbench before you spend a cent.">
-          <p className="text-sm text-gray-700 dark:text-gray-300">
-            {settings.data?.providersConfigured.length ? `Configured: ${settings.data.providersConfigured.join(', ')}. ` : 'No provider key is configured yet (real adapters arrive in RUN-02). '}
-            The example below uses the built-in mock either way.
-          </p>
+        <Step n={2} title="Pick a provider" done={provider !== null} why="Models are a replaceable substrate: an agent names a policy, not a vendor. The mock answers from scripted fixtures, so you can learn the workbench before you spend a cent.">
+          {settings.data?.providersConfigured.length ? (
+            <p className="text-sm text-gray-700 dark:text-gray-300">
+              Configured: <span className="font-medium">{settings.data.providersConfigured.join(', ')}</span>. Real runs will use your agents&apos; model policies.
+            </p>
+          ) : (
+            <details className="rounded-md border border-gray-200 p-3 text-sm dark:border-gray-800">
+              <summary className="cursor-pointer font-medium">Add a provider key</summary>
+              <p className="mt-2 text-gray-700 dark:text-gray-300">
+                Keys live in one file that only you can read, never in an agent and never in this page. Create
+                <code className="mx-1 font-mono text-xs">config/credentials.json</code> in your workspace:
+              </p>
+              <pre tabIndex={0} className="mt-2 overflow-x-auto rounded bg-gray-50 p-3 font-mono text-xs dark:bg-gray-950">{'{ "google": { "apiKey": "…" } }'}</pre>
+              <p className="mt-2 text-gray-700 dark:text-gray-300">
+                Then <code className="font-mono text-xs">chmod 600</code> it and restart the runtime. The workbench refuses to read it at any looser permission, and redacts the value from every trace, log, and response.
+              </p>
+            </details>
+          )}
           <Button className="mt-3" variant={provider === 'mock' ? 'secondary' : 'default'} onClick={() => setProvider('mock')} aria-pressed={provider === 'mock'}>
             {provider === 'mock' ? 'Using the mock provider' : 'Try it with the mock'}
           </Button>

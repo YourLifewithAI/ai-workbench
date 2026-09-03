@@ -15,7 +15,7 @@ import { createLogger, type Logger, type LogHandle } from './log/index.js';
 import { openDatabase, type Db } from './db/index.js';
 import { EventStore } from './engine/events.js';
 import { Engine } from './engine/run.js';
-import { AdapterRegistry } from './models/adapter.js';
+import { AdapterRegistry, type FetchLike } from './models/adapter.js';
 import { MockAdapter } from './models/adapters/mock/index.js';
 import { GoogleAdapter } from './models/adapters/google/index.js';
 import { createApp } from './api/app.js';
@@ -38,6 +38,8 @@ export interface RuntimeOptions {
   quietLog?: boolean | undefined;
   /** Injectable FTS5 assertion (RUN-00 DoD 7). */
   assertFts5?: ((db: Db) => void) | undefined;
+  /** The fetch every adapter call receives; RUN-02 passes the egress checker, tests pass a replay. */
+  fetch?: FetchLike | undefined;
 }
 
 export interface RuntimeFile { port: number; pid: number; startedAt: string }
@@ -109,7 +111,7 @@ export class Runtime {
     const registry = new AdapterRegistry();
     registry.register(new MockAdapter(workspace.paths.fixtures));
     registry.register(new GoogleAdapter());
-    const engine = new Engine({ db, events, workspace: () => workspace, registry, credentials, redactor, log: logHandle.logger, providerOverride: opts.providerOverride ?? null });
+    const engine = new Engine({ db, events, workspace: () => workspace, registry, credentials, redactor, log: logHandle.logger, providerOverride: opts.providerOverride ?? null, ...(opts.fetch ? { fetch: opts.fetch } : {}) });
     return new Runtime(opts, pkg, workspace, db, redactor, credentials, logHandle, events, registry, engine);
   }
 

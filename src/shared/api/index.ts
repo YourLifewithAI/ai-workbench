@@ -25,6 +25,7 @@ export const RunSummary = z.object({
 export type RunSummary = z.infer<typeof RunSummary>;
 
 export const StepSummary = z.object({ stepId: z.string(), kind: z.string(), state: z.string(), modelId: z.string().nullable(), costUsd: z.number(), startedAt: z.string().nullable(), finishedAt: z.string().nullable() });
+export type StepSummary = z.infer<typeof StepSummary>;
 
 export const RunDetail = RunSummary.extend({
   inputs: z.record(z.string(), z.unknown()),

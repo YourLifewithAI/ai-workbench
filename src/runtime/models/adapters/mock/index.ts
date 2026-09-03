@@ -21,6 +21,8 @@ const Fixture = z.object({
     error: ModelErrorCode.optional(),
     finishReason: FinishReason.optional(),
     latencyMs: z.number().int().nonnegative().optional(),
+    /** Pause between streamed chunks, so a fixture can demonstrate streaming rather than arriving all at once. */
+    chunkDelayMs: z.number().int().nonnegative().optional(),
     usage: z.object({ input: z.number().int().nonnegative(), output: z.number().int().nonnegative() }).optional(),
   }).default({}),
 });
@@ -73,7 +75,8 @@ export class MockAdapter implements ModelAdapter {
     return null;
   }
 
-  private async respond(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext): Promise<ModelResponse> {
+  /** One selection per call: `select` advances the per-run callIndex, so it must not be called twice. */
+  private async respond(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext): Promise<{ response: ModelResponse; chunkDelayMs: number }> {
     const chosen = this.select(model, req, ctx);
     const { abortSignal } = req;
     const record: MockCall = { modelId: model.id, runId: ctx.runId, fixture: chosen?.name ?? null, request: stripSignal(req), ts: new Date().toISOString() };
@@ -92,20 +95,21 @@ export class MockAdapter implements ModelAdapter {
       raw: { mock: true, fixture: chosen?.name ?? null },
     };
     const finishReason = r.finishReason ?? (r.toolCalls?.length ? 'tool-calls' : 'stop');
-    return { content, finishReason, usage };
+    return { response: { content, finishReason, usage }, chunkDelayMs: r.chunkDelayMs ?? 0 };
   }
 
   async generate(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext): Promise<ModelResponse> {
-    return this.respond(model, req, ctx);
+    return (await this.respond(model, req, ctx)).response;
   }
 
   async *stream(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext): AsyncIterable<ModelEvent> {
     try {
-      const response = await this.respond(model, req, ctx);
+      const { response, chunkDelayMs } = await this.respond(model, req, ctx);
       const text = response.content.filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text').map((b) => b.text).join('');
-      const chunkSize = Math.max(1, Math.ceil(text.length / 4));
+      const chunkSize = Math.max(1, Math.ceil(text.length / (chunkDelayMs ? 12 : 4)));
       for (let i = 0; i < text.length; i += chunkSize) {
         if (req.abortSignal.aborted) { yield { type: 'error', error: modelError('Unknown', 'cancelled', { action: 'abort', retryable: false }).toShape() }; return; }
+        if (chunkDelayMs && i > 0) await sleep(chunkDelayMs, req.abortSignal);
         yield { type: 'text-delta', text: text.slice(i, i + chunkSize) };
       }
       for (const b of response.content) {

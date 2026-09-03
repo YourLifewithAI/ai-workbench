@@ -2,7 +2,7 @@
 import { ulid } from 'ulid';
 import type { Db } from '../db/index.js';
 import type { Workspace } from '../workspace/loader.js';
-import type { AdapterRegistry, ModelAdapter } from '../models/adapter.js';
+import type { AdapterRegistry, FetchLike, ModelAdapter } from '../models/adapter.js';
 import { findModel, computeCost } from '../models/catalog.js';
 import { directFetch } from '../models/fetch.js';
 import { ModelError, ModelUnavailableError, modelError } from '../models/errors.js';
@@ -26,6 +26,8 @@ export interface EngineDeps {
   redactor: Redactor;
   log: Logger;
   providerOverride: 'mock' | null;
+  /** The fetch every adapter call receives. RUN-02 passes the egress checker here; tests pass a replay. */
+  fetch?: FetchLike | undefined;
 }
 
 export interface StartAgentRunInput { agentId: string; inputs: Record<string, unknown>; project?: string | undefined; provider?: 'mock' | undefined; modelOverride?: string | undefined }
@@ -84,7 +86,7 @@ export class Engine {
    * record is still the single `model-completed` payload, so the trace and its replay are unchanged.
    */
   private async callModel(adapter: ModelAdapter, entry: CatalogEntry, compiled: CompiledRequest, signal: AbortSignal, runId: string, stepId: string, providerName: string | undefined): Promise<ModelResponse> {
-    const ctx = { fetch: directFetch, apiKey: providerName ? this.deps.credentials.get(providerName) : undefined, runId };
+    const ctx = { fetch: this.deps.fetch ?? directFetch, apiKey: providerName ? this.deps.credentials.get(providerName) : undefined, runId };
     let finished: ModelResponse | null = null;
     for await (const ev of adapter.stream(entry, { ...compiled, abortSignal: signal }, ctx)) {
       if (ev.type === 'text-delta' || ev.type === 'reasoning-delta') {
