@@ -79,6 +79,79 @@ git pull && docker compose up -d --build
 docker compose logs workbench | grep '#token='
 ```
 
-## Without Tailscale
+## Without Tailscale: Caddy
 
-Any reverse proxy that terminates TLS and forwards to `127.0.0.1:8787` works; pass its hostname with `--expose`. Do **not** publish port 8787 itself. A Caddy recipe arrives in RUN-11.
+A tailnet is the recommendation because it needs no open port and no certificate of your own. If you would
+rather use a public hostname, any reverse proxy that terminates TLS and forwards to `127.0.0.1:8787` works. Do
+**not** publish port 8787 itself, and pass the hostname you will use with `--expose` — the runtime checks Host
+and Origin *before* it checks the token, so a name it has not been told about is refused.
+
+`/etc/caddy/Caddyfile`:
+
+```caddyfile
+workbench.example.com {
+    # Caddy gets the certificate itself. The workbench stays on loopback and is never published.
+    reverse_proxy 127.0.0.1:8787
+
+    # The token is in the URL fragment, which never reaches a server — but the logs still see paths, and a
+    # workspace's paths are its content. Keep them off.
+    log {
+        output discard
+    }
+}
+```
+
+Then run the container with the port bound to loopback only, and tell the runtime its public name:
+
+```yaml
+# compose.yaml, replacing the network_mode: host block
+services:
+  workbench:
+    ports: ['127.0.0.1:8787:8787']
+    command: ['start', '--bind', '0.0.0.0', '--expose', 'workbench.example.com']
+```
+
+`--bind 0.0.0.0` binds inside the container's own network namespace; the published port is loopback-only, so
+the only way in is through Caddy. The bearer token is still required on every request: TLS and a hostname are
+not authentication.
+
+## Without Docker: systemd
+
+On a machine where you would rather run Node directly:
+
+```ini
+# /etc/systemd/system/workbench.service
+[Unit]
+Description=AI Workbench
+After=network-online.target
+
+[Service]
+Type=simple
+User=workbench
+WorkingDirectory=/opt/ai-workbench
+Environment=WORKBENCH_WORKSPACE=/var/lib/workbench
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node dist/cli.js start
+Restart=on-failure
+RestartSec=5
+
+# The workspace holds the keys and the whole history. Nothing else on the machine needs to reach it.
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/var/lib/workbench
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```sh
+sudo systemctl enable --now workbench
+sudo journalctl -u workbench | grep '#token='
+```
+
+On a Mac, the same thing is a launchd agent in `~/Library/LaunchAgents/com.example.workbench.plist` with
+`ProgramArguments` of `/usr/local/bin/node`, `dist/cli.js`, `start`, and `RunAtLoad` true. Either way, put the
+sandbox on the service's `PATH` — without Deno the execute tier is switched off, and `workbench doctor` will
+tell you so.

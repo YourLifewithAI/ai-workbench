@@ -31,6 +31,8 @@ export const WorkbenchConfig = z.object({
   search: z.object({ provider: z.enum(['brave', 'searxng', 'mock']), searxng: z.object({ url: z.string().url() }).optional() }),
   tools: z.object({ http: z.object({ maxResponseBytes: z.number().int().positive(), timeoutMs: z.number().int().positive() }) }),
   mcp: z.object({ servers: z.array(z.unknown()) }),
+  /** `name@version` strings a human has acknowledged run with full access (D-32). Nothing loads without one. */
+  plugins: z.object({ trusted: z.array(z.string()).default([]) }).prefault({ trusted: [] }),
   push: z.object({ enabled: z.boolean(), events: z.array(z.string()) }),
   grants: z.record(z.string(), z.unknown()).default({}),
   remembered: z.array(z.object({ tool: z.string(), host: z.string().optional(), path: z.string().optional() })).default([]),

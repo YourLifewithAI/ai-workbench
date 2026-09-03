@@ -133,6 +133,16 @@ MCP servers are configured per workspace (command, args, env allowlist), spawned
 
 Plugins in `<workspace>/plugins/<name>/` are trusted code with the runtime's authority. Each has `plugin.json` — `{ schemaVersion: 1, name, version, kind: 'adapter' | 'tool' | 'evaluator', entry: '<file>.js', capabilities: string[] }` — shown before first load with the words "this code runs with full access"; the entry module default-exports the matching interface (`ModelAdapter`, `ToolDefinition`, or an evaluator); versions are pinned; postinstall scripts are refused.
 
+> Amendment (RUN-11, 2026-09-03): the acknowledgement is per plugin **and version**, stored in
+> `config/workbench.json` as `plugins.trusted: ["name@version"]`. A new version is new code and asks again. The
+> loader also refuses, before importing anything of the plugin's: a version that is a range rather than a pin, a
+> directory whose name does not match the manifest, an entry that resolves outside the plugin directory (a
+> symlink included), a `package.json` whose version disagrees with the manifest, and any `preinstall`,
+> `install`, `postinstall` or `prepare` script — those run before a person can read the code.
+
+> Amendment (RUN-11, 2026-09-03): a plugin's tools are namespaced `<plugin>.<tool>`, so a grant is per plugin and
+> per tool. Loading is not granting: a plugin's tools arrive in the matrix granted to nobody.
+
 ## Imports, exports, served content
 
 Import trust is defined in `agents-and-prompts.md` (D-34) and exports in `data-model.md` (D-35). User HTML is never served from the runtime origin (D-43).

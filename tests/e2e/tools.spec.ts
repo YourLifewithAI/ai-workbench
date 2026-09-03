@@ -167,3 +167,27 @@ test('@run-10 Compare runs two models side by side, and the pick is stored on bo
     return runs.ok();
   }).toBe(true);
 });
+
+test('@run-11 Settings edits what it says it edits, and never shows a key back', async ({ page, request }) => {
+  await page.goto(base() + '/settings#token=' + token());
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  await expect(page.getByText('never shown back')).toBeVisible();
+  await expectNoA11yViolations(page, 'Settings');
+
+  const secret = `AIzaNotReal${Date.now()}`;
+  await page.getByLabel('Provider').fill('google');
+  await page.getByLabel('Key').fill(secret);
+  await page.getByRole('button', { name: 'Save' }).click();
+
+  // The name appears in the credentials list — with a Remove button beside it, which is what makes it that list
+  // rather than the read-only summary above — and the value appears nowhere at all.
+  const credentials = page.getByRole('listitem').filter({ hasText: 'google' }).filter({ has: page.getByRole('button', { name: 'Remove' }) });
+  await expect(credentials).toBeVisible();
+  await expect(page.locator('body')).not.toContainText(secret);
+  const settings = await request.get(`${base()}/api/v1/settings`, { headers: { Authorization: `Bearer ${token()}` } });
+  expect(await settings.text()).not.toContain(secret);
+
+  // And taking it away works from the same screen.
+  await page.getByRole('button', { name: 'Remove' }).click();
+  await expect(page.getByText('None configured.')).toBeVisible();
+});

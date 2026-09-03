@@ -22,6 +22,8 @@ import { ensureVapidKeys, type VapidKeys } from './push/vapid.js';
 import type { MockSearchFixture } from './search/index.js';
 import { DEFAULT_LIMITS, findDeno, Sandbox } from './sandbox/deno.js';
 import { McpHost } from './mcp/host.js';
+import { PluginLoader, type PluginStatus } from './plugins/loader.js';
+import { WorkspaceError } from './util/errors.js';
 import type { LookupFn } from './security/dns.js';
 import type { NetConnector } from './security/netfetch.js';
 import type { EgressAttempt, EgressDecision } from './security/egress.js';
@@ -107,6 +109,8 @@ export class Runtime {
     readonly artifacts: ArtifactStore,
     readonly mcp: McpHost,
     readonly sandbox: Sandbox,
+    /** What the plugin loader found at startup: loaded, refused, or waiting to be acknowledged (D-32). */
+    readonly plugins: PluginStatus[],
   ) {
     this.log = logHandle.logger;
     // Generated once per workspace and kept at 0600 next to the runtime token: whoever holds these can send
@@ -142,6 +146,12 @@ export class Runtime {
       hosts: () => this.hosts,
       health: () => ({ version: pkg.version, bind: this.bind, port: this.port, startedAt: this.startedAt }),
       denoAvailable: () => this.sandbox.available,
+      plugins: () => this.plugins.map((p) => ({ ...p })),
+      writeAgent: (definition, sections) => this.writeAgent(definition, sections),
+      writeWorkflow: (workflow) => this.writeWorkflow(workflow),
+      trustPlugin: (key) => this.trustPlugin(key),
+      setCredential: (name, apiKey) => this.setCredential(name, apiKey),
+      updateSettings: (patch) => this.updateSettings(patch),
       sandbox: () => ({ available: this.sandbox.available, path: this.sandbox.path, limits: DEFAULT_LIMITS }),
       mcp: { status: () => this.mcp.status() },
       reloadAgents: () => this.reloadAgents(),
@@ -226,10 +236,21 @@ export class Runtime {
         }
       },
     });
-    const runtime = new Runtime(opts, pkg, workspace, db, redactor, credentials, logHandle, events, registry, engine, portRef, artifacts, mcpHost, sandbox);
+    // Plugins are trusted code with this process's authority, so they load once, at startup, after a human has
+    // acknowledged the exact version — and never as a side effect of a request (D-32).
+    const loader = new PluginLoader({
+      pluginsDir: workspace.paths.plugins,
+      log: logHandle.logger,
+      acknowledged: () => workspace.config.plugins.trusted,
+    });
+    const plugins = await loader.load();
+    for (const adapter of plugins.adapters) registry.register(adapter);
+
+    const runtime = new Runtime(opts, pkg, workspace, db, redactor, credentials, logHandle, events, registry, engine, portRef, artifacts, mcpHost, sandbox, plugins.statuses);
     // Configured MCP servers are spawned once, here, and their tools join the catalogue before anything runs.
     // A server that fails to start is on the Tools screen and in `doctor`; it does not stop the runtime.
     engine.tools.add(await mcpHost.start());
+    engine.tools.add(plugins.tools);
     return runtime;
   }
 
@@ -271,6 +292,75 @@ export class Runtime {
    * Writes back only the keys the runtime edits — grants, remembered approvals, network mode — so a hand-edited
    * `workbench.json` keeps its comments-adjacent shape and its unset keys stay unset (defaults still apply).
    */
+  /**
+   * An imported agent, written to disk as files like any other (D-34). Its permissions arrive as *requests* —
+   * `stripAgentTrust` has already made sure of that — and the grant matrix in `config/workbench.json` is
+   * untouched, because a file someone sent you is not an authorization.
+   */
+  writeAgent(definition: unknown, sections: { name: string; text: string }[]): { id: string } {
+    const agent = definition as { id: string; instructions?: unknown };
+    const dir = path.join(this.workspace.paths.agents, agent.id);
+    if (fs.existsSync(dir)) throw new WorkspaceError(dir, `There is already an agent called "${agent.id}". Rename one of them.`);
+    fs.mkdirSync(dir, { recursive: true });
+    const file = { ...agent, instructions: { file: 'instructions.md' } };
+    fs.writeFileSync(path.join(dir, 'agent.json'), JSON.stringify(file, null, 2) + '\n');
+    fs.writeFileSync(path.join(dir, 'instructions.md'), sections.map((s) => `## ${s.name}\n\n${s.text.trim()}\n`).join('\n'));
+    this.reloadAgents();
+    return { id: agent.id };
+  }
+
+  writeWorkflow(workflow: unknown): { id: string } {
+    const definition = workflow as { id: string };
+    const file = path.join(this.workspace.paths.workflows, `${definition.id}.workflow.json`);
+    if (fs.existsSync(file)) throw new WorkspaceError(file, `There is already a workflow called "${definition.id}". Rename one of them.`);
+    fs.writeFileSync(file, JSON.stringify(definition, null, 2) + '\n');
+    this.reloadAgents();
+    return { id: definition.id };
+  }
+
+  /** A human accepting "this code runs with full access", for one plugin and one version (D-32). */
+  trustPlugin(key: string): void {
+    const file = this.workspace.paths.workbenchJson;
+    const current = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+    const trusted = new Set([...((current['plugins'] as { trusted?: string[] } | undefined)?.trusted ?? []), key]);
+    current['plugins'] = { trusted: [...trusted].sort() };
+    fs.writeFileSync(file, JSON.stringify(current, null, 2) + '\n');
+  }
+
+  /**
+   * The credentials editor (SEC-05). The value goes into the 0600 file and is never read back out of it: the
+   * API answers with the *names* that are configured, and nothing this runtime serves can show a key.
+   */
+  setCredential(name: string, apiKey: string | null): void {
+    const file = this.workspace.paths.credentialsJson;
+    const current = fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, { apiKey: string }>) : {};
+    if (apiKey === null) delete current[name];
+    else current[name] = { apiKey };
+    fs.writeFileSync(file, JSON.stringify(current, null, 2) + '\n', { mode: 0o600 });
+    fs.chmodSync(file, 0o600);
+    // Immediately, not on the next start: until this runs the runtime does not know the key exists and does not
+    // redact it, so a key saved mid-session could land in the next trace in full.
+    this.credentials.reload();
+  }
+
+  /** The parts of `config/workbench.json` Settings may edit. Grants are not among them: those are the matrix. */
+  updateSettings(patch: Record<string, unknown>): void {
+    const file = this.workspace.paths.workbenchJson;
+    const current = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+    for (const key of ['budgets', 'retention', 'execution', 'mcp', 'push'] as const) {
+      const value = patch[key];
+      if (value === undefined) continue;
+      current[key] = typeof current[key] === 'object' && current[key] !== null && !Array.isArray(current[key])
+        ? { ...(current[key] as Record<string, unknown>), ...(value as Record<string, unknown>) }
+        : value;
+    }
+    fs.writeFileSync(file, JSON.stringify(current, null, 2) + '\n');
+    // The in-memory config is mutated in place rather than replaced, the same way the network mode is: the
+    // engine and the tools hold a reference to this object, and swapping it would leave them on the old one.
+    const reloaded = loadWorkspace(this.workspace.paths.dir, this.pkg.defaults);
+    Object.assign(this.workspace.config, reloaded.config);
+  }
+
   persistConfig(config: WorkbenchConfig): void {
     const file = this.workspace.paths.workbenchJson;
     const current = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
