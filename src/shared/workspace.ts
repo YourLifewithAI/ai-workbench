@@ -7,7 +7,14 @@ export type WorkspaceFile = z.infer<typeof WorkspaceFile>;
 
 export const WorkbenchConfig = z.object({
   schemaVersion: z.literal(1),
-  network: z.object({ mode: NetworkMode, allowLocalAddresses: z.boolean() }),
+  network: z.object({
+    mode: NetworkMode,
+    allowLocalAddresses: z.boolean(),
+    /** Hostnames, label-bounded: `example.com` also matches its subdomains, `*.example.com` only subdomains. */
+    allow: z.array(z.string()).default([]),
+    /** Hosts a tool may POST to without an approval once the exfiltration rule exists (RUN-07). */
+    approvalExempt: z.array(z.string()).default([]),
+  }),
   budgets: Budgets,
   execution: z.object({
     maxParallelSteps: z.number().int().positive(),

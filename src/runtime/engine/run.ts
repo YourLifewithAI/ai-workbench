@@ -2,8 +2,10 @@
 import { ulid } from 'ulid';
 import type { Db } from '../db/index.js';
 import type { Workspace } from '../workspace/loader.js';
-import type { AdapterRegistry, FetchLike, ModelAdapter } from '../models/adapter.js';
-import { findModel, computeCost } from '../models/catalog.js';
+import type { AdapterContext, AdapterRegistry, FetchLike, ModelAdapter } from '../models/adapter.js';
+import { createEgressFetch, type EgressAttempt, type EgressDecision } from '../security/egress.js';
+import { computeCost } from '../models/catalog.js';
+import { dropForeignReasoning, selectCandidates } from './selection.js';
 import { directFetch } from '../models/fetch.js';
 import { ModelError, ModelUnavailableError, modelError } from '../models/errors.js';
 import type { Credentials } from '../security/credentials.js';
@@ -14,7 +16,7 @@ import { assemblePrompt } from './prompt.js';
 import { harnessSection } from './harness.js';
 import type { RunDetail, RunSummary } from '../../shared/api/index.js';
 import type { RunState, Spent } from '../../shared/events.js';
-import type { CatalogEntry, CompiledRequest, ContentBlock, ModelResponse } from '../../shared/model.js';
+import type { CatalogEntry, CompiledRequest, ContentBlock, ModelErrorShape, ModelResponse } from '../../shared/model.js';
 import type { LoadedAgent } from '../../shared/agent.js';
 
 export interface EngineDeps {
@@ -26,8 +28,25 @@ export interface EngineDeps {
   redactor: Redactor;
   log: Logger;
   providerOverride: 'mock' | null;
-  /** The fetch every adapter call receives. RUN-02 passes the egress checker here; tests pass a replay. */
+  /** The fetch the egress checker wraps. Tests pass a replay; production passes the real one. */
   fetch?: FetchLike | undefined;
+  /** The runtime's own port, refused as a destination in every mode. */
+  runtimePort?: (() => number | null) | undefined;
+}
+
+/** Two retries after the first attempt, per model, when the error says `retry` (model-layer.md §Errors). */
+const MAX_ATTEMPTS_PER_MODEL = 3;
+const RETRY_BACKOFF_MS = 200;
+
+function toShape(e: unknown): ModelErrorShape {
+  return e instanceof ModelError ? e.toShape() : { code: 'Unknown', message: String((e as Error)?.message ?? e), retryable: false, action: 'abort' };
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
+  });
 }
 
 export interface StartAgentRunInput { agentId: string; inputs: Record<string, unknown>; project?: string | undefined; provider?: 'mock' | undefined; modelOverride?: string | undefined }
@@ -85,8 +104,16 @@ export class Engine {
    * One streamed invocation. Tokens go out on the live bus as they arrive so the UI can show them; the stored
    * record is still the single `model-completed` payload, so the trace and its replay are unchanged.
    */
-  private async callModel(adapter: ModelAdapter, entry: CatalogEntry, compiled: CompiledRequest, signal: AbortSignal, runId: string, stepId: string, providerName: string | undefined): Promise<ModelResponse> {
-    const ctx = { fetch: this.deps.fetch ?? directFetch, apiKey: providerName ? this.deps.credentials.get(providerName) : undefined, runId };
+  /**
+   * One streamed invocation. Tokens go out on the live bus as they arrive so the UI can show them; the stored
+   * record is still the single `model-completed` payload, so the trace and its replay are unchanged.
+   */
+  private async callModel(adapter: ModelAdapter, entry: CatalogEntry, compiled: CompiledRequest, signal: AbortSignal, runId: string, stepId: string): Promise<ModelResponse> {
+    const ctx: AdapterContext = {
+      fetch: this.egressFetch(entry, runId, stepId),
+      apiKey: this.credentialFor(entry, adapter.id),
+      runId,
+    };
     let finished: ModelResponse | null = null;
     for await (const ev of adapter.stream(entry, { ...compiled, abortSignal: signal }, ctx)) {
       if (ev.type === 'text-delta' || ev.type === 'reasoning-delta') {
@@ -101,61 +128,127 @@ export class Engine {
     return finished;
   }
 
+  /** The credential a provider needs, named by the catalog id's prefix; the mock and local endpoints need none. */
+  private credentialFor(entry: CatalogEntry, adapterId: string): string | undefined {
+    if (adapterId === 'mock') return undefined;
+    const provider = entry.id.split('/')[0];
+    return provider ? this.deps.credentials.get(provider) : undefined;
+  }
+
+  /**
+   * Every model call goes through the checker (D-28). An enabled catalog entry *is* the owner's declaration that
+   * this endpoint may be reached, so model calls are declared endpoints: subject to the mode, not to tool
+   * allowlists. The mode is still what stops a cloud call in `offline` or `local-only`.
+   */
+  private egressFetch(entry: CatalogEntry, runId: string, stepId: string): FetchLike {
+    const real = this.deps.fetch ?? directFetch;
+    const config = this.deps.workspace().config;
+    return createEgressFetch({
+      real,
+      policy: () => ({
+        mode: config.network.mode,
+        allow: config.network.allow,
+        allowLocalAddresses: config.network.allowLocalAddresses,
+        runtimePort: this.deps.runtimePort?.() ?? null,
+      }),
+      record: (attempt, decision) => this.recordEgress(attempt, decision),
+    }, { purpose: 'model', declared: true, categories: ['instructions', 'task'], runId, stepId });
+  }
+
+  private recordEgress(attempt: EgressAttempt, decision: EgressDecision): void {
+    this.deps.db.prepare(`INSERT INTO egress_log (id, run_id, step_id, purpose, host, ip, method, data_categories, bytes, body_redacted, decision, reason, ts)
+      VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`).run(
+      ulid(), attempt.runId ?? null, attempt.stepId ?? null, attempt.purpose, decision.host, attempt.method,
+      attempt.categories.join(','), attempt.bytes, this.persist(attempt.bodyRedacted), decision.allowed ? 'allowed' : 'denied', decision.reason, new Date().toISOString(),
+    );
+    if (!decision.allowed && attempt.runId) {
+      this.deps.events.append(attempt.runId, attempt.stepId ?? null, 'egress-denied', { host: decision.host, reason: decision.reason });
+    }
+  }
+
   private async execute(runId: string, agent: LoadedAgent, input: StartAgentRunInput, provider: 'mock' | undefined, spent: Spent, startedMs: number): Promise<void> {
     const ws = this.deps.workspace();
     const stepId = 'main';
-    const candidates = input.modelOverride ? [input.modelOverride] : [agent.definition.modelPolicy.primary, ...agent.definition.modelPolicy.fallbacks];
-    this.deps.events.append(runId, stepId, 'step-started', { stepId, kind: 'agent', agentId: agent.definition.id, modelCandidates: candidates });
+    const ids = input.modelOverride ? [input.modelOverride] : [agent.definition.modelPolicy.primary, ...agent.definition.modelPolicy.fallbacks];
+    const { candidates, rejected } = selectCandidates({
+      catalog: ws.catalog,
+      ids,
+      mode: ws.config.network.mode,
+      requires: agent.definition.modelPolicy.requires as Record<string, unknown> | undefined,
+      hasAdapter: (id) => this.deps.registry.has(id),
+      ...(provider === 'mock' ? { forceAdapter: 'mock' } : {}),
+    });
+    this.deps.events.append(runId, stepId, 'step-started', { stepId, kind: 'agent', agentId: agent.definition.id, modelCandidates: candidates.map((c) => c.entry.id) });
 
-    const notes: string[] = [];
-    let chosen: { entry: ReturnType<typeof findModel>; adapterId: string } | null = null;
-    for (const id of candidates) {
-      const entry = findModel(ws.catalog, id);
-      if (!entry) { notes.push(`${id}: not in catalog`); continue; }
-      if (!entry.enabled) { notes.push(`${id}: disabled`); continue; }
-      const adapterId = provider === 'mock' ? 'mock' : entry.adapter;
-      if (!this.deps.registry.has(adapterId)) { notes.push(`${id}: adapter "${adapterId}" is not installed in this runtime`); continue; }
-      chosen = { entry, adapterId };
-      break;
-    }
-    if (!chosen || !chosen.entry) {
-      const err = new ModelUnavailableError(`No usable model for agent "${agent.definition.id}": ${notes.join('; ')}`);
+    if (!candidates.length) {
+      const why = rejected.map((r) => `${r.id}: ${r.reason}`).join('; ');
+      const err = new ModelUnavailableError(`No usable model for "${agent.definition.id}". ${why || 'The agent names no models.'}`);
       return this.fail(runId, stepId, 'model_unavailable', err.toShape(), spent, startedMs);
     }
-    const entry = chosen.entry;
-    const adapter = this.deps.registry.get(chosen.adapterId)!;
 
     const task = typeof input.inputs['input'] === 'string' ? (input.inputs['input'] as string) : JSON.stringify(input.inputs);
     const harness = harnessSection({ agentId: agent.definition.id, runId, tools: [], review: agent.definition.review });
     const prompt = assemblePrompt(agent, task, harness);
     const controller = new AbortController();
-    const attempt = 1;
-    this.deps.events.append(runId, stepId, 'model-started', { modelId: entry.id, adapter: chosen.adapterId, attempt, request: prompt.compiled });
-    const t0 = Date.now();
-    const providerName = entry.adapter === 'mock' ? undefined : entry.id.split('/')[0];
-    let response: ModelResponse;
-    try {
-      response = await this.callModel(adapter, entry, prompt.compiled, controller.signal, runId, stepId, providerName);
-    } catch (e) {
-      const shape = e instanceof ModelError ? e.toShape() : { code: 'Unknown' as const, message: String((e as Error).message ?? e), retryable: false, action: 'abort' as const };
-      const latency = Date.now() - t0;
-      this.deps.db.prepare(`INSERT INTO model_calls (id, run_id, step_id, model_id, adapter, prompt_version, agent_version, usage_json, cost_usd, latency_ms, finish_reason, error_json, ts)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'error', ?, ?)`).run(ulid(), runId, stepId, entry.id, chosen.adapterId, prompt.promptVersion, agent.version, this.persist({ input: 0, output: 0, raw: {} }), latency, this.persist(shape), new Date().toISOString());
-      spent.modelCalls += 1;
-      this.deps.events.append(runId, stepId, 'model-aborted', { modelId: entry.id, reason: shape.code, error: shape });
-      return this.fail(runId, stepId, 'model_error', shape, spent, startedMs);
+
+    let lastShape: ModelErrorShape | null = null;
+    for (let index = 0; index < candidates.length; index++) {
+      const { entry, adapterId } = candidates[index]!;
+      const adapter = this.deps.registry.get(adapterId)!;
+      // A cross-provider move drops reasoning that only its own provider can read back (D-02 leak 1).
+      const { messages, dropped } = dropForeignReasoning(prompt.compiled.messages, adapterId);
+      if (dropped) this.deps.events.append(runId, stepId, 'provider-meta-dropped', { modelId: entry.id, droppedBlocks: dropped });
+      const compiled: CompiledRequest = { ...prompt.compiled, messages };
+
+      for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_MODEL; attempt++) {
+        this.deps.events.append(runId, stepId, 'model-started', { modelId: entry.id, adapter: adapterId, attempt, request: compiled });
+        const t0 = Date.now();
+        try {
+          const response = await this.callModel(adapter, entry, compiled, controller.signal, runId, stepId);
+          this.completeStep(runId, stepId, agent, entry, adapterId, prompt.promptVersion, response, Date.now() - t0, spent, startedMs);
+          return;
+        } catch (e) {
+          const shape = toShape(e);
+          lastShape = shape;
+          this.recordFailedCall(runId, stepId, entry, adapterId, prompt.promptVersion, agent.version, shape, Date.now() - t0);
+          spent.modelCalls += 1;
+          this.deps.events.append(runId, stepId, 'model-aborted', { modelId: entry.id, reason: shape.code, attempt, error: shape });
+
+          if (shape.action === 'abort') return this.fail(runId, stepId, 'model_error', shape, spent, startedMs);
+          if (shape.action === 'retry' && attempt < MAX_ATTEMPTS_PER_MODEL) {
+            await sleep(RETRY_BACKOFF_MS * attempt, controller.signal);
+            continue;
+          }
+          break; // out of attempts on this model, or the error says to move on
+        }
+      }
+
+      const next = candidates[index + 1];
+      if (next) {
+        this.deps.events.append(runId, stepId, 'fallback-selected', { from: entry.id, to: next.entry.id, error: lastShape });
+      }
     }
-    const latencyMs = Date.now() - t0;
+    return this.fail(runId, stepId, 'model_error', lastShape ?? { code: 'Unknown', message: 'every candidate failed', retryable: false, action: 'abort' }, spent, startedMs);
+  }
+
+  private recordFailedCall(runId: string, stepId: string, entry: CatalogEntry, adapterId: string, promptVersion: string, agentVersion: string, shape: ModelErrorShape, latencyMs: number): void {
+    this.deps.db.prepare(`INSERT INTO model_calls (id, run_id, step_id, model_id, adapter, prompt_version, agent_version, usage_json, cost_usd, latency_ms, finish_reason, error_json, ts)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'error', ?, ?)`)
+      .run(ulid(), runId, stepId, entry.id, adapterId, promptVersion, agentVersion, this.persist({ input: 0, output: 0, raw: {} }), latencyMs, this.persist(shape), new Date().toISOString());
+  }
+
+  private completeStep(runId: string, stepId: string, agent: LoadedAgent, entry: CatalogEntry, adapterId: string, promptVersion: string, response: ModelResponse, latencyMs: number, spent: Spent, startedMs: number): void {
     const at = new Date();
     const costUsd = computeCost(entry, response.usage, at);
     spent.modelCalls += 1;
     spent.costUsd = Math.round((spent.costUsd + costUsd) * 1e8) / 1e8;
     this.deps.db.prepare(`INSERT INTO model_calls (id, run_id, step_id, model_id, adapter, prompt_version, agent_version, usage_json, cost_usd, latency_ms, finish_reason, ts)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(ulid(), runId, stepId, entry.id, chosen.adapterId, prompt.promptVersion, agent.version, this.persist(response.usage), costUsd, latencyMs, response.finishReason, at.toISOString());
-    this.deps.events.append(runId, stepId, 'model-completed', { modelId: entry.id, response, usage: response.usage, costUsd, latencyMs, promptVersion: prompt.promptVersion, agentVersion: agent.version });
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(ulid(), runId, stepId, entry.id, adapterId, promptVersion, agent.version, this.persist(response.usage), costUsd, latencyMs, response.finishReason, at.toISOString());
+    this.deps.events.append(runId, stepId, 'model-completed', { modelId: entry.id, response, usage: response.usage, costUsd, latencyMs, promptVersion, agentVersion: agent.version });
 
     const output = response.content.filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text').map((b) => b.text).join('');
-    const finishedAt = new Date().toISOString();
+    const finishedAt = at.toISOString();
     spent.wallClockMs = Date.now() - startedMs;
     this.deps.db.prepare(`UPDATE run_steps SET state = 'completed', model_id = ?, output_json = ?, cost_usd = ?, finished_at = ? WHERE run_id = ? AND step_id = ?`).run(entry.id, this.persist(output), costUsd, finishedAt, runId, stepId);
     this.deps.events.append(runId, stepId, 'step-completed', { stepId, kind: 'agent', output });

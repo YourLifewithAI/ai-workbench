@@ -51,6 +51,11 @@ export class MockAdapter implements ModelAdapter {
     }
   }
 
+  private modelName(catalogId: string): string {
+    const slash = catalogId.indexOf('/');
+    return slash === -1 ? catalogId : catalogId.slice(slash + 1);
+  }
+
   private lastUserText(req: ModelRequest): string {
     for (let i = req.messages.length - 1; i >= 0; i--) {
       const m = req.messages[i]!;
@@ -77,6 +82,15 @@ export class MockAdapter implements ModelAdapter {
 
   /** One selection per call: `select` advances the per-run callIndex, so it must not be called twice. */
   private async respond(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext): Promise<{ response: ModelResponse; chunkDelayMs: number }> {
+    // A catalog entry with a baseUrl makes the mock do one real round trip through the injected fetch, so the
+    // egress checker, the egress log, and the Privacy Inspector are exercised without a cloud provider (D-37).
+    if (model.baseUrl) {
+      await ctx.fetch(`${model.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: this.modelName(model.id), messages: req.messages, stream: false }),
+      });
+    }
     const chosen = this.select(model, req, ctx);
     const { abortSignal } = req;
     const record: MockCall = { modelId: model.id, runId: ctx.runId, fixture: chosen?.name ?? null, request: stripSignal(req), ts: new Date().toISOString() };

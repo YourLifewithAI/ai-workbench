@@ -6,27 +6,99 @@
       "adapter": "mock",
       "enabled": true,
       "locality": "local",
-      "capabilities": { "text": true, "vision": true, "audioInput": false, "toolCalling": "parallel", "structuredOutput": "schema", "streaming": true, "reasoning": "none", "contextTokens": 1000000 },
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "audioInput": false,
+        "toolCalling": "parallel",
+        "structuredOutput": "schema",
+        "streaming": true,
+        "reasoning": "none",
+        "contextTokens": 1000000
+      },
       "pricing": [],
-      "dataPolicy": { "trainsOnContent": "no" }
+      "dataPolicy": {
+        "trainsOnContent": "no"
+      }
+    },
+    {
+      "id": "mock/upstream",
+      "adapter": "mock",
+      "baseUrl": "http://127.0.0.1:0/v1",
+      "enabled": true,
+      "locality": "local",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "audioInput": false,
+        "toolCalling": "parallel",
+        "structuredOutput": "schema",
+        "streaming": true,
+        "reasoning": "none",
+        "contextTokens": 1000000
+      },
+      "pricing": [],
+      "dataPolicy": {
+        "trainsOnContent": "no"
+      }
     },
     {
       "id": "google/gemini-2.5-pro",
       "adapter": "google",
       "enabled": true,
       "locality": "cloud",
-      "capabilities": { "text": true, "vision": true, "audioInput": true, "toolCalling": "parallel", "structuredOutput": "schema", "streaming": true, "reasoning": "opaque", "contextTokens": 1048576, "maxOutputTokens": 65536 },
-      "pricing": [{ "effectiveFrom": "2026-01-01", "inputPerM": 1.25, "outputPerM": 10, "cachedPerM": 0.31 }],
-      "dataPolicy": { "trainsOnContent": "unknown", "policyUrl": "https://ai.google.dev/gemini-api/terms" }
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "audioInput": true,
+        "toolCalling": "parallel",
+        "structuredOutput": "schema",
+        "streaming": true,
+        "reasoning": "opaque",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536
+      },
+      "pricing": [
+        {
+          "effectiveFrom": "2026-01-01",
+          "inputPerM": 1.25,
+          "outputPerM": 10,
+          "cachedPerM": 0.31
+        }
+      ],
+      "dataPolicy": {
+        "trainsOnContent": "unknown",
+        "policyUrl": "https://ai.google.dev/gemini-api/terms"
+      }
     },
     {
       "id": "google/gemini-2.5-flash",
       "adapter": "google",
       "enabled": true,
       "locality": "cloud",
-      "capabilities": { "text": true, "vision": true, "audioInput": true, "toolCalling": "parallel", "structuredOutput": "schema", "streaming": true, "reasoning": "opaque", "contextTokens": 1048576, "maxOutputTokens": 65536 },
-      "pricing": [{ "effectiveFrom": "2026-01-01", "inputPerM": 0.3, "outputPerM": 2.5, "cachedPerM": 0.075 }],
-      "dataPolicy": { "trainsOnContent": "unknown", "policyUrl": "https://ai.google.dev/gemini-api/terms" }
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "audioInput": true,
+        "toolCalling": "parallel",
+        "structuredOutput": "schema",
+        "streaming": true,
+        "reasoning": "opaque",
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536
+      },
+      "pricing": [
+        {
+          "effectiveFrom": "2026-01-01",
+          "inputPerM": 0.3,
+          "outputPerM": 2.5,
+          "cachedPerM": 0.075
+        }
+      ],
+      "dataPolicy": {
+        "trainsOnContent": "unknown",
+        "policyUrl": "https://ai.google.dev/gemini-api/terms"
+      }
     },
     {
       "id": "ollama/qwen3:14b",
@@ -34,9 +106,20 @@
       "baseUrl": "http://127.0.0.1:11434/v1",
       "enabled": false,
       "locality": "local",
-      "capabilities": { "text": true, "vision": false, "audioInput": false, "toolCalling": "basic", "structuredOutput": "json", "streaming": true, "reasoning": "visible", "contextTokens": 40960 },
+      "capabilities": {
+        "text": true,
+        "vision": false,
+        "audioInput": false,
+        "toolCalling": "basic",
+        "structuredOutput": "json",
+        "streaming": true,
+        "reasoning": "visible",
+        "contextTokens": 40960
+      },
       "pricing": [],
-      "dataPolicy": { "trainsOnContent": "no" }
+      "dataPolicy": {
+        "trainsOnContent": "no"
+      }
     }
   ]
 }

@@ -17,7 +17,10 @@ import { EventStore } from './engine/events.js';
 import { Engine } from './engine/run.js';
 import { AdapterRegistry, type FetchLike } from './models/adapter.js';
 import { MockAdapter } from './models/adapters/mock/index.js';
+import { MockUpstream } from './models/adapters/mock/upstream.js';
 import { GoogleAdapter } from './models/adapters/google/index.js';
+import { AnthropicAdapter } from './models/adapters/anthropic/index.js';
+import { OpenAiCompatibleAdapter } from './models/adapters/openai-compatible/index.js';
 import { createApp } from './api/app.js';
 import { findExecutable } from './util/exec.js';
 
@@ -54,6 +57,7 @@ export class Runtime {
   private port = 0;
   private hosts = new Set<string>();
   private readonly shutdown = new AbortController();
+  readonly mockUpstream = new MockUpstream();
   private stopped = false;
 
   private constructor(
@@ -67,6 +71,7 @@ export class Runtime {
     readonly events: EventStore,
     readonly registry: AdapterRegistry,
     readonly engine: Engine,
+    private readonly portRef: { current: number | null },
   ) {
     this.log = logHandle.logger;
     this.app = createApp({
@@ -111,8 +116,17 @@ export class Runtime {
     const registry = new AdapterRegistry();
     registry.register(new MockAdapter(workspace.paths.fixtures));
     registry.register(new GoogleAdapter());
-    const engine = new Engine({ db, events, workspace: () => workspace, registry, credentials, redactor, log: logHandle.logger, providerOverride: opts.providerOverride ?? null, ...(opts.fetch ? { fetch: opts.fetch } : {}) });
-    return new Runtime(opts, pkg, workspace, db, redactor, credentials, logHandle, events, registry, engine);
+    registry.register(new AnthropicAdapter());
+    registry.register(new OpenAiCompatibleAdapter());
+    // The port is only known after listen(), and the checker needs it to refuse calls back into the runtime.
+    const portRef: { current: number | null } = { current: null };
+    const engine = new Engine({
+      db, events, workspace: () => workspace, registry, credentials, redactor,
+      log: logHandle.logger, providerOverride: opts.providerOverride ?? null,
+      runtimePort: () => portRef.current,
+      ...(opts.fetch ? { fetch: opts.fetch } : {}),
+    });
+    return new Runtime(opts, pkg, workspace, db, redactor, credentials, logHandle, events, registry, engine, portRef);
   }
 
   /** Picks up edits to agent.json and instructions.md without a restart; a broken file becomes a listed error. */
@@ -150,6 +164,8 @@ export class Runtime {
     });
     this.listening = true;
     this.port = info.port;
+    this.portRef.current = info.port;
+    await this.startMockUpstream();
     this.hosts = acceptedHosts(this.port, this.bind, this.opts.expose ?? []);
     if (!this.ephemeral) {
       writeTokenFile(this.workspace.paths.runtimeToken, this.token);
@@ -160,10 +176,25 @@ export class Runtime {
     return { port: this.port, url: this.url };
   }
 
+  /**
+   * Any catalog entry served by the mock that declares a `baseUrl` is repointed at a loopback listener started
+   * here, so the declared-endpoint path is real in tests and demos rather than mocked away (D-37).
+   */
+  private async startMockUpstream(): Promise<void> {
+    const needsUpstream = this.workspace.catalog.models.some((m) => m.adapter === 'mock' && m.baseUrl);
+    if (!needsUpstream) return;
+    await this.mockUpstream.start();
+    for (const model of this.workspace.catalog.models) {
+      if (model.adapter === 'mock' && model.baseUrl) model.baseUrl = this.mockUpstream.baseUrl;
+    }
+    this.log.info({ port: this.mockUpstream.port }, 'mock upstream listening');
+  }
+
   async stop(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
     this.shutdown.abort();
+    await this.mockUpstream.stop();
     if (this.server) {
       const server = this.server;
       await new Promise<void>((resolve) => {
