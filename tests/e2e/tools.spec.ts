@@ -124,14 +124,17 @@ test('@run-09 the Tools screen says whether code can run at all', async ({ page 
   await page.goto(base() + '/tools#token=' + token());
   await expect(page.getByRole('heading', { name: 'What can run code' })).toBeVisible();
 
-  // Whichever way this machine is set up, the screen says which one it is and what follows from it.
-  const available = await page.getByText('sandbox available').count();
-  if (available) {
-    await expect(page.getByText('Code runs in Deno with no network')).toBeVisible();
+  // Whichever way this machine is set up, the card says which one it is and what follows from it. Scoped to the
+  // card: without a sandbox, "no sandbox" is also a badge on every execute-tier row of the matrix above.
+  const card = page.getByTestId('sandbox-status');
+  await expect(card).toBeVisible();
+  if (await card.getByText('sandbox available').count()) {
+    await expect(card.getByText('Code runs in Deno with no network')).toBeVisible();
   } else {
-    await expect(page.getByText('no sandbox')).toBeVisible();
-    await expect(page.getByText('code.execute, shell, fs.write')).toBeVisible();
-    await expect(page.getByText('There is no unsandboxed fallback')).toBeVisible();
+    await expect(card.getByText('no sandbox')).toBeVisible();
+    // Each tool by name, in whatever order the catalogue lists them: the claim is that it says which ones.
+    for (const tool of ['code.execute', 'shell', 'fs.write']) await expect(card).toContainText(tool);
+    await expect(card.getByText('There is no unsandboxed fallback')).toBeVisible();
   }
   await expectNoA11yViolations(page, 'Tools — sandbox');
 });

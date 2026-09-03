@@ -97,7 +97,7 @@ export function Tools() {
           {setGrant.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{setGrant.error.message}</p> : null}
 
           <h2 className="mt-8 text-lg font-medium">What can run code</h2>
-          <Card className="mt-2">
+          <Card className="mt-2" data-testid="sandbox-status">
             {q.data.sandbox.available ? (
               <>
                 <p className="text-sm">
