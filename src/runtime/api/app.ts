@@ -5,12 +5,13 @@ import path from 'node:path';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { CreateRunRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type HealthResponse, type ReloadAgentsResponse, type SettingsResponse } from '../../shared/api/index.js';
+import { CreateRunRequest, SetNetworkModeRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type EgressRecord, type HealthResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type SettingsResponse } from '../../shared/api/index.js';
 import type { EventRecord } from '../../shared/events.js';
 import { NotFoundError, ValidationError, type Engine } from '../engine/run.js';
 import { TERMINAL_EVENTS, type EventStore } from '../engine/events.js';
 import { securityHeaders, hostOriginGuard, bearerGuard } from '../security/auth.js';
 import type { Redactor } from '../security/redaction.js';
+import type { Db } from '../db/index.js';
 import type { Credentials } from '../security/credentials.js';
 import type { Logger } from '../log/index.js';
 import type { BrokenAgent, Workspace } from '../workspace/loader.js';
@@ -29,6 +30,11 @@ export interface AppDeps {
   denoAvailable: () => boolean;
   /** Re-reads agent definitions from disk; the Agents screen calls it after an edit. */
   reloadAgents: () => { loaded: number; errors: BrokenAgent[] };
+  /** The catalog with availability; `refresh` re-polls local endpoints first. */
+  models: (refresh: boolean) => Promise<ModelListResponse>;
+  /** The one-click network switch (ui.md §UX rules): writes the mode to config and reloads it. */
+  setNetworkMode: (mode: SetNetworkModeRequest['mode']) => void;
+  db: Db;
   uiDist: string;
   /** Fires when the runtime stops; open SSE streams end on it. */
   shutdown: AbortSignal;
@@ -207,6 +213,49 @@ export function createApp(deps: AppDeps): Hono {
     return json(c, body);
   });
 
+  app.get('/api/v1/models', async (c) => json(c, await deps.models(false)));
+  app.post('/api/v1/models/refresh', async (c) => json(c, await deps.models(true)));
+
+  // The Privacy Inspector's data: every attempt this run made to leave the machine, and who holds the result.
+  app.get('/api/v1/runs/:id/privacy', (c) => {
+    const id = c.req.param('id');
+    if (!deps.engine.getRun(id)) return fail(c, 'not_found', `Run "${id}" does not exist.`, 404);
+    const rows = deps.db.prepare('SELECT * FROM egress_log WHERE run_id = ? ORDER BY ts, id').all(id) as EgressRow[];
+    const calls = deps.db.prepare('SELECT model_id, COUNT(*) AS n FROM model_calls WHERE run_id = ? GROUP BY model_id').all(id) as { model_id: string; n: number }[];
+    const catalog = deps.workspace().catalog;
+    const body: PrivacyResponse = {
+      runId: id,
+      networkMode: deps.workspace().config.network.mode,
+      egress: rows.map(toEgressRecord),
+      destinations: calls.map((call) => {
+        const entry = catalog.models.find((m) => m.id === call.model_id);
+        const host = rows.find((r) => r.host)?.host ?? null;
+        return {
+          modelId: call.model_id,
+          host: entry?.baseUrl ? safeHost(entry.baseUrl) : host,
+          dataPolicy: (entry?.dataPolicy ?? null) as Record<string, unknown> | null,
+          calls: call.n,
+        };
+      }),
+    };
+    return json(c, body);
+  });
+
+  // Cutting the network is a safety control, so it is one click rather than a config edit and a restart.
+  app.put('/api/v1/settings/network', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = SetNetworkModeRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'Expected { mode: "offline" | "local-only" | "allowlist" | "unrestricted" }.', 400, parsed.error.issues);
+    deps.setNetworkMode(parsed.data.mode);
+    deps.log.info({ mode: parsed.data.mode }, 'network mode changed');
+    return json(c, { networkMode: parsed.data.mode });
+  });
+
   app.get('/api/v1/settings', (c) => {
     const ws = deps.workspace();
     const body: SettingsResponse = {
@@ -250,6 +299,32 @@ function untilClosed(stream: { onAbort(l: () => void): void; write(s: string): P
     shutdown.addEventListener('abort', finish, { once: true });
     if (shutdown.aborted || stream.aborted || stream.closed) finish();
   });
+}
+
+interface EgressRow { id: string; step_id: string | null; purpose: string; host: string; method: string; data_categories: string; bytes: number; body_redacted: string | null; decision: string; reason: string | null; ts: string }
+
+function toEgressRecord(row: EgressRow): EgressRecord {
+  return {
+    id: row.id,
+    stepId: row.step_id,
+    purpose: row.purpose,
+    host: row.host,
+    method: row.method,
+    categories: row.data_categories ? row.data_categories.split(',') : [],
+    bytes: row.bytes,
+    bodyRedacted: row.body_redacted,
+    decision: row.decision === 'allowed' ? 'allowed' : 'denied',
+    reason: row.reason,
+    ts: row.ts,
+  };
+}
+
+function safeHost(url: string): string | null {
+  try {
+    return new URL(url).host;
+  } catch {
+    return null;
+  }
 }
 
 function agentSummary(agent: LoadedAgent): AgentSummary {

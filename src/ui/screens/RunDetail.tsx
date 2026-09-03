@@ -7,6 +7,7 @@ import { money, seconds, summarizeRun, summarizeStep } from '../../shared/summar
 import { api, parseEvent, subscribeSse } from '../lib/api.js';
 import { Badge, Card } from '../components/ui/card.js';
 import { SummaryCard } from '../components/SummaryCard.js';
+import { PrivacyInspector } from '../components/PrivacyInspector.js';
 import { stateTone } from './Runs.js';
 
 const TERMINAL = new Set(['run-completed', 'run-failed', 'run-cancelled', 'run-interrupted']);
@@ -23,6 +24,7 @@ export function RunDetail() {
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [streaming, setStreaming] = useState<Record<string, string>>({});
   const [streamError, setStreamError] = useState<string | null>(null);
+  const [tab, setTab] = useState<'trace' | 'privacy'>('trace');
 
   useEffect(() => {
     if (!id) return;
@@ -41,7 +43,7 @@ export function RunDetail() {
       if (!e || e.seq <= last) return;
       last = e.seq;
       setEvents((prev) => [...prev, e]);
-      if (e.type === 'step-completed' || e.type === 'step-failed') {
+      if (e.type === 'model-aborted' || e.type === 'step-completed' || e.type === 'step-failed') {
         setStreaming((prev) => { const next = { ...prev }; delete next[e.stepId ?? '']; return next; });
       }
       if (TERMINAL.has(e.type)) void client.invalidateQueries({ queryKey: ['run', id] });
@@ -69,15 +71,36 @@ export function RunDetail() {
             <span>{seconds(run.data.spent.wallClockMs)}</span>
           </div>
 
-          <h2 className="mt-6 text-lg font-medium">Steps</h2>
+          <div className="mt-6 flex gap-1 border-b border-gray-200 dark:border-gray-800" role="tablist" aria-label="Run views">
+            {(['trace', 'privacy'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                role="tab"
+                aria-selected={tab === t}
+                onClick={() => setTab(t)}
+                className={`rounded-t px-3 py-2 text-sm font-medium ${tab === t ? 'border-b-2 border-blue-700 dark:border-sky-300' : 'text-gray-600 dark:text-gray-400'}`}
+              >
+                {t === 'trace' ? 'Trace' : 'Privacy Inspector'}
+              </button>
+            ))}
+          </div>
+
+          {tab === 'privacy' ? <div className="mt-4"><PrivacyInspector runId={id} /></div> : null}
+
+          {tab === 'trace' ? <><h2 className="mt-6 text-lg font-medium">Steps</h2>
           <div className="mt-2 space-y-4">
             {run.data.steps.map((step) => (
               <StepBlock key={step.stepId} step={step} events={events} streaming={streaming[step.stepId]} run={run.data!} />
             ))}
           </div>
+
+      </> : null}
         </>
       ) : null}
 
+      {tab === 'trace' ? (
+        <>
       <h2 className="mt-8 text-lg font-medium">Raw timeline</h2>
       <p className="text-sm text-gray-600 dark:text-gray-400">Every event this run wrote, in order — the same lines <code className="font-mono">workbench trace</code> prints.</p>
       {streamError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{streamError}</p> : null}
@@ -85,6 +108,8 @@ export function RunDetail() {
         {events.map((e) => <EventItem key={e.seq} e={e} />)}
       </ol>
       {events.length === 0 && !streamError ? <p className="mt-3 text-sm" role="status">Waiting for events…</p> : null}
+        </>
+      ) : null}
     </section>
   );
 }

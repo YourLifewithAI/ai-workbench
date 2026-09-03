@@ -1,0 +1,13 @@
+[
+  {
+    "method": "POST",
+    "url": "https://api.anthropic.com/v1/messages",
+    "requestHash": "authored",
+    "status": 200,
+    "statusText": "OK",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": "{\"id\": \"msg_contract\", \"type\": \"message\", \"role\": \"assistant\", \"model\": \"claude-haiku-4-5\", \"content\": [{\"type\": \"tool_use\", \"id\": \"toolu_contract\", \"name\": \"get_weather\", \"input\": {\"city\": \"Chicago\"}}], \"stop_reason\": \"tool_use\", \"stop_sequence\": null, \"usage\": {\"input_tokens\": 18, \"output_tokens\": 12}}"
+  }
+]

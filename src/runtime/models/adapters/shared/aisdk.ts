@@ -1,7 +1,8 @@
-// Translation at the boundary: canonical types in, SDK shapes out, and back. Nothing here escapes the adapter folder.
+// Translation at the boundary, shared by every adapter built on an @ai-sdk provider: canonical types in, SDK
+// shapes out, and back. Nothing here escapes the adapters folder. Provider-specific knobs live in each adapter.
 import type { ModelMessage, ToolSet, generateText } from 'ai';
 import { tool as defineTool, jsonSchema } from 'ai';
-import type { ContentBlock, FinishReason, Message, ToolSpec, Usage, CatalogEntry, ModelRequest } from '../../../../shared/model.js';
+import type { ContentBlock, FinishReason, Message, ToolSpec, Usage, ModelRequest } from '../../../../shared/model.js';
 import { ModelError, modelError } from '../../errors.js';
 import type { ModelErrorCode } from '../../../../shared/model.js';
 
@@ -15,17 +16,12 @@ type UserMessage = Extract<ModelMessage, { role: 'user' }>;
 type AssistantPart = Exclude<AssistantMessage['content'], string>[number];
 type UserPart = Exclude<UserMessage['content'], string>[number];
 
-/** Provider knobs derived from the catalog, then whatever the request asked for (the request wins). */
-export function providerOptionsFor(model: CatalogEntry, req: ModelRequest): SdkProviderOptions {
-  const google: Record<string, unknown> = {};
-  // The catalog says this model reasons; ask for the thought summaries so the trace can show them (D-02 leak 1).
-  if (model.capabilities.reasoning !== 'none') google['thinkingConfig'] = { includeThoughts: true };
-  if (req.outputSchema && model.capabilities.structuredOutput === 'schema') google['structuredOutputs'] = true;
-  const requested = (req.providerOptions?.['google'] ?? {}) as Record<string, unknown>;
-  const merged = { ...google, ...requested };
+/** One adapter's defaults for its own provider key, with anything the request asked for layered on top. */
+export function providerOptionsFor(providerKey: string, defaults: Record<string, unknown>, req: ModelRequest): SdkProviderOptions {
+  const requested = (req.providerOptions?.[providerKey] ?? {}) as Record<string, unknown>;
   const rest = { ...(req.providerOptions ?? {}) } as Record<string, Record<string, unknown>>;
-  delete rest['google'];
-  return { ...rest, google: merged } as SdkProviderOptions;
+  delete rest[providerKey];
+  return { ...rest, [providerKey]: { ...defaults, ...requested } } as SdkProviderOptions;
 }
 
 export function toModelMessages(messages: Message[]): ModelMessage[] {
@@ -76,7 +72,7 @@ export function toSdkTools(specs: ToolSpec[]): ToolSet {
   return out;
 }
 
-export function mapContent(content: SdkContent): ContentBlock[] {
+export function mapContent(content: SdkContent, providerId: string): ContentBlock[] {
   const out: ContentBlock[] = [];
   for (const part of content) {
     switch (part.type) {
@@ -85,7 +81,7 @@ export function mapContent(content: SdkContent): ContentBlock[] {
         break;
       case 'reasoning':
         // Opaque by contract: replayed verbatim to the same provider, dropped on cross-provider fallback (D-02).
-        out.push({ type: 'reasoning', text: part.text, opaque: true, providerId: 'google', ...(part.providerMetadata ? { providerMeta: part.providerMetadata as Record<string, unknown> } : {}) });
+        out.push({ type: 'reasoning', text: part.text, opaque: true, providerId, ...(part.providerMetadata ? { providerMeta: part.providerMetadata as Record<string, unknown> } : {}) });
         break;
       case 'tool-call':
         out.push({ type: 'tool-call', id: part.toolCallId, name: part.toolName, input: part.input });
@@ -132,6 +128,9 @@ interface ApiCallErrorish { name?: string; statusCode?: number; responseBody?: s
 /** HTTP status and provider message → the canonical code set, so the engine's retry and fallback rules apply (D-05). */
 export function translateError(e: unknown, signal?: AbortSignal): ModelError {
   if (e instanceof ModelError) return e;
+  // The egress checker refuses before a socket opens; SDKs wrap that as a transport failure, so unwrap it first.
+  const denial = findEgressDenial(e);
+  if (denial) return modelError('NetworkPolicy', denial, { action: 'abort', retryable: false });
   const err = e as ApiCallErrorish;
   const message = err?.message ?? String(e);
   if (signal?.aborted || err?.name === 'AbortError' || /aborted/i.test(message)) {
@@ -171,6 +170,16 @@ function providerMessage(body: string | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+/** An SDK may wrap the checker's refusal several causes deep; the decision message is what the user needs. */
+function findEgressDenial(e: unknown): string | null {
+  for (let cause: unknown = e, depth = 0; cause && depth < 5; depth++) {
+    const named = cause as { name?: string; message?: string; cause?: unknown };
+    if (named.name === 'EgressDeniedError') return named.message ?? 'The egress checker refused this request.';
+    cause = named.cause;
+  }
+  return null;
 }
 
 function textOf(b: ContentBlock): string {

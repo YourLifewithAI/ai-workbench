@@ -4,6 +4,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import type { CatalogEntry, ContentBlock, ModelEvent, ModelRequest, ModelResponse, Usage } from '../../../../shared/model.js';
 import { FinishReason, ModelErrorCode } from '../../../../shared/model.js';
+import type { ModelErrorCode as ModelErrorCodeType } from '../../../../shared/model.js';
 import type { AdapterContext, ModelAdapter } from '../../adapter.js';
 import { ModelError, modelError } from '../../errors.js';
 
@@ -23,6 +24,8 @@ const Fixture = z.object({
     latencyMs: z.number().int().nonnegative().optional(),
     /** Pause between streamed chunks, so a fixture can demonstrate streaming rather than arriving all at once. */
     chunkDelayMs: z.number().int().nonnegative().optional(),
+    /** Stream this many characters, then raise `error`: the mid-stream failure a fallback has to recover from. */
+    failAfterChars: z.number().int().nonnegative().optional(),
     usage: z.object({ input: z.number().int().nonnegative(), output: z.number().int().nonnegative() }).optional(),
   }).default({}),
 });
@@ -51,6 +54,11 @@ export class MockAdapter implements ModelAdapter {
     }
   }
 
+  private modelName(catalogId: string): string {
+    const slash = catalogId.indexOf('/');
+    return slash === -1 ? catalogId : catalogId.slice(slash + 1);
+  }
+
   private lastUserText(req: ModelRequest): string {
     for (let i = req.messages.length - 1; i >= 0; i--) {
       const m = req.messages[i]!;
@@ -76,7 +84,16 @@ export class MockAdapter implements ModelAdapter {
   }
 
   /** One selection per call: `select` advances the per-run callIndex, so it must not be called twice. */
-  private async respond(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext): Promise<{ response: ModelResponse; chunkDelayMs: number }> {
+  private async respond(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext): Promise<{ response: ModelResponse; chunkDelayMs: number; failAfter?: { chars: number; code: ModelErrorCodeType; fixture: string | null } }> {
+    // A catalog entry with a baseUrl makes the mock do one real round trip through the injected fetch, so the
+    // egress checker, the egress log, and the Privacy Inspector are exercised without a cloud provider (D-37).
+    if (model.baseUrl) {
+      await ctx.fetch(`${model.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: this.modelName(model.id), messages: req.messages, stream: false }),
+      });
+    }
     const chosen = this.select(model, req, ctx);
     const { abortSignal } = req;
     const record: MockCall = { modelId: model.id, runId: ctx.runId, fixture: chosen?.name ?? null, request: stripSignal(req), ts: new Date().toISOString() };
@@ -84,7 +101,7 @@ export class MockAdapter implements ModelAdapter {
     const r = chosen?.fixture.respond ?? {};
     if (r.latencyMs) await sleep(r.latencyMs, abortSignal);
     if (abortSignal.aborted) throw modelError('Unknown', 'cancelled', { action: 'abort', retryable: false });
-    if (r.error) throw modelError(r.error, `mock fixture ${chosen?.name} raised ${r.error}`);
+    if (r.error && r.failAfterChars === undefined) throw modelError(r.error, `mock fixture ${chosen?.name} raised ${r.error}`);
     const text = r.text ?? (r.json !== undefined ? JSON.stringify(r.json) : this.lastUserText(req));
     const content: ContentBlock[] = [];
     if (text) content.push({ type: 'text', text });
@@ -95,7 +112,7 @@ export class MockAdapter implements ModelAdapter {
       raw: { mock: true, fixture: chosen?.name ?? null },
     };
     const finishReason = r.finishReason ?? (r.toolCalls?.length ? 'tool-calls' : 'stop');
-    return { response: { content, finishReason, usage }, chunkDelayMs: r.chunkDelayMs ?? 0 };
+    return { response: { content, finishReason, usage }, chunkDelayMs: r.chunkDelayMs ?? 0, ...(r.error ? { failAfter: { chars: r.failAfterChars ?? 0, code: r.error, fixture: chosen?.name ?? null } } : {}) };
   }
 
   async generate(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext): Promise<ModelResponse> {
@@ -104,14 +121,20 @@ export class MockAdapter implements ModelAdapter {
 
   async *stream(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext): AsyncIterable<ModelEvent> {
     try {
-      const { response, chunkDelayMs } = await this.respond(model, req, ctx);
+      const { response, chunkDelayMs, failAfter } = await this.respond(model, req, ctx);
       const text = response.content.filter((b): b is Extract<ContentBlock, { type: 'text' }> => b.type === 'text').map((b) => b.text).join('');
       const chunkSize = Math.max(1, Math.ceil(text.length / (chunkDelayMs ? 12 : 4)));
       for (let i = 0; i < text.length; i += chunkSize) {
         if (req.abortSignal.aborted) { yield { type: 'error', error: modelError('Unknown', 'cancelled', { action: 'abort', retryable: false }).toShape() }; return; }
         if (chunkDelayMs && i > 0) await sleep(chunkDelayMs, req.abortSignal);
+        // A mid-stream failure: the step has already shown text, so the engine must abort it and start over
+        // on the next candidate rather than resume (D-04).
+        if (failAfter && i >= failAfter.chars) {
+          throw modelError(failAfter.code, `mock fixture ${failAfter.fixture} raised ${failAfter.code} after ${i} characters`);
+        }
         yield { type: 'text-delta', text: text.slice(i, i + chunkSize) };
       }
+      if (failAfter) throw modelError(failAfter.code, `mock fixture ${failAfter.fixture} raised ${failAfter.code}`);
       for (const b of response.content) {
         if (b.type === 'tool-call') { yield { type: 'tool-call-start', id: b.id, name: b.name }; yield { type: 'tool-call-end', id: b.id, input: b.input }; }
       }

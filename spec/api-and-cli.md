@@ -26,6 +26,11 @@ Order of checks: `Host`/`Origin` (403) before token (401). Requests without an `
 | export / import | `GET /export/agent/:id` · `GET /export/workflow/:id` · `GET /export/memory?scope=` · `GET /export/runs?ids=` · `GET /export/workspace` · `POST /import/agent` · `POST /import/workflow` · `POST /import/memory` (project export/import are under projects) |
 | settings | `GET /settings` → `{ workspacePath, networkMode, budgets, execution, retention, providersConfigured: string[], sandbox: { deno: boolean } }` · `PUT /settings` (rewrites `config/workbench.json`) · `PUT /settings/credentials` |
 | push | `GET /push/vapid-public-key` · `POST /push/subscribe` `{ endpoint, keys, deviceLabel, events }` · `DELETE /push/subscriptions/:id` (D-61) |
+> Amendment (RUN-02, 2026-09-03): `PUT /settings/network` `{ mode }` writes just the network mode to
+> `config/workbench.json` and applies it in place. Cutting the network is a safety control, so it is one click
+> (ui.md §Global controls) rather than a config edit and a restart; the rest of `PUT /settings` still waits for
+> RUN-11.
+
 | health | `GET /health` → `{ version, bind, port, startedAt }` (no token) |
 
 Shapes used everywhere: `inputs` is an object (`run agent --input <text>` sends `{ input: <text> }`; workflows take their `inputs` schema); a single-agent run's `outputs` is `{ output: <text | validated JSON> }`, a workflow's is its `outputs` record; `spent` is `{ modelCalls, toolCalls, costUsd, wallClockMs }`. `POST /runs` returns 202. `GET /runs` items are `{ id, kind, state, agentId?, workflowId?, project?, startedAt, finishedAt?, spent }`.

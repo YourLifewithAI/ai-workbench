@@ -72,6 +72,16 @@ One checker serves adapters and tools. Modes form a lattice `offline < local-onl
 
 Blocked address classes (checked for every resolved address; one blocked answer blocks the request): IPv4 `0.0.0.0/8, 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10, 224.0.0.0/4, 255.255.255.255`; IPv6 `::, ::1, fc00::/7, fe80::/10` and IPv4-mapped forms; names `localhost`, `metadata`, `metadata.google.internal`. Numeric hosts are parsed canonically (no decimal, octal, or shortened forms). The broker resolves with `dns.lookup({ all: true })`, checks every address, pins one, and connects to it with the hostname as SNI through an `undici` `Agent` whose `lookup` and `connect` are injectable (tests resolve `*.test` names to TEST-NET-3 addresses and dial a local server). Redirects: at most 5, `301 302 303 307 308`, each target re-checked against the allowlist and the address classes, `https → http` refused, headers stripped across hosts. Any request to the runtime's bound address or to loopback on the runtime's port is denied in every mode.
 
+> Amendment (RUN-02, 2026-09-03): an **enabled catalog entry is itself the declaration** for a model call, whether or
+> not it names a `baseUrl` — enabling a model in `config/models.json` is the act by which the owner allows that
+> destination. Model calls are therefore declared endpoints: subject to the mode, not to tool allowlists. The
+> mode is still what refuses a cloud call in `offline` or `local-only`.
+>
+> Amendment (RUN-02, 2026-09-03): RUN-02 ships the mode lattice, declared endpoints, blocked address classes for
+> literal hosts, and the egress log. DNS resolution with address pinning, redirect re-checking, and the
+> exfiltration rule arrive with RUN-07's tool egress (SEC-17, SEC-18, SEC-19); until then a hostname that
+> resolves to a private address is caught only when the host is written as a literal.
+
 **Declared endpoints** — the `baseUrl` of a catalog model, the configured search provider, and configured MCP commands — are harness endpoints the owner wrote into config. They are subject to the workspace mode and are logged, but not to agent allowlists, and a declared loopback address (Ollama, SearXNG) is allowed by declaration. A model-generated destination never receives this status.
 
 Every egress is logged: destination, resolved address, purpose (`model | tool | search | mcp`), data categories (`instructions | task | memory | document | tool-output | url`), bytes, decision, and a redacted body. This feeds the Privacy Inspector.

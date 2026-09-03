@@ -1,5 +1,5 @@
 // Every call carries the bearer token; SSE is fetch-based (never EventSource) so it can too.
-import type { AgentDetail, AgentListResponse, CreateRunRequest, ReloadAgentsResponse, RunDetail, RunSummary, SettingsResponse } from '../../shared/api/index.js';
+import type { AgentDetail, AgentListResponse, CreateRunRequest, ModelListResponse, PrivacyResponse, ReloadAgentsResponse, RunDetail, RunSummary, SettingsResponse } from '../../shared/api/index.js';
 import type { EventRecord } from '../../shared/events.js';
 import { getToken, markUnauthorized } from './auth.js';
 
@@ -40,6 +40,11 @@ export const api = {
   agents: (): Promise<AgentListResponse> => apiFetch('/agents').then((r) => r.json() as Promise<AgentListResponse>),
   agent: (id: string): Promise<AgentDetail> => apiFetch(`/agents/${encodeURIComponent(id)}`).then((r) => r.json() as Promise<AgentDetail>),
   reloadAgents: (): Promise<ReloadAgentsResponse> => apiFetch('/agents/reload', { method: 'POST' }).then((r) => r.json() as Promise<ReloadAgentsResponse>),
+  models: (): Promise<ModelListResponse> => apiFetch('/models').then((r) => r.json() as Promise<ModelListResponse>),
+  refreshModels: (): Promise<ModelListResponse> => apiFetch('/models/refresh', { method: 'POST' }).then((r) => r.json() as Promise<ModelListResponse>),
+  privacy: (id: string): Promise<PrivacyResponse> => apiFetch(`/runs/${encodeURIComponent(id)}/privacy`).then((r) => r.json() as Promise<PrivacyResponse>),
+  setNetworkMode: (mode: string): Promise<{ networkMode: string }> =>
+    apiFetch('/settings/network', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) }).then((r) => r.json() as Promise<{ networkMode: string }>),
   trace: (id: string): Promise<string> => apiFetch(`/runs/${encodeURIComponent(id)}/trace.jsonl`).then((r) => r.text()),
   createRun: (body: CreateRunRequest): Promise<{ runId: string }> =>
     apiFetch('/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<{ runId: string }>),

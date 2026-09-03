@@ -17,8 +17,16 @@ import { EventStore } from './engine/events.js';
 import { Engine } from './engine/run.js';
 import { AdapterRegistry, type FetchLike } from './models/adapter.js';
 import { MockAdapter } from './models/adapters/mock/index.js';
+import { MockUpstream } from './models/adapters/mock/upstream.js';
 import { GoogleAdapter } from './models/adapters/google/index.js';
+import { AnthropicAdapter } from './models/adapters/anthropic/index.js';
+import { OpenAiCompatibleAdapter } from './models/adapters/openai-compatible/index.js';
 import { createApp } from './api/app.js';
+import { listModels, pollLocalEndpoints, type PollResult } from './models/availability.js';
+import { createEgressFetch } from './security/egress.js';
+import { directFetch } from './models/fetch.js';
+import type { ModelListResponse } from '../shared/api/index.js';
+import type { WorkbenchConfig } from '../shared/workspace.js';
 import { findExecutable } from './util/exec.js';
 
 export const DEFAULT_PORT = 8787;
@@ -54,6 +62,8 @@ export class Runtime {
   private port = 0;
   private hosts = new Set<string>();
   private readonly shutdown = new AbortController();
+  readonly mockUpstream = new MockUpstream();
+  private polled: PollResult | null = null;
   private stopped = false;
 
   private constructor(
@@ -67,6 +77,7 @@ export class Runtime {
     readonly events: EventStore,
     readonly registry: AdapterRegistry,
     readonly engine: Engine,
+    private readonly portRef: { current: number | null },
   ) {
     this.log = logHandle.logger;
     this.app = createApp({
@@ -81,6 +92,9 @@ export class Runtime {
       health: () => ({ version: pkg.version, bind: this.bind, port: this.port, startedAt: this.startedAt }),
       denoAvailable: () => findExecutable('deno', opts.bootstrap.childEnvAllowlist['PATH']) !== null,
       reloadAgents: () => this.reloadAgents(),
+      models: (refresh) => this.models(refresh),
+      setNetworkMode: (mode) => this.setNetworkMode(mode),
+      db,
       uiDist: pkg.uiDist,
       shutdown: this.shutdown.signal,
     });
@@ -111,8 +125,51 @@ export class Runtime {
     const registry = new AdapterRegistry();
     registry.register(new MockAdapter(workspace.paths.fixtures));
     registry.register(new GoogleAdapter());
-    const engine = new Engine({ db, events, workspace: () => workspace, registry, credentials, redactor, log: logHandle.logger, providerOverride: opts.providerOverride ?? null, ...(opts.fetch ? { fetch: opts.fetch } : {}) });
-    return new Runtime(opts, pkg, workspace, db, redactor, credentials, logHandle, events, registry, engine);
+    registry.register(new AnthropicAdapter());
+    registry.register(new OpenAiCompatibleAdapter());
+    // The port is only known after listen(), and the checker needs it to refuse calls back into the runtime.
+    const portRef: { current: number | null } = { current: null };
+    const engine = new Engine({
+      db, events, workspace: () => workspace, registry, credentials, redactor,
+      log: logHandle.logger, providerOverride: opts.providerOverride ?? null,
+      runtimePort: () => portRef.current,
+      ...(opts.fetch ? { fetch: opts.fetch } : {}),
+    });
+    return new Runtime(opts, pkg, workspace, db, redactor, credentials, logHandle, events, registry, engine, portRef);
+  }
+
+  /**
+   * The catalog with live availability. Local endpoints are polled rather than assumed, through the same egress
+   * checker a model call uses, so a poll in offline mode is refused like any other call.
+   */
+  async models(refresh: boolean): Promise<ModelListResponse> {
+    if (refresh || this.polled === null) {
+      const config = this.workspace.config;
+      const fetchImpl = createEgressFetch({
+        real: this.opts.fetch ?? directFetch,
+        policy: () => ({ mode: config.network.mode, allow: config.network.allow, allowLocalAddresses: config.network.allowLocalAddresses, runtimePort: this.portRef.current }),
+        record: () => undefined, // a listing carries none of the workspace's data, so it is not an egress the Inspector shows
+      }, { purpose: 'model', declared: true, categories: [] });
+      this.polled = await pollLocalEndpoints(this.workspace.catalog, fetchImpl);
+    }
+    const models = listModels({
+      catalog: this.workspace.catalog,
+      mode: this.workspace.config.network.mode,
+      hasAdapter: (id) => this.registry.has(id),
+      hasCredential: (provider) => this.credentials.get(provider) !== undefined,
+      reachableEndpoints: this.polled.reachable,
+    });
+    return { models, networkMode: this.workspace.config.network.mode, pulled: Object.fromEntries(this.polled.pulled) };
+  }
+
+  /** Writes the mode into config/workbench.json so it survives a restart, then applies it in place. */
+  setNetworkMode(mode: WorkbenchConfig['network']['mode']): void {
+    const file = this.workspace.paths.workbenchJson;
+    const current = JSON.parse(fs.readFileSync(file, 'utf8')) as { network?: Record<string, unknown> };
+    current.network = { ...(current.network ?? {}), mode };
+    fs.writeFileSync(file, JSON.stringify(current, null, 2) + '\n');
+    this.workspace.config.network.mode = mode;
+    this.polled = null; // availability depends on the mode, so the next listing re-polls
   }
 
   /** Picks up edits to agent.json and instructions.md without a restart; a broken file becomes a listed error. */
@@ -150,6 +207,8 @@ export class Runtime {
     });
     this.listening = true;
     this.port = info.port;
+    this.portRef.current = info.port;
+    await this.startMockUpstream();
     this.hosts = acceptedHosts(this.port, this.bind, this.opts.expose ?? []);
     if (!this.ephemeral) {
       writeTokenFile(this.workspace.paths.runtimeToken, this.token);
@@ -160,10 +219,25 @@ export class Runtime {
     return { port: this.port, url: this.url };
   }
 
+  /**
+   * Any catalog entry served by the mock that declares a `baseUrl` is repointed at a loopback listener started
+   * here, so the declared-endpoint path is real in tests and demos rather than mocked away (D-37).
+   */
+  private async startMockUpstream(): Promise<void> {
+    const needsUpstream = this.workspace.catalog.models.some((m) => m.adapter === 'mock' && m.baseUrl);
+    if (!needsUpstream) return;
+    await this.mockUpstream.start();
+    for (const model of this.workspace.catalog.models) {
+      if (model.adapter === 'mock' && model.baseUrl) model.baseUrl = this.mockUpstream.baseUrl;
+    }
+    this.log.info({ port: this.mockUpstream.port }, 'mock upstream listening');
+  }
+
   async stop(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
     this.shutdown.abort();
+    await this.mockUpstream.stop();
     if (this.server) {
       const server = this.server;
       await new Promise<void>((resolve) => {
