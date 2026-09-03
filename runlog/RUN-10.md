@@ -1,6 +1,6 @@
 # RUN-10 handoff — Evaluation and compare
 
-**Branch:** `run/10-evaluate` · **Head:** _(filled at push)_ · **Status:** awaiting verification
+**Branch:** `run/10-evaluate` · **Head:** `120cc4a` · **Status:** awaiting verification
 
 ## Built
 - `src/runtime/db/migrations/0011_evaluation.sql` — `datasets`, `cases`, `experiments`, `experiment_runs`, `scores`, and `ratings.model_id`.
