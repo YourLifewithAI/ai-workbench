@@ -17,7 +17,7 @@ import { ApprovalStore, type ApprovalDecision } from '../approvals/store.js';
 import { ToolExecutor, type ApprovalHost } from '../tools/executor.js';
 import { builtinTools } from '../tools/registry.js';
 import { MAX_DEPTH, type DelegateHost, type PermissionRequestHost } from '../tools/builtin/delegate.js';
-import type { RememberRule } from '../../shared/api/index.js';
+import type { PushEventKind, RememberRule } from '../../shared/api/index.js';
 import type { RunDetail, RunSummary } from '../../shared/api/index.js';
 import type { RunState, Spent } from '../../shared/events.js';
 import type { LoadedAgent } from '../../shared/agent.js';
@@ -95,6 +95,7 @@ export class Engine {
   readonly reviews: ReviewStore;
   readonly approvals: ApprovalStore;
   readonly tools: ToolExecutor;
+  private push: { notify: (kind: PushEventKind, ids: { id: string; runId: string }) => Promise<unknown> } | null = null;
 
   constructor(private readonly deps: EngineDeps) {
     if (!deps.artifacts) throw new Error('The engine needs the Library: tools file their output there, and the broker checks paths against it.');
@@ -127,6 +128,16 @@ export class Engine {
     });
   }
 
+  /** Push is attached after construction, like tools: the runtime owns the keys and this owns the moments. */
+  attachPush(push: { notify: (kind: PushEventKind, ids: { id: string; runId: string }) => Promise<unknown> }): void {
+    this.push = push;
+  }
+
+  /** A notification is a nudge, not a transaction: a push that fails must never fail the run it is about. */
+  private nudge(kind: PushEventKind, ids: { id: string; runId: string }): void {
+    void this.push?.notify(kind, ids).catch((e: unknown) => this.deps.log.warn({ err: e, kind }, 'a push notification could not be sent'));
+  }
+
   // ---- approvals (D-13) ----------------------------------------------------------------------------------
 
   /**
@@ -135,12 +146,13 @@ export class Engine {
    */
   private approvalHost(): ApprovalHost {
     return {
-      request: async ({ runId, stepId, tool, args, policy, remember, signal }) => {
-        const row = this.approvals.open({ runId, stepId, tool, args, policy, ...(remember ? { remember } : {}) });
+      request: async ({ runId, stepId, tool, args, policy, remember, ordinal, signal }) => {
+        const row = this.approvals.open({ runId, stepId, tool, args, policy, ...(remember ? { remember } : {}), ...(ordinal !== undefined ? { ordinal } : {}) });
         this.deps.db.prepare("UPDATE runs SET state = 'waiting_approval' WHERE id = ?").run(runId);
         this.deps.events.append(runId, stepId, 'approval-requested', {
           approvalId: row.id, batchId: row.batch_id, tool, args, policy, expiresAt: row.expires_at,
         });
+        this.nudge('approval-requested', { id: row.batch_id, runId });
 
         const outcome = await this.waitForApproval(row.id, signal);
         this.deps.db.prepare("UPDATE runs SET state = 'running' WHERE id = ?").run(runId);
@@ -312,6 +324,7 @@ export class Engine {
 
         this.deps.db.prepare("UPDATE runs SET state = 'waiting_review' WHERE id = ?").run(runId);
         this.deps.events.append(runId, stepId, 'review-requested', { reviewId: row.id, stepId, attempt: row.attempt, versionId: versionId ?? null });
+        this.nudge('review-blocking', { id: row.id, runId });
 
         const decision = await this.waitForReview(row.id, signal);
         this.deps.db.prepare("UPDATE runs SET state = 'running' WHERE id = ?").run(runId);
@@ -656,7 +669,17 @@ export class Engine {
     const at = new Date().toISOString();
     this.deps.db.prepare('UPDATE runs SET state = ?, outputs_json = ?, spent_json = ?, finished_at = ? WHERE id = ?')
       .run(state, extra.outputs ? this.persist(extra.outputs) : null, this.persist(spent), at, runId);
-    if (state === 'completed') this.deps.events.append(runId, null, 'run-completed', { outputs: extra.outputs ?? {}, spent });
+    if (state !== 'completed') return;
+    this.deps.events.append(runId, null, 'run-completed', { outputs: extra.outputs ?? {}, spent });
+    // Only a scheduled run is worth a buzz on completion: a run you started yourself, you are already watching.
+    if (this.scheduled.delete(runId)) this.nudge('scheduled-run-completed', { id: runId, runId });
+  }
+
+  /** Runs the scheduler started, so completion can be told apart from a run the human is sitting in front of. */
+  private readonly scheduled = new Set<string>();
+
+  markScheduled(runId: string): void {
+    this.scheduled.add(runId);
   }
 
   private fail(runId: string, e: unknown, spent: Spent, cancelled: boolean): void {
@@ -679,6 +702,7 @@ export class Engine {
       .run(this.persist(spent), at, this.persist(payload), runId);
     this.deps.db.prepare("UPDATE run_steps SET state = 'cancelled', finished_at = ? WHERE run_id = ? AND state IN ('running', 'pending')").run(at, runId);
     this.deps.events.append(runId, null, 'run-failed', payload);
+    this.nudge('run-failed', { id: runId, runId });
   }
 
   // ---- reads ---------------------------------------------------------------------------------------------

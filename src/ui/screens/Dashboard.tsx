@@ -65,7 +65,7 @@ export function Dashboard() {
         <>
           <h2 className="mt-6 text-lg font-medium">Needs you</h2>
           {pending.length ? (
-            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+            <p className="mt-1 hidden text-sm text-gray-600 md:block dark:text-gray-400">
               Keys: <kbd className="font-mono">a</kbd> allow · <kbd className="font-mono">d</kbd> deny · <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> move.
             </p>
           ) : null}

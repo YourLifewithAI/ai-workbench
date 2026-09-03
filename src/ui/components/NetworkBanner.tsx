@@ -31,11 +31,11 @@ export function NetworkBanner() {
       <span className={cn('rounded px-2 py-0.5 text-xs font-medium', copy.tone)}>Network: {copy.label}</span>
       <span className="text-gray-600 dark:text-gray-400">{copy.says}</span>
       {mode === 'offline' ? (
-        <button type="button" onClick={() => setMode.mutate('allowlist')} disabled={setMode.isPending} className="ml-auto rounded px-2 py-1 text-xs font-medium underline underline-offset-4 hover:bg-gray-100 dark:hover:bg-gray-800">
+        <button type="button" onClick={() => setMode.mutate('allowlist')} disabled={setMode.isPending} className="ml-auto min-h-11 rounded px-2 text-xs font-medium underline underline-offset-4 hover:bg-gray-100 md:min-h-0 md:py-1 dark:hover:bg-gray-800">
           Go back online (allowlist)
         </button>
       ) : (
-        <button type="button" onClick={() => setMode.mutate('offline')} disabled={setMode.isPending} className="ml-auto rounded px-2 py-1 text-xs font-medium underline underline-offset-4 hover:bg-gray-100 dark:hover:bg-gray-800">
+        <button type="button" onClick={() => setMode.mutate('offline')} disabled={setMode.isPending} className="ml-auto min-h-11 rounded px-2 text-xs font-medium underline underline-offset-4 hover:bg-gray-100 md:min-h-0 md:py-1 dark:hover:bg-gray-800">
           Go offline
         </button>
       )}

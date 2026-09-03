@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import { setWelcomeDone } from '../lib/welcome.js';
 import { Card } from '../components/ui/card.js';
+import { PushSettings } from '../components/PushSettings.js';
 
 export function Settings() {
   const q = useQuery({ queryKey: ['settings'], queryFn: api.settings });
@@ -36,6 +37,7 @@ export function Settings() {
             <h2 className="font-medium">Retention</h2>
             <dl className="mt-2 text-sm">{Object.entries(q.data.retention).map(([k, v]) => <Row key={k} k={k} v={String(v)} />)}</dl>
           </Card>
+          <div className="md:col-span-2"><PushSettings /></div>
         </div>
       ) : null}
       <p className="mt-6 text-sm">

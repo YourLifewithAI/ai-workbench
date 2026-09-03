@@ -11,7 +11,8 @@ const variants: Record<Variant, string> = {
   ghost: 'text-gray-900 hover:bg-gray-100 dark:text-gray-100 dark:hover:bg-gray-800',
   link: 'text-blue-700 underline-offset-4 hover:underline dark:text-sky-300',
 };
-const sizes: Record<Size, string> = { default: 'h-10 px-4 py-2', sm: 'h-8 px-3 text-sm' };
+// A thumb needs 44px; a mouse does not. Both sizes meet that on a phone and shrink on a wider screen.
+const sizes: Record<Size, string> = { default: 'min-h-11 px-4 py-2', sm: 'min-h-11 px-3 text-sm md:min-h-8' };
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> { variant?: Variant; size?: Size }
 

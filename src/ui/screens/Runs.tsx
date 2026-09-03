@@ -76,7 +76,29 @@ export function Runs() {
         </div>
       ) : null}
       {q.data && q.data.length > 0 ? (
-        <table className="mt-4 w-full text-left text-sm">
+        <ul className="mt-4 space-y-3 md:hidden">
+          {q.data.map((r) => (
+            <li key={r.id} className="rounded-lg border border-gray-200 p-3 dark:border-gray-800">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-medium">{r.agentId ?? r.workflowId ?? r.kind}</p>
+                  <p className="mt-0.5 text-xs text-gray-700 dark:text-gray-300">
+                    <time dateTime={r.startedAt}>{new Date(r.startedAt).toLocaleString()}</time>
+                  </p>
+                </div>
+                <Badge tone={stateTone(r.state)}>{r.state}</Badge>
+              </div>
+              <BudgetLine run={r} className="mt-2" />
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Link to={`/runs/${r.id}`} className="text-sm text-blue-700 underline underline-offset-4 dark:text-sky-300">Open</Link>
+                {CANCELLABLE.has(r.state) ? <CancelButton runId={r.id} /> : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {q.data && q.data.length > 0 ? (
+        <table className="mt-4 hidden w-full text-left text-sm md:table">
           <caption className="sr-only">Runs, newest first</caption>
           <thead>
             <tr className="border-b border-gray-200 text-gray-600 dark:border-gray-800 dark:text-gray-400">

@@ -116,3 +116,5 @@ Import trust is defined in `agents-and-prompts.md` (D-34) and exports in `data-m
 > - **A batched card lists its actions in ask order** (ascending ULID), not in whatever order the rows came back.
 > - **A delegated run bypasses the run queue.** The parent holds a slot and waits for the child, so queueing a delegation behind `execution.maxConcurrentRuns` deadlocks a chain at depth 2.
 > - **A `kind: 'tool'` workflow step runs under a grant named for the workflow** — `grants.<workflowId>` — rather than inventing a wider door than an agent gets. The workspace needs an agent definition with the workflow's id to hold that grant; otherwise the step is refused with a message saying so.
+
+> Amendment (RUN-12, 2026-09-03): an approval row carries an `ordinal` — where the call sat in the response that asked for it — so a batched card lists its actions in ask order. ULIDs were tried first and are wrong for this: they are only monotonic within a millisecond when a monotonic factory makes them, and two parallel tool calls land in the same millisecond.

@@ -9,6 +9,7 @@ import { workspacePaths, type WorkspacePaths } from '../paths.js';
 import { loadConfig, readJsonFile } from './config.js';
 import { WorkspaceError, formatZodError } from '../util/errors.js';
 import { contentHash } from '../util/canonical.js';
+import { ensureVapidKeys } from '../push/vapid.js';
 
 export interface BrokenAgent { id: string; file: string; message: string }
 export interface BrokenWorkflow { id: string; file: string; message: string }
@@ -155,6 +156,9 @@ export function initWorkspace(targetDir: string, examplesDir: string, defaultsDi
   fs.copyFileSync(path.join(defaultsDir, 'models.json'), paths.modelsJson);
   const wsFile: WorkspaceFile = { schemaVersion: 1, name: name ?? path.basename(paths.dir), createdAt: new Date().toISOString() };
   fs.writeFileSync(paths.workspaceFile, JSON.stringify(wsFile, null, 2) + '\n');
+  // The notification keys are generated once, here, and never rotated: rotating would silently deafen every
+  // device that had subscribed (D-61).
+  ensureVapidKeys(paths.dir);
   for (const d of [paths.agents, paths.workflows, paths.projects, paths.fixtures, paths.plugins, paths.data, paths.backups, paths.logs, paths.runs, paths.exports]) {
     fs.mkdirSync(d, { recursive: true });
   }

@@ -62,3 +62,10 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 - Usability check before RUN-11 ships: a person who has never seen the app completes the five core tasks (configure, run, read a trace, approve, rate) from the Welcome path without help; what they stumble on becomes a fix, not a doc.
 
 > Amendment (RUN-05, 2026-09-03): the workflow graph marks a `review: 'blocking'` step as one that waits for you, in the picture and in its text alternative — the shape of a workflow includes where it stops.
+
+> Amendment (RUN-12, 2026-09-03): the phone layout.
+>
+> - A phone gets a **bottom tab bar** (Dashboard · Review · Runs · Library · More) and no sidebar; "More" opens the full navigation. Content comes first, so *Needs you* is above the fold on an iPhone rather than below three rows of links.
+> - **Touch targets are at least 44px tall below `md`** and shrink above it: `Button`'s `sm` size is `min-h-11 md:min-h-8`, and the same applies to the theme selector and the network banner's one-click switch. The e2e measures every button, link, select and checkbox on each phone screen rather than trusting the classes.
+> - **The Runs list is cards on a phone and a table on a desktop.** A five-column table on a 390px screen is a sideways scroll, which is how a phone layout fails. Long document paths in the Library wrap (`table-fixed` + `break-all`) for the same reason: one unbroken path pushes the whole page sideways.
+> - The keyboard-shortcut hints are hidden below `md`: there is no keyboard to hint at.

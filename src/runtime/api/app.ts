@@ -5,12 +5,13 @@ import path from 'node:path';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { ApprovalDecisionRequest, CreateProjectRequest, CreateRunRequest, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetNetworkModeRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type DashboardResponse, type EgressRecord, type HealthResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
+import { ApprovalDecisionRequest, CreateProjectRequest, CreateRunRequest, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type DashboardResponse, type EgressRecord, type HealthResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
 import { ConflictError, NotFoundError, ValidationError, type Engine } from '../engine/run.js';
 import { ScheduleError, type Scheduler } from '../scheduler/index.js';
+import type { PushStore } from '../push/store.js';
 import { TERMINAL_EVENTS, type EventStore } from '../engine/events.js';
 import { securityHeaders, hostOriginGuard, bearerGuard } from '../security/auth.js';
 import type { Redactor } from '../security/redaction.js';
@@ -21,6 +22,8 @@ import type { BrokenAgent, Workspace } from '../workspace/loader.js';
 import type { LoadedAgent } from '../../shared/agent.js';
 import { validateWorkflow, type LoadedWorkflow } from '../../shared/workflow.js';
 import { toolSpec } from '../../shared/tool.js';
+import { z } from 'zod';
+import { PushEventKind } from '../../shared/api/index.js';
 import type { BudgetOverride } from '../engine/budget.js';
 
 export interface AppDeps {
@@ -43,6 +46,8 @@ export interface AppDeps {
   setNetworkMode: (mode: SetNetworkModeRequest['mode']) => void;
   /** A human granting or withdrawing a tool. This is the authority; what an agent's file asks for is not. */
   setGrant: (agentId: string, permissions: unknown) => void;
+  push: PushStore;
+  vapidPublicKey: () => string;
   artifacts: ArtifactStore;
   db: Db;
   uiDist: string;
@@ -292,6 +297,46 @@ export function createApp(deps: AppDeps): Hono {
       return mapError(c, e);
     }
   });
+
+  // ---- push: the phone (D-61) -----------------------------------------------------------------
+  // The public key is public by definition, but it still sits behind the token: a stranger who can read it
+  // learns this workbench exists, and nothing here needs to tell them that.
+  app.get('/api/v1/push/vapid-public-key', (c) => json(c, { publicKey: deps.vapidPublicKey() }));
+
+  app.get('/api/v1/push/subscriptions', (c) => {
+    const body: PushSubscriptionsResponse = { enabled: deps.workspace().config.push.enabled, subscriptions: deps.push.list() };
+    return json(c, body);
+  });
+
+  app.post('/api/v1/push/subscribe', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = SubscribePushRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'Expected { endpoint, keys: { p256dh, auth }, deviceLabel?, events? }.', 400, parsed.error.issues);
+    return json(c, deps.push.subscribe(parsed.data), 201);
+  });
+
+  app.put('/api/v1/push/subscriptions/:id', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = z.object({ events: z.array(PushEventKind) }).safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'Expected { events: [...] }.', 400, parsed.error.issues);
+    const updated = deps.push.setEvents(c.req.param('id'), parsed.data.events);
+    return updated ? json(c, updated) : fail(c, 'not_found', 'There is no subscription with that id.', 404);
+  });
+
+  app.delete('/api/v1/push/subscriptions/:id', (c) =>
+    deps.push.unsubscribe(c.req.param('id'))
+      ? json(c, { deleted: true })
+      : fail(c, 'not_found', 'There is no subscription with that id.', 404));
 
   // ---- approvals: the security queue (D-13) ---------------------------------------------------
   app.get('/api/v1/approvals', (c) => {

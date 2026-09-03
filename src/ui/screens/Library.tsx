@@ -79,19 +79,21 @@ export function ProjectDetail() {
       {q.isError ? <p role="alert" className="mt-3 text-red-700 dark:text-red-300">{q.error.message}</p> : null}
       {q.data && q.data.length === 0 ? <div className="mt-6"><EmptyState title="Nothing here yet. Run an agent with this project as its target and its output lands here." /></div> : null}
       {q.data?.length ? (
-        <table className="mt-4 w-full text-left text-sm">
+        // `table-fixed` plus a wrapping path: a document path is long and unbroken, and on a phone one of them
+        // is enough to push the whole page sideways.
+        <table className="mt-4 w-full table-fixed text-left text-sm">
           <caption className="sr-only">Documents in {slug}</caption>
           <thead>
             <tr className="border-b border-gray-200 text-gray-700 dark:border-gray-800 dark:text-gray-300">
-              <th scope="col" className="py-2 pr-3 font-medium">Path</th>
-              <th scope="col" className="py-2 pr-3 font-medium">Versions</th>
+              <th scope="col" className="w-1/2 py-2 pr-3 font-medium">Path</th>
+              <th scope="col" className="w-16 py-2 pr-3 font-medium">Versions</th>
               <th scope="col" className="py-2 pr-3 font-medium">Updated</th>
             </tr>
           </thead>
           <tbody>
             {q.data.map((d) => (
               <tr key={d.id} className="border-b border-gray-100 dark:border-gray-800">
-                <td className="py-2 pr-3"><Link to={`/library/${slug}/${d.id}`} className="font-mono text-xs text-blue-700 underline underline-offset-4 dark:text-sky-300">{d.path}</Link></td>
+                <td className="py-2 pr-3"><Link to={`/library/${slug}/${d.id}`} className="break-all font-mono text-xs text-blue-700 underline underline-offset-4 dark:text-sky-300">{d.path}</Link></td>
                 <td className="py-2 pr-3">{d.versions}</td>
                 <td className="py-2 pr-3">{d.updatedAt ? new Date(d.updatedAt).toLocaleString() : '—'}</td>
               </tr>
