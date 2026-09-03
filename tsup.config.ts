@@ -1,5 +1,5 @@
 import { defineConfig } from 'tsup';
-import { cpSync, mkdirSync } from 'node:fs';
+import { cpSync, mkdirSync, rmSync } from 'node:fs';
 
 export default defineConfig({
   entry: { server: 'src/runtime/server.ts', cli: 'src/runtime/cli/main.ts' },
@@ -14,8 +14,12 @@ export default defineConfig({
   external: ['better-sqlite3'],
   onSuccess: async () => {
     mkdirSync('dist', { recursive: true });
-    cpSync('src/runtime/db/migrations', 'dist/migrations', { recursive: true });
-    cpSync('defaults', 'dist/defaults', { recursive: true });
-    cpSync('examples', 'dist/examples', { recursive: true });
+    // Each copied tree is emptied first: `cpSync` overwrites what is there and leaves what is not, so a file
+    // deleted or renamed in the source stayed in `dist/` and kept being loaded — a stale example workspace is
+    // shipped to whoever runs `workbench init` next.
+    for (const [from, to] of [['src/runtime/db/migrations', 'dist/migrations'], ['defaults', 'dist/defaults'], ['examples', 'dist/examples']]) {
+      rmSync(to!, { recursive: true, force: true });
+      cpSync(from!, to!, { recursive: true });
+    }
   },
 });

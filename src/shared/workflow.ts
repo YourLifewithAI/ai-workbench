@@ -3,7 +3,7 @@
 import { z } from 'zod';
 import { Budgets, Permissions } from './permissions.js';
 import { JsonSchema } from './model.js';
-import { parseExpr, type Expr } from './expr.js';
+import { parseExpr, rootsOf, type Expr } from './expr.js';
 import { referencesIn, type TemplateValue } from './template.js';
 
 /** A template is any JSON whose string leaves may contain `{{ … }}`. */
@@ -118,27 +118,37 @@ export function validateWorkflow(workflow: Workflow): ValidationResult {
     for (const dependency of step.dependsOn) {
       if (!steps.has(dependency)) errors.push({ path: `${at}.dependsOn`, message: `"${dependency}" is not a step in this workflow` });
     }
-    if (step.when !== undefined) checkExpr(step.when, `${at}.when`, errors);
 
-    // A template reference to `steps.x` implies an edge, so authors do not have to repeat themselves.
-    for (const template of templatesOf(step)) {
-      for (const ref of referencesIn(template)) {
-        if (!ROOTS.has(ref.root)) {
-          errors.push({ path: `${at}`, message: `"${ref.source}" starts with "${ref.root}", which is not one of ${[...ROOTS].join(', ')}` });
-          continue;
-        }
-        if (ref.root !== 'steps') continue;
-        const target = ref.segments[1];
-        if (typeof target !== 'string' || !steps.has(target)) {
-          errors.push({ path: at, message: `"${ref.source}" refers to step "${String(target)}", which does not exist` });
-          continue;
-        }
-        if (target !== step.id) edges.get(step.id)!.add(target);
+    // A reference to `steps.x` implies an edge, so authors do not have to repeat themselves in `dependsOn`.
+    // It counts wherever it appears: in a template, in `when`, and in the list a map iterates over. A map whose
+    // `over` names a step it does not wait for would race that step and fail on the first run.
+    const noteRef = (ref: { root: string; segments: (string | number)[]; source: string }): void => {
+      if (!ROOTS.has(ref.root)) {
+        errors.push({ path: `${at}`, message: `"${ref.source}" starts with "${ref.root}", which is not one of ${[...ROOTS].join(', ')}` });
+        return;
       }
+      if (ref.root !== 'steps') return;
+      const target = ref.segments[1];
+      if (typeof target !== 'string' || !steps.has(target)) {
+        errors.push({ path: at, message: `"${ref.source}" refers to step "${String(target)}", which does not exist` });
+        return;
+      }
+      if (target !== step.id) edges.get(step.id)!.add(target);
+    };
+
+    for (const template of templatesOf(step)) for (const ref of referencesIn(template)) noteRef(ref);
+    for (const { source, path: where } of expressionsOf(step, at)) {
+      let expr: Expr;
+      try {
+        expr = parseExpr(source);
+      } catch (e) {
+        errors.push({ path: where, message: (e as Error).message });
+        continue;
+      }
+      for (const root of rootsOf(expr)) noteRef({ ...root, source });
     }
 
     if (step.kind === 'map') {
-      checkExpr(step.over, `${at}.over`, errors);
       if (step.step.kind === 'map') errors.push({ path: `${at}.step`, message: 'a map may not contain another map (one level of nesting)' });
       if (step.step.dependsOn.length) errors.push({ path: `${at}.step.dependsOn`, message: 'a map\'s inner step runs per item and cannot declare dependencies' });
     }
@@ -149,12 +159,15 @@ export function validateWorkflow(workflow: Workflow): ValidationResult {
   return { errors, smells, edges, order };
 }
 
-function checkExpr(source: string, at: string, errors: ValidationIssue[]): void {
-  try {
-    parseExpr(source);
-  } catch (e) {
-    errors.push({ path: at, message: (e as Error).message });
+/** Every expression a step evaluates: its own `when`, and for a map the list it iterates plus its inner step's. */
+function expressionsOf(step: Step, at: string): { source: string; path: string }[] {
+  const out: { source: string; path: string }[] = [];
+  if (step.when !== undefined) out.push({ source: step.when, path: `${at}.when` });
+  if (step.kind === 'map') {
+    out.push({ source: step.over, path: `${at}.over` });
+    out.push(...expressionsOf(step.step, `${at}.step`));
   }
+  return out;
 }
 
 function templatesOf(step: Step): TemplateValue[] {

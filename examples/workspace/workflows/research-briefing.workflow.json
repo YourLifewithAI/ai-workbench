@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "id": "research-briefing",
+  "name": "Research briefing",
+  "description": "A topic becomes questions, the questions are researched in parallel from the web, and the answers become one briefing.",
+  "defaultProject": "briefings",
+  "inputs": {
+    "type": "object",
+    "properties": {
+      "topic": {
+        "type": "string",
+        "title": "Topic",
+        "description": "What you want to know about this week. A few words, not a question."
+      }
+    },
+    "required": ["topic"]
+  },
+  "permissions": {
+    "net": { "mode": "allowlist", "allow": [] },
+    "tools": { "web.search": "allow", "http.fetch": "allow" }
+  },
+  "steps": [
+    {
+      "id": "plan",
+      "kind": "agent",
+      "agent": "planner",
+      "input": "{{inputs.topic}}",
+      "outputSchema": {
+        "type": "object",
+        "properties": { "questions": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 5 } },
+        "required": ["questions"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "answers",
+      "kind": "map",
+      "over": "steps.plan.output.questions",
+      "concurrency": 3,
+      "step": {
+        "id": "answer",
+        "kind": "agent",
+        "agent": "researcher",
+        "input": "{{item}}",
+        "retries": 1,
+        "output": { "document": null }
+      }
+    },
+    {
+      "id": "briefing",
+      "kind": "agent",
+      "agent": "synthesizer",
+      "input": "Topic: {{inputs.topic}}\n\nThe questions asked:\n{{steps.plan.output.questions}}\n\nThe answers, in the same order:\n{{steps.answers.output}}",
+      "output": { "document": "{{inputs.topic}}.md" }
+    },
+    {
+      "id": "critique",
+      "kind": "agent",
+      "agent": "reviewer",
+      "input": "The questions asked:\n{{steps.plan.output.questions}}\n\nThe briefing:\n{{steps.briefing.output}}",
+      "output": { "document": null }
+    }
+  ],
+  "outputs": {
+    "briefing": "{{steps.briefing.output}}",
+    "critique": "{{steps.critique.output}}"
+  },
+  "schedule": {
+    "cron": "0 7 * * *",
+    "inputs": { "topic": "local-first software" },
+    "catchUp": "once"
+  }
+}

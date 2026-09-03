@@ -48,6 +48,16 @@ The model sees a `ToolSpec` (name, description, JSON Schema) derived from the de
 
 **`web.search`** (D-44) — in `{ query, count?: 1..20 = 8, freshness?: 'day' | 'week' | 'month' | 'any' }`; out `{ results: [{ title, url, snippet, published? }] }`. Provider from `config/workbench.json` → `"search": { "provider": "brave" | "searxng" | "mock", "searxng": { "url": "…" } }`; the Brave key is credential `brave`. `--provider mock` mocks every external service, search included; the search mock reads `<workspace>/fixtures/search.json`: `{ "queries": [{ "match": "<substring>", "results": [{ title, url, snippet }] }] }`, falling back to an empty result list.
 
+> Amendment (RUN-07, 2026-09-03): the mock search fixture is `<workspace>/fixtures/search/results.json`, one
+> directory down. `fixtures/*.json` is the model mock's own namespace, and a file there that is not a model
+> fixture parsed as one with an empty `match` — which matches every call. The model fixture schema is strict about
+> unknown keys now, so a stray file is a load-time error rather than a silent catch-all.
+
+> Amendment (RUN-07, 2026-09-03): a network tool's `maxPermissions` names no `net.mode`. The ceiling says the tool
+> may use the network and nothing else; the mode belongs to the workspace, the agent, the workflow and the run. A
+> ceiling of `allowlist` on `http.fetch` and `web.search` put `unrestricted` out of reach of the only two tools
+> that can use it, and with it the "may follow a link it was shown" half of the exfiltration rule.
+
 ## Permissions and the broker (D-26, D-27)
 
 ```jsonc

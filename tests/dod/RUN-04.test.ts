@@ -104,7 +104,7 @@ describe('DoD 3: a run that spends its budget wraps up, files a partial, and fai
     // Every call asks for a tool that does not exist, so the loop can only ever end on the budget.
     fs.writeFileSync(path.join(ws, 'fixtures', 'aaa-tool-loop.json'), JSON.stringify({
       match: { systemIncludes: 'The Architect' },
-      respond: { text: 'Let me look that up.', toolCalls: [{ name: 'web.search', input: { q: 'arcology dentistry' } }] },
+      respond: { text: 'Let me look that up.', toolCalls: [{ name: 'oracle.consult', input: { q: 'arcology dentistry' } }] },
     }));
     const file = writeInputs(ws, { premise: 'A dentist finds a message in a tooth.' });
     const run = await runCli(['run', 'workflow', 'story-pipeline', '--inputs-file', file, '--provider', 'mock', '--max-model-calls', '6', '--json', '--workspace', ws], { dist: true });
@@ -127,7 +127,8 @@ describe('DoD 3: a run that spends its budget wraps up, files a partial, and fai
       expect(systems[systems.length - 1]).toContain('This is your last turn');
       expect(systems[systems.length - 1]).toContain('do not call tools');
 
-      // The tool the model asked for does not exist, and it was told so rather than crashed.
+      // The tool the model asked for does not exist — and never will, which is the point of the name — and it
+      // was told so rather than crashed.
       const toolResults = trace.filter((e) => e.type === 'tool-completed');
       expect(toolResults.length).toBeGreaterThan(0);
       expect(JSON.stringify(toolResults[0]!.payload)).toContain('UnknownTool');

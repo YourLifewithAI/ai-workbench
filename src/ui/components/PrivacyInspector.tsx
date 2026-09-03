@@ -50,7 +50,8 @@ export function PrivacyInspector({ runId }: { runId: string }) {
                   <summary className="flex cursor-pointer flex-wrap items-center gap-3 px-3 py-2 text-sm">
                     <Badge tone={e.decision === 'allowed' ? 'good' : 'bad'}>{e.decision}</Badge>
                     <span className="font-mono text-xs">{e.method} {e.host}</span>
-                    <span className="text-gray-600 dark:text-gray-400">{e.purpose} · {e.categories.join(', ') || 'no payload'} · {e.bytes.toLocaleString()} bytes</span>
+                    {/* Bytes are what *left*: a GET carries none, however large the page that came back. */}
+                    <span className="text-gray-600 dark:text-gray-400">{e.purpose} · {e.categories.join(', ') || 'no payload'} · {e.bytes ? `${e.bytes.toLocaleString()} bytes sent` : 'nothing sent in the body'}</span>
                   </summary>
                   <div className="space-y-2 border-t border-gray-100 px-3 py-2 dark:border-gray-800">
                     {e.reason ? <p className="text-sm text-gray-700 dark:text-gray-300">{e.reason}</p> : null}

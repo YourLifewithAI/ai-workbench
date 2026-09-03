@@ -12,6 +12,7 @@ import { evaluate, parseExpr, ReferenceError_, truthy, type Scope } from '../../
 import { renderTemplate } from '../../shared/template.js';
 import { mapItemStepId, validateWorkflow, type LoadedWorkflow, type MapStep, type Step } from '../../shared/workflow.js';
 import type { LoadedAgent } from '../../shared/agent.js';
+import type { RunTaint } from './taint.js';
 
 /**
  * What happens to a step's output once the step itself is done: it is filed for review, and a blocking gate
@@ -43,6 +44,8 @@ export interface WorkflowRunInput {
   provider?: 'mock' | undefined;
   budget: RunBudget;
   signal: AbortSignal;
+  /** The exfiltration rule's memory, shared across every step of the run (D-29). */
+  taint?: RunTaint | undefined;
   /** Steps a previous attempt already finished, for `runs resume`: they are not re-run and not re-filed. */
   completed?: Map<string, { state: 'completed' | 'skipped'; value: unknown }> | undefined;
 }
@@ -215,6 +218,7 @@ export class WorkflowExecutor {
       ...(feedback ? { feedback } : {}),
       budget: input.budget.child(step.budget),
       ...(input.workflow.definition.permissions ? { workflowCeiling: input.workflow.definition.permissions } : {}),
+      ...(input.taint ? { taint: input.taint } : {}),
       scratchDir: `${this.deps.workspace().paths.runs}/${input.runId}`,
       signal,
       workflow: {
@@ -247,6 +251,7 @@ export class WorkflowExecutor {
       runId: input.runId, stepId: step.id, agent: asAgent, project: input.project ?? null,
       scratchDir: `${ws.paths.runs}/${input.runId}`,
       ...(input.workflow.definition.permissions ? { workflowCeiling: input.workflow.definition.permissions } : {}),
+      ...(input.taint ? { taint: input.taint } : {}),
       signal, timeoutMs: input.budget.limits.toolCallTimeoutMs,
     });
     input.budget.recordToolCall();

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "researcher",
+  "name": "The Researcher",
+  "description": "Answers one question from the web, with the sources it actually read.",
+  "instructions": { "file": "instructions.md" },
+  "modelPolicy": { "primary": "google/gemini-2.5-flash", "fallbacks": ["google/gemini-2.5-pro"] },
+  "permissions": {
+    "tools": { "web.search": "allow", "http.fetch": "allow" },
+    "net": { "mode": "allowlist", "allow": [] }
+  },
+  "review": "none",
+  "output": { "kind": "text" }
+}

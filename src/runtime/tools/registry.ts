@@ -5,12 +5,15 @@ import type { ArtifactStore } from '../artifacts/store.js';
 import { calc, datetime, json } from './builtin/basics.js';
 import { artifactTools } from './builtin/artifacts.js';
 import { delegateTool, permissionRequestTool, type DelegateHost, type PermissionRequestHost } from './builtin/delegate.js';
+import { webTools, type WebToolDeps } from './builtin/web.js';
 
 export interface RegistryDeps {
   artifacts: ArtifactStore;
   workspaceDir: string;
   delegate: DelegateHost;
   permissions: PermissionRequestHost;
+  /** The two network tools (RUN-07). Absent leaves them out of the catalogue entirely. */
+  web?: WebToolDeps | undefined;
 }
 
 export function builtinTools(deps: RegistryDeps): Map<string, ToolDefinition> {
@@ -21,6 +24,7 @@ export function builtinTools(deps: RegistryDeps): Map<string, ToolDefinition> {
     ...artifactTools({ artifacts: deps.artifacts, workspaceDir: deps.workspaceDir }),
     delegateTool(deps.delegate),
     permissionRequestTool(deps.permissions),
+    ...(deps.web ? webTools(deps.web) : []),
   ];
   return new Map(tools.map((t) => [t.id, t]));
 }

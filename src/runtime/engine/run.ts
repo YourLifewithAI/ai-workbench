@@ -16,6 +16,8 @@ import { MAX_REJECTIONS, ReviewStore, type ReviewDecision } from '../review/stor
 import { ApprovalStore, type ApprovalDecision } from '../approvals/store.js';
 import { ToolExecutor, type ApprovalHost } from '../tools/executor.js';
 import { builtinTools } from '../tools/registry.js';
+import { searchProvider, type MockSearchFixture } from '../search/index.js';
+import { RunTaint } from './taint.js';
 import { MAX_DEPTH, type DelegateHost, type PermissionRequestHost } from '../tools/builtin/delegate.js';
 import type { PushEventKind, RememberRule } from '../../shared/api/index.js';
 import type { RunDetail, RunSummary } from '../../shared/api/index.js';
@@ -23,6 +25,9 @@ import type { RunState, Spent } from '../../shared/events.js';
 import type { LoadedAgent } from '../../shared/agent.js';
 import type { LoadedWorkflow } from '../../shared/workflow.js';
 import type { WorkbenchConfig } from '../../shared/workspace.js';
+import type { EgressAttempt, EgressDecision } from '../security/egress.js';
+import type { LookupFn } from '../security/dns.js';
+import type { NetConnector } from '../security/netfetch.js';
 import { applyDefaults, validateJson } from '../../shared/jsonschema.js';
 
 export interface EngineDeps {
@@ -44,6 +49,14 @@ export interface EngineDeps {
   now?: (() => Date) | undefined;
   /** Writes `config/workbench.json` back, for a remembered approval and an edited grant. */
   persistConfig?: ((config: WorkbenchConfig) => void) | undefined;
+  /** Tool egress (RUN-07). The runtime supplies the checker's policy, the log, and the injectable seams. */
+  net?: {
+    record: (attempt: EgressAttempt, decision: EgressDecision) => void;
+    lookup?: LookupFn | undefined;
+    connect?: NetConnector | undefined;
+  } | undefined;
+  /** `<workspace>/fixtures/search/results.json`, read by the runtime for the mock provider. */
+  searchFixture?: (() => MockSearchFixture | null) | undefined;
 }
 
 /** One human decision, handed to whichever run is parked behind it. */
@@ -118,8 +131,38 @@ export class Engine {
         workspaceDir: deps.workspace().paths.dir,
         delegate: this.delegateHost(),
         permissions: this.permissionRequestHost(),
+        web: {
+          maxResponseBytes: () => deps.workspace().config.tools.http.maxResponseBytes,
+          timeoutMs: () => deps.workspace().config.tools.http.timeoutMs,
+          search: () => {
+            const config = deps.workspace().config.search;
+            return searchProvider({
+              provider: config.provider,
+              ...(config.searxng?.url ? { searxngUrl: config.searxng.url } : {}),
+              braveKey: () => deps.credentials.get('brave'),
+              ...(deps.searchFixture ? { fixture: deps.searchFixture } : {}),
+            });
+          },
+        },
       }),
       approvals: this.approvalHost(),
+      ...(deps.net ? {
+        net: {
+          policy: () => {
+            const config = deps.workspace().config;
+            return {
+              mode: config.network.mode,
+              allow: config.network.allow,
+              allowLocalAddresses: config.network.allowLocalAddresses,
+              runtimePort: deps.runtimePort?.() ?? null,
+            };
+          },
+          record: deps.net.record,
+          ...(deps.net.lookup ? { lookup: deps.net.lookup } : {}),
+          ...(deps.net.connect ? { connect: deps.net.connect } : {}),
+          ...(deps.runtimePort ? { runtimePort: deps.runtimePort } : {}),
+        },
+      } : {}),
     });
     this.steps.attachTools(this.tools);
     this.workflows = new WorkflowExecutor({
@@ -424,6 +467,10 @@ export class Engine {
       });
     }
 
+    const taint = new RunTaint(this.deps.db, runId);
+    // A child inherits its parent's taint: what the parent read, the child could be quoting to it (D-29).
+    if (input.parent) taint.inherit(RunTaint.load(this.deps.db, input.parent.runId));
+
     return this.schedule(runId, budgets, now, async (budget, signal) => {
       const task = typeof input.inputs['input'] === 'string' ? (input.inputs['input'] as string) : JSON.stringify(input.inputs);
       const host = this.reviewHost();
@@ -435,7 +482,8 @@ export class Engine {
           ...(input.provider ?? this.deps.providerOverride ? { provider: (input.provider ?? this.deps.providerOverride) as 'mock' } : {}),
           ...(input.modelOverride ? { modelOverride: input.modelOverride } : {}),
           ...(feedback ? { feedback } : {}),
-          budget, signal,
+          scratchDir: `${ws.paths.runs}/${runId}`,
+          taint, budget, signal,
         });
         const again = await host.afterStep({
           runId, stepId: 'main', blocking: agent.definition.review === 'blocking',
@@ -479,12 +527,13 @@ export class Engine {
       steps: workflow.definition.steps.map((s) => ({ id: s.id, kind: s.kind, dependsOn: s.dependsOn })),
     });
 
+    const taint = new RunTaint(this.deps.db, runId);
     return this.schedule(runId, budgets, now, async (budget, signal) => {
       const result = await this.workflows.run({
         runId, workflow, inputs,
         ...(project ? { project } : {}),
         ...(input.provider ?? this.deps.providerOverride ? { provider: (input.provider ?? this.deps.providerOverride) as 'mock' } : {}),
-        budget, signal,
+        taint, budget, signal,
       });
       return result.outputs;
     });
@@ -622,6 +671,8 @@ export class Engine {
         runId, workflow, inputs: JSON.parse(row.inputs_json) as Record<string, unknown>,
         ...(row.project_id ? { project: row.project_id } : {}),
         ...(this.deps.providerOverride ? { provider: this.deps.providerOverride } : {}),
+        // A resumed run is the same run: whatever tainted it is still true.
+        taint: RunTaint.load(this.deps.db, runId),
         budget, signal, completed,
       });
       return result.outputs;

@@ -8,14 +8,23 @@ import type { ModelErrorCode as ModelErrorCodeType } from '../../../../shared/mo
 import type { AdapterContext, ModelAdapter } from '../../adapter.js';
 import { ModelError, modelError } from '../../errors.js';
 
-const Fixture = z.object({
-  match: z.object({
+// Strict on purpose: an empty `match` matches every call, so a JSON file in `fixtures/` that is not a model
+// fixture would silently become a catch-all. Unknown keys are a loud load-time error instead. Anything else
+// that wants to live under `fixtures/` puts itself in a subdirectory, which this loader does not read.
+const Fixture = z.strictObject({
+  match: z.strictObject({
     modelId: z.string().optional(),
     systemIncludes: z.string().optional(),
     lastUserIncludes: z.string().optional(),
+    /** Matches once the transcript already contains a call to this tool: the turn *after* the tool ran. */
+    afterTool: z.string().optional(),
+    /**
+     * Which call of the run this is. It counts every call the run makes to this model, across steps, so a
+     * workflow whose steps run in parallel cannot use it to script one step: use `afterTool` there instead.
+     */
     callIndex: z.number().int().positive().optional(),
-  }).default({}),
-  respond: z.object({
+  }).prefault({}),
+  respond: z.strictObject({
     text: z.string().optional(),
     json: z.unknown().optional(),
     toolCalls: z.array(z.object({ name: z.string(), input: z.unknown() })).optional(),
@@ -26,8 +35,8 @@ const Fixture = z.object({
     chunkDelayMs: z.number().int().nonnegative().optional(),
     /** Stream this many characters, then raise `error`: the mid-stream failure a fallback has to recover from. */
     failAfterChars: z.number().int().nonnegative().optional(),
-    usage: z.object({ input: z.number().int().nonnegative(), output: z.number().int().nonnegative() }).optional(),
-  }).default({}),
+    usage: z.strictObject({ input: z.number().int().nonnegative(), output: z.number().int().nonnegative() }).optional(),
+  }).prefault({}),
 });
 export type Fixture = z.infer<typeof Fixture>;
 
@@ -72,11 +81,13 @@ export class MockAdapter implements ModelAdapter {
     const index = (this.counts.get(key) ?? 0) + 1;
     this.counts.set(key, index);
     const lastUser = this.lastUserText(req);
+    const called = calledTools(req);
     for (const f of this.fixtures) {
       const m = f.fixture.match;
       if (m.modelId && !globMatch(m.modelId, model.id)) continue;
       if (m.systemIncludes && !req.system.includes(m.systemIncludes)) continue;
       if (m.lastUserIncludes && !lastUser.includes(m.lastUserIncludes)) continue;
+      if (m.afterTool && !called.has(m.afterTool)) continue;
       if (m.callIndex && m.callIndex !== index) continue;
       return f;
     }
@@ -147,6 +158,15 @@ export class MockAdapter implements ModelAdapter {
       yield { type: 'error', error: err };
     }
   }
+}
+
+/** Every tool this conversation has already called, so a fixture can script the turn after a tool ran. */
+function calledTools(req: ModelRequest): Set<string> {
+  const names = new Set<string>();
+  for (const message of req.messages) {
+    for (const block of message.content) if (block.type === 'tool-call') names.add(block.name);
+  }
+  return names;
 }
 
 function globMatch(pattern: string, value: string): boolean {

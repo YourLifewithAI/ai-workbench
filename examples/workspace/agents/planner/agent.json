@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "planner",
+  "name": "The Planner",
+  "description": "Turns a topic into the handful of questions that would actually answer it.",
+  "instructions": { "file": "instructions.md" },
+  "modelPolicy": { "primary": "google/gemini-2.5-pro", "fallbacks": ["google/gemini-2.5-flash"] },
+  "review": "none",
+  "output": {
+    "kind": "json",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "questions": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 5 }
+      },
+      "required": ["questions"],
+      "additionalProperties": false
+    }
+  }
+}
