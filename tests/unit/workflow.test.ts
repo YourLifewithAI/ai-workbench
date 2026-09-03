@@ -48,13 +48,14 @@ describe('the validator', () => {
   });
 
   it('refuses the features later runs add, naming the run that adds each', () => {
-    const wf = parse([
-      { id: 'a', kind: 'tool', tool: 'web.search', input: '{{inputs.topic}}' },
-      { id: 'b', kind: 'agent', agent: 'x', input: '{{inputs.topic}}', review: 'blocking' },
-    ]);
+    const wf = parse([{ id: 'a', kind: 'tool', tool: 'web.search', input: '{{inputs.topic}}' }]);
     const messages = validateWorkflow(wf).errors.map((e) => e.message);
     expect(messages.some((m) => m.includes('RUN-06'))).toBe(true);
-    expect(messages.some((m) => m.includes('RUN-05'))).toBe(true);
+  });
+
+  it('accepts a blocking review gate, which RUN-05 implements', () => {
+    const wf = parse([{ id: 'b', kind: 'agent', agent: 'x', input: '{{inputs.topic}}', review: 'blocking' }]);
+    expect(validateWorkflow(wf).errors).toEqual([]);
   });
 
   it('allows one level of map nesting and no more', () => {

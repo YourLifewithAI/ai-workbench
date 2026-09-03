@@ -5,11 +5,12 @@ import path from 'node:path';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { CreateProjectRequest, CreateRunRequest, PutDocumentRequest, SetNetworkModeRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type EgressRecord, type HealthResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type SettingsResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
+import { CreateProjectRequest, CreateRunRequest, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetNetworkModeRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type DashboardResponse, type EgressRecord, type HealthResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
 import { ConflictError, NotFoundError, ValidationError, type Engine } from '../engine/run.js';
+import { ScheduleError, type Scheduler } from '../scheduler/index.js';
 import { TERMINAL_EVENTS, type EventStore } from '../engine/events.js';
 import { securityHeaders, hostOriginGuard, bearerGuard } from '../security/auth.js';
 import type { Redactor } from '../security/redaction.js';
@@ -23,6 +24,7 @@ import type { BudgetOverride } from '../engine/budget.js';
 
 export interface AppDeps {
   engine: Engine;
+  scheduler: Scheduler;
   events: EventStore;
   workspace: () => Workspace;
   credentials: Credentials;
@@ -76,6 +78,8 @@ export function createApp(deps: AppDeps): Hono {
     if (e instanceof NotFoundError) return fail(c, 'not_found', e.message, 404);
     if (e instanceof ValidationError) return fail(c, 'validation', e.message, 400);
     if (e instanceof ConflictError) return fail(c, 'conflict', e.message, 409);
+    if (e instanceof ScheduleError) return fail(c, 'validation', e.message, 400);
+    if (e instanceof RangeError) return fail(c, 'validation', e.message, 400);
     throw e;
   };
   const eventLine = (e: EventRecord): string => deps.redactor.redactJson(e);
@@ -234,6 +238,106 @@ export function createApp(deps: AppDeps): Hono {
     return json(c, body);
   });
 
+  app.post('/api/v1/runs/:id/resume', (c) => {
+    try {
+      const { runId } = deps.engine.resume(c.req.param('id'));
+      return json(c, { runId }, 202);
+    } catch (e) {
+      return mapError(c, e);
+    }
+  });
+
+  // ---- review and ratings (D-13) --------------------------------------------------------------
+  app.get('/api/v1/reviews', (c) => {
+    const state = c.req.query('state');
+    const body: ReviewListResponse = { reviews: deps.engine.reviews.list({ state: (state ?? 'open') as 'open' }) };
+    return json(c, body);
+  });
+
+  app.post('/api/v1/reviews/:id', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = ReviewDecisionRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'Expected { decision: "continue" | "reject" | "dismiss", feedback? }.', 400, parsed.error.issues);
+    if (parsed.data.decision === 'reject' && !parsed.data.feedback?.trim()) {
+      return fail(c, 'validation', 'A rejection needs feedback: the step re-runs with what you say appended, so "no" on its own would change nothing.', 400);
+    }
+    try {
+      deps.engine.decideReview(c.req.param('id'), parsed.data.decision, parsed.data.feedback);
+      return json(c, deps.engine.reviews.get(c.req.param('id')), 202);
+    } catch (e) {
+      return mapError(c, e);
+    }
+  });
+
+  app.post('/api/v1/ratings', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = RateRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'A rating is { runId, stepId, value: 1-5, versionId?, note? }.', 400, parsed.error.issues);
+    try {
+      return json(c, deps.engine.reviews.rate(parsed.data), 201);
+    } catch (e) {
+      return mapError(c, e);
+    }
+  });
+
+  // ---- schedules (D-15) -----------------------------------------------------------------------
+  app.get('/api/v1/schedules', (c) => {
+    const body: ScheduleListResponse = { schedules: deps.scheduler.list() };
+    return json(c, body);
+  });
+
+  app.post('/api/v1/schedules', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = UpsertScheduleRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'A schedule is { workflowId, cron, inputs?, project?, enabled?, catchUp? }.', 400, parsed.error.issues);
+    if (!deps.workspace().workflows.has(parsed.data.workflowId)) {
+      return fail(c, 'not_found', `Workflow "${parsed.data.workflowId}" does not exist in this workspace.`, 404);
+    }
+    try {
+      return json(c, deps.scheduler.upsert(parsed.data, false, c.req.query('id')), 201);
+    } catch (e) {
+      return mapError(c, e);
+    }
+  });
+
+  app.delete('/api/v1/schedules/:id', (c) =>
+    deps.scheduler.remove(c.req.param('id'))
+      ? json(c, { deleted: true })
+      : fail(c, 'not_found', `There is no schedule with id "${c.req.param('id')}".`, 404));
+
+  // What needs you, what is running, and what today cost (ui.md §Dashboard).
+  app.get('/api/v1/dashboard', (c) => {
+    const runs = deps.engine.listRuns({ limit: 200 });
+    const reviews = deps.engine.reviews.list({ state: 'open' });
+    const budgets = deps.workspace().config.budgets;
+    const body: DashboardResponse = {
+      needsYou: reviews.filter((r) => r.blocking),
+      unreviewed: reviews.filter((r) => !r.blocking).length,
+      failed: runs.filter((r) => r.state === 'failed' || r.state === 'interrupted').slice(0, 10),
+      running: runs.filter((r) => r.state === 'running' || r.state === 'queued' || r.state === 'waiting_review'),
+      spentTodayUsd: deps.engine.spentTodayUsd(),
+      dailySpendCapUsd: budgets.dailySpendCapUsd,
+      schedules: deps.scheduler.list().filter((s) => s.enabled).slice(0, 10),
+      networkMode: deps.workspace().config.network.mode,
+    };
+    return json(c, body);
+  });
+
   // ---- workflows (D-11) -----------------------------------------------------------------------
   app.get('/api/v1/workflows', (c) => {
     const ws = deps.workspace();
@@ -291,7 +395,11 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/api/v1/documents/:id', (c) => {
     const version = c.req.query('version');
     const doc = deps.artifacts.getDocument(c.req.param('id'), version);
-    return doc ? json(c, doc) : fail(c, 'not_found', `No document with id "${c.req.param('id')}".`, 404);
+    if (!doc) return fail(c, 'not_found', `No document with id "${c.req.param('id')}".`, 404);
+    // Ratings live in the review store, not the Library's tables: a rating is a judgement about a version,
+    // not part of it. The Library shows them, so the API joins them here rather than in two round trips.
+    const ratings = deps.engine.reviews.ratingsForVersions(doc.history.map((h) => h.id));
+    return json(c, { ...doc, ratings: Object.fromEntries(ratings) });
   });
 
   app.get('/api/v1/documents/:id/versions', (c) => {
@@ -450,7 +558,7 @@ function workflowSummary(workflow: LoadedWorkflow): WorkflowSummary {
     file: path.basename(workflow.file),
     defaultProject: d.defaultProject ?? null,
     inputs: d.inputs,
-    steps: d.steps.map((s) => ({ id: s.id, kind: s.kind, agent: s.kind === 'agent' ? s.agent : null, dependsOn: [...(edges.get(s.id) ?? [])] })),
+    steps: d.steps.map((s) => ({ id: s.id, kind: s.kind, agent: s.kind === 'agent' ? s.agent : null, dependsOn: [...(edges.get(s.id) ?? [])], review: s.review })),
     hasSchedule: d.schedule !== undefined,
   };
 }

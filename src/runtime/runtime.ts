@@ -14,6 +14,7 @@ import { generateToken, writeTokenFile, acceptedHosts } from './security/auth.js
 import { createLogger, type Logger, type LogHandle } from './log/index.js';
 import { openDatabase, type Db } from './db/index.js';
 import { EventStore } from './engine/events.js';
+import { Scheduler } from './scheduler/index.js';
 import { Engine } from './engine/run.js';
 import { AdapterRegistry, type FetchLike } from './models/adapter.js';
 import { MockAdapter } from './models/adapters/mock/index.js';
@@ -49,6 +50,10 @@ export interface RuntimeOptions {
   assertFts5?: ((db: Db) => void) | undefined;
   /** The fetch every adapter call receives; RUN-02 passes the egress checker, tests pass a replay. */
   fetch?: FetchLike | undefined;
+  /** The scheduler's clock. A test drives it forward; production leaves it alone (D-15). */
+  now?: (() => Date) | undefined;
+  /** Leaves the scheduler's loop stopped, so a test can call `tick()` when it means to. */
+  noScheduler?: boolean | undefined;
 }
 
 export interface RuntimeFile { port: number; pid: number; startedAt: string }
@@ -66,6 +71,7 @@ export class Runtime {
   readonly mockUpstream = new MockUpstream();
   private polled: PollResult | null = null;
   private stopped = false;
+  readonly scheduler: Scheduler;
 
   private constructor(
     readonly opts: RuntimeOptions,
@@ -82,8 +88,15 @@ export class Runtime {
     readonly artifacts: ArtifactStore,
   ) {
     this.log = logHandle.logger;
+    this.scheduler = new Scheduler({
+      db,
+      log: this.log,
+      start: (input) => engine.startWorkflowRun(input),
+      ...(opts.now ? { now: opts.now } : {}),
+    });
     this.app = createApp({
       engine,
+      scheduler: this.scheduler,
       events,
       workspace: () => this.workspace,
       credentials,
@@ -227,6 +240,9 @@ export class Runtime {
     this.portRef.current = info.port;
     // Anything the last process left `running` never finished (D-14 §Resume). Correct it before serving.
     this.engine.markInterrupted();
+    // A workflow file's `schedule` block seeds a row once; after that the row is the owner's to edit (D-15).
+    this.scheduler.seedFromWorkflows(this.workspace.workflows.values());
+    if (!this.opts.noScheduler) this.scheduler.start();
     await this.startMockUpstream();
     this.hosts = acceptedHosts(this.port, this.bind, this.opts.expose ?? []);
     if (!this.ephemeral) {
@@ -255,6 +271,7 @@ export class Runtime {
   async stop(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
+    this.scheduler.stop();
     this.shutdown.abort();
     await this.mockUpstream.stop();
     if (this.server) {

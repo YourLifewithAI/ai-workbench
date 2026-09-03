@@ -12,6 +12,16 @@ import { renderTemplate } from '../../shared/template.js';
 import { mapItemStepId, validateWorkflow, type LoadedWorkflow, type MapStep, type Step } from '../../shared/workflow.js';
 import type { LoadedAgent } from '../../shared/agent.js';
 
+/**
+ * What happens to a step's output once the step itself is done: it is filed for review, and a blocking gate
+ * parks the run here until a human decides. The engine implements this because it owns the run's state row.
+ */
+export interface ReviewHost {
+  afterStep(input: { runId: string; stepId: string; blocking: boolean; versionId?: string | undefined; signal: AbortSignal }): Promise<{ redo: string } | null>;
+  /** A rejection the step has not answered yet — a resumed run must carry it, not start over blank. */
+  pendingFeedback(runId: string, stepId: string): string | null;
+}
+
 export interface WorkflowDeps {
   db: Db;
   events: EventStore;
@@ -19,6 +29,7 @@ export interface WorkflowDeps {
   log: Logger;
   artifacts?: ArtifactStore | undefined;
   steps: StepRunner;
+  review: ReviewHost;
 }
 
 export interface WorkflowRunInput {
@@ -29,6 +40,8 @@ export interface WorkflowRunInput {
   provider?: 'mock' | undefined;
   budget: RunBudget;
   signal: AbortSignal;
+  /** Steps a previous attempt already finished, for `runs resume`: they are not re-run and not re-filed. */
+  completed?: Map<string, { state: 'completed' | 'skipped'; value: unknown }> | undefined;
 }
 
 export interface WorkflowResult {
@@ -54,8 +67,19 @@ export class WorkflowExecutor {
     const state = new Map<string, StepState>(definition.steps.map((s) => [s.id, 'pending']));
     const outputs = new Map<string, unknown>();
 
+    // A resumed run keeps what the interrupted one finished: those steps are not re-run, so their artifact
+    // versions are not written a second time (workflows-and-execution.md §Resume).
+    for (const [id, done] of input.completed ?? []) {
+      if (!state.has(id)) continue;
+      state.set(id, done.state);
+      outputs.set(id, done.value);
+    }
+
     // Every step gets its row before anything runs, so the graph is complete from the first frame.
-    for (const step of definition.steps) this.seedRow(input.runId, step);
+    for (const step of definition.steps) {
+      if (settled(state.get(step.id))) continue;
+      this.seedRow(input.runId, step);
+    }
 
     // A step failure aborts its siblings; a cancel from outside does the same, one level up.
     const controller = new AbortController();
@@ -136,12 +160,22 @@ export class WorkflowExecutor {
 
     const attempts = step.retries + 1;
     let last: unknown;
+    // A resumed run picks up a rejection made before the restart, rather than re-running the step unchanged.
+    let feedback = this.deps.review.pendingFeedback(input.runId, step.id) ?? undefined;
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
-        const value = step.kind === 'map'
-          ? await this.runMap(input, step, scope, signal)
-          : (await this.runAgent(input, step, step.id, scope(), signal, undefined, undefined)).value;
-        return { skipped: false, value };
+        if (step.kind === 'map') return { skipped: false, value: await this.runMap(input, step, scope, signal) };
+        // A rejected step re-runs with the feedback appended, which is not one of `retries` — a human asking
+        // for something different is not the same as a model failing (workflows-and-execution.md §Review).
+        for (;;) {
+          const outcome = await this.runAgent(input, step, step.id, scope(), signal, undefined, undefined, feedback);
+          const again = await this.deps.review.afterStep({
+            runId: input.runId, stepId: step.id, blocking: step.review === 'blocking',
+            ...(outcome.versionId ? { versionId: outcome.versionId } : {}), signal,
+          });
+          if (!again) return { skipped: false, value: outcome.value };
+          feedback = again.redo;
+        }
       } catch (e) {
         last = e;
         // Retries are for a step that could plausibly go differently; a cancel or a spent budget cannot.
@@ -154,7 +188,7 @@ export class WorkflowExecutor {
 
   private async runAgent(
     input: WorkflowRunInput, step: Step, stepId: string, scope: Scope, signal: AbortSignal,
-    parentStepId: string | undefined, mapIndex: number | undefined,
+    parentStepId: string | undefined, mapIndex: number | undefined, feedback?: string | undefined,
   ): Promise<StepOutcome> {
     if (step.kind !== 'agent') throw new WorkflowFailure(stepId, 'unsupported', null, `step "${stepId}" is a ${step.kind} step, which this runtime cannot execute yet`);
     const agent = this.requireAgent(stepId, step.agent);
@@ -174,6 +208,7 @@ export class WorkflowExecutor {
       ...(model ? { modelOverride: model } : {}),
       ...(step.outputSchema ? { outputSchema: step.outputSchema } : {}),
       ...(document !== undefined ? { documentPath: document } : {}),
+      ...(feedback ? { feedback } : {}),
       budget: input.budget.child(step.budget),
       signal,
       workflow: {
@@ -207,7 +242,7 @@ export class WorkflowExecutor {
         const itemId = mapItemStepId(step.id, index);
         this.seedRow(input.runId, step.step, itemId, step.id, index);
         try {
-          const outcome = await this.runAgent(input, step.step, itemId, { ...scope(), item: over[index] }, signal, step.id, index);
+          const outcome = await this.runAgent(input, step.step, itemId, { ...scope(), item: over[index] }, signal, step.id, index, undefined);
           results[index] = outcome.value;
         } catch (e) {
           firstError ??= e;

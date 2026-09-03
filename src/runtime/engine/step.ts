@@ -72,6 +72,8 @@ export interface AgentStepInput {
   budget: RunBudget;
   signal: AbortSignal;
   workflow?: { id: string; stepId: string; upstream: string[]; downstream: string[] } | undefined;
+  /** What the human said when they rejected the previous attempt, appended to the task rather than the system. */
+  feedback?: string | undefined;
   parentStepId?: string | undefined;
   mapIndex?: number | undefined;
 }
@@ -85,6 +87,8 @@ export interface StepOutcome {
   costUsd: number;
   /** True when the output came from a wrap-up turn rather than the agent finishing (D-14). */
   partial: boolean;
+  /** The document version this step filed, when it filed one — what a review and a rating point at. */
+  versionId?: string | undefined;
 }
 
 export class StepRunner {
@@ -108,7 +112,7 @@ export class StepRunner {
     } catch (e) {
       if (e instanceof StepFailure) {
         // A wrap-up turn still produced something; file it as partial before the step is called failed.
-        if (e.outcome) this.commitDocument(input, e.outcome, true);
+        if (e.outcome) e.outcome.versionId = this.commitDocument(input, e.outcome, true) ?? undefined;
         this.failStepRow(input, e);
         throw e;
       }
@@ -124,7 +128,10 @@ export class StepRunner {
     const { agent, budget, signal } = input;
     const schema = input.outputSchema ?? agent.definition.output.schema;
     const knowledge = this.knowledgeFor(agent, input.project);
-    const transcript: Message[] = [{ role: 'user', content: [{ type: 'text', text: input.task }] }];
+    const task = input.feedback
+      ? `${input.task}\n\n---\nA human reviewed your previous attempt and asked for this instead:\n\n${input.feedback}`
+      : input.task;
+    const transcript: Message[] = [{ role: 'user', content: [{ type: 'text', text: task }] }];
     let repairs = 0;
     let wrapUp: BudgetStop | null = null;
 
@@ -146,7 +153,7 @@ export class StepRunner {
         }
       }
 
-      const prompt = assemblePrompt(agent, input.task, this.harnessFor(input, wrapUp !== null), { knowledge });
+      const prompt = assemblePrompt(agent, task, this.harnessFor(input, wrapUp !== null), { knowledge });
       const request: CompiledRequest = {
         ...prompt.compiled,
         messages: transcript,
@@ -247,6 +254,9 @@ export class StepRunner {
             modelId: entry.id, response, usage: response.usage, costUsd, latencyMs: Date.now() - t0,
             promptVersion, agentVersion: agent.version, spent: budget.snapshot(),
           });
+          // The run row carries what has been spent so far, not only what it cost in the end: a budget bar
+          // that only moves when the run finishes is not a budget bar.
+          this.deps.db.prepare('UPDATE runs SET spent_json = ? WHERE id = ?').run(this.persist(budget.snapshot()), runId);
           return { response, entry };
         } catch (e) {
           if (e instanceof StepFailure) throw e;
@@ -370,7 +380,7 @@ export class StepRunner {
   }
 
   private completeStepRow(input: AgentStepInput, outcome: StepOutcome, state: 'completed'): void {
-    this.commitDocument(input, outcome, false);
+    outcome.versionId = this.commitDocument(input, outcome, false) ?? undefined;
     this.deps.db.prepare(`UPDATE run_steps SET state = ?, model_id = ?, output_json = ?, cost_usd = ?, finished_at = ? WHERE run_id = ? AND step_id = ?`)
       .run(state, outcome.modelId, this.persist(outcome.value), outcome.costUsd, new Date().toISOString(), input.runId, input.stepId);
     this.deps.events.append(input.runId, input.stepId, 'step-completed', { stepId: input.stepId, kind: 'agent', output: outcome.output, partial: outcome.partial });
@@ -427,12 +437,12 @@ export class StepRunner {
     return template.replace(/\{\{\s*runId\s*\}\}/g, input.runId).replace(/\{\{\s*agentId\s*\}\}/g, input.agent.definition.id);
   }
 
-  private commitDocument(input: AgentStepInput, outcome: StepOutcome, partial: boolean): void {
+  private commitDocument(input: AgentStepInput, outcome: StepOutcome, partial: boolean): string | null {
     const docPath = this.documentPathFor(input);
-    if (!docPath || !this.deps.artifacts) return;
+    if (!docPath || !this.deps.artifacts) return null;
     if (!input.project) {
       this.deps.log.warn({ agent: input.agent.definition.id, runId: input.runId }, 'this step writes a document but the run named no project');
-      return;
+      return null;
     }
     const version = this.deps.artifacts.writeDocument({
       projectSlug: input.project, path: docPath, content: outcome.output, createdBy: 'run-step',
@@ -443,6 +453,7 @@ export class StepRunner {
     this.deps.events.append(input.runId, input.stepId, 'artifact-written', {
       documentId: doc?.id ?? null, versionId: version.id, path: `${input.project}/${docPath}`, partial: partial || outcome.partial,
     });
+    return version.id;
   }
 }
 

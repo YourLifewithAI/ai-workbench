@@ -1,0 +1,149 @@
+// What needs you, what is running, and what today cost (ui.md §Dashboard). One request, in that order: the
+// point of this screen is that a person coming back after a day can see the state of things without reading.
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useNavigate } from 'react-router-dom';
+import { money } from '../../shared/summary.js';
+import { api } from '../lib/api.js';
+import { BudgetLine } from '../components/BudgetBar.js';
+import { EmptyState } from '../components/EmptyState.js';
+import { Button } from '../components/ui/button.js';
+import { Badge, Card } from '../components/ui/card.js';
+import { CANCELLABLE, stateTone, useLiveRuns } from './Runs.js';
+
+export function Dashboard() {
+  const q = useQuery({ queryKey: ['dashboard'], queryFn: api.dashboard, refetchInterval: 5000 });
+  useLiveRuns(['dashboard']);
+  const client = useQueryClient();
+  const navigate = useNavigate();
+  const cancel = useMutation({ mutationFn: (id: string) => api.cancelRun(id), onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }) });
+  const resume = useMutation({ mutationFn: (id: string) => api.resumeRun(id), onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }) });
+  const offline = useMutation({ mutationFn: () => api.setNetworkMode('offline'), onSuccess: () => client.invalidateQueries() });
+
+  const d = q.data;
+  const capFraction = d && d.dailySpendCapUsd > 0 ? Math.min(1, d.spentTodayUsd / d.dailySpendCapUsd) : 0;
+
+  return (
+    <section aria-labelledby="screen-title">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <h1 id="screen-title" className="text-2xl font-semibold">Dashboard</h1>
+        {d && d.networkMode !== 'offline' ? (
+          <Button variant="secondary" size="sm" onClick={() => offline.mutate()} disabled={offline.isPending}>
+            {offline.isPending ? 'Going offline…' : 'Pause all — go offline'}
+          </Button>
+        ) : null}
+      </div>
+
+      {q.isPending ? <p className="mt-4" role="status">Loading…</p> : null}
+      {q.isError ? <p className="mt-4 text-red-700 dark:text-red-300" role="alert">Could not load the dashboard: {q.error.message}</p> : null}
+
+      {d ? (
+        <>
+          <h2 className="mt-6 text-lg font-medium">Needs you</h2>
+          {d.needsYou.length === 0 && d.failed.length === 0 ? (
+            <div className="mt-2">
+              <EmptyState title={d.unreviewed > 0
+                ? `Nothing is blocked. ${d.unreviewed} output${d.unreviewed === 1 ? '' : 's'} would like a rating when you have a moment.`
+                : 'Nothing is waiting on you.'}>
+                {d.unreviewed > 0 ? <Button onClick={() => navigate('/review')}>Open Review</Button> : null}
+              </EmptyState>
+            </div>
+          ) : (
+            <ul className="mt-2 space-y-2">
+              {d.needsYou.map((r) => (
+                <li key={r.id}>
+                  <Card className="border-l-4 border-l-amber-600 dark:border-l-amber-400">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm">
+                        <strong>{r.subject}</strong> is standing still: step <span className="font-mono text-xs">{r.stepId}</span> is waiting for your review
+                        {r.attempt > 1 ? ` (attempt ${r.attempt})` : ''}.
+                      </p>
+                      <Button size="sm" onClick={() => navigate('/review')}>Review it</Button>
+                    </div>
+                  </Card>
+                </li>
+              ))}
+              {d.failed.map((r) => (
+                <li key={r.id}>
+                  <Card className="border-l-4 border-l-red-600 dark:border-l-red-400">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-sm">
+                        <Link to={`/runs/${r.id}`} className="underline underline-offset-4">{r.workflowId ?? r.agentId ?? r.id}</Link> {r.state === 'interrupted' ? 'was interrupted by a restart' : 'failed'}.
+                      </p>
+                      <Button size="sm" variant="secondary" onClick={() => resume.mutate(r.id)} disabled={resume.isPending}>
+                        Resume<span className="sr-only"> run {r.id}</span>
+                      </Button>
+                    </div>
+                  </Card>
+                </li>
+              ))}
+            </ul>
+          )}
+          {resume.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{resume.error.message}</p> : null}
+
+          <h2 className="mt-8 text-lg font-medium">Running</h2>
+          {d.running.length === 0 ? (
+            <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">Nothing is running.</p>
+          ) : (
+            <ul className="mt-2 space-y-2">
+              {d.running.map((r) => (
+                <li key={r.id}>
+                  <Card>
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm">
+                          <Link to={`/runs/${r.id}`} className="font-medium underline-offset-4 hover:underline">{r.workflowId ?? r.agentId ?? r.id}</Link>{' '}
+                          <Badge tone={stateTone(r.state)}>{r.state}</Badge>
+                        </p>
+                        <BudgetLine run={r} className="mt-2" />
+                      </div>
+                      {CANCELLABLE.has(r.state) ? (
+                        <Button size="sm" variant="secondary" onClick={() => cancel.mutate(r.id)} disabled={cancel.isPending}>
+                          Cancel<span className="sr-only"> run {r.id}</span>
+                        </Button>
+                      ) : null}
+                    </div>
+                  </Card>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <h2 className="mt-8 text-lg font-medium">Today</h2>
+          <Card className="mt-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <p className="text-sm">Spent today</p>
+              <p className="text-sm tabular-nums">{money(d.spentTodayUsd)} of {money(d.dailySpendCapUsd)}</p>
+            </div>
+            <div
+              role="meter"
+              aria-label="Daily spending cap"
+              aria-valuenow={Math.round(capFraction * 100)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuetext={`${money(d.spentTodayUsd)} of ${money(d.dailySpendCapUsd)}`}
+              className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"
+            >
+              <div className={capFraction >= 0.8 ? 'h-full rounded-full bg-amber-600 dark:bg-amber-400' : 'h-full rounded-full bg-blue-700 dark:bg-sky-400'} style={{ width: `${Math.max(capFraction * 100, capFraction > 0 ? 2 : 0)}%` }} />
+            </div>
+            <h3 className="mt-4 text-sm font-medium">Next scheduled</h3>
+            {d.schedules.length === 0 ? (
+              <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+                Nothing is scheduled. Add one from a <Link to="/workflows" className="text-blue-700 underline underline-offset-4 dark:text-sky-300">workflow</Link>.
+              </p>
+            ) : (
+              <ul className="mt-1 space-y-1 text-sm">
+                {d.schedules.map((s) => (
+                  <li key={s.id} className="flex flex-wrap gap-2">
+                    <Link to={`/workflows/${s.workflowId}`} className="underline-offset-4 hover:underline">{s.workflowId}</Link>
+                    <span className="font-mono text-xs text-gray-700 dark:text-gray-300">{s.cron}</span>
+                    <span className="text-gray-700 dark:text-gray-300">{s.nextFireAt ? new Date(s.nextFireAt).toLocaleString() : 'never'}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </>
+      ) : null}
+    </section>
+  );
+}

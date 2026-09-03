@@ -150,6 +150,8 @@ export class ArtifactStore {
       content: version?.content ?? '',
       version: version ? this.toVersion(version) : null,
       history,
+      // A rating is a judgement about a version, not part of it: the API joins them from the review store.
+      ratings: {},
     };
   }
 

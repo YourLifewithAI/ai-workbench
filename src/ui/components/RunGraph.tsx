@@ -4,7 +4,7 @@
 import type { StepSummary, WorkflowSummary } from '../../shared/api/index.js';
 import { cn } from '../lib/cn.js';
 
-export interface GraphStep { id: string; kind: string; agent: string | null; dependsOn: string[] }
+export interface GraphStep { id: string; kind: string; agent: string | null; dependsOn: string[]; review?: 'none' | 'blocking' }
 
 const NODE_W = 168;
 const NODE_H = 52;
@@ -95,6 +95,9 @@ export function RunGraph({ workflow, steps, states, className }: {
               <text x={10} y={38} className="fill-gray-700 text-[11px] dark:fill-gray-300">
                 {node.kind === 'map' ? 'map' : node.agent ?? node.kind}{state ? ` · ${state}` : ''}
               </text>
+              {node.review === 'blocking' ? (
+                <text x={NODE_W - 10} y={20} textAnchor="end" className="fill-amber-800 text-[10px] font-medium dark:fill-amber-300">waits for you</text>
+              ) : null}
             </g>
           );
         })}
@@ -105,6 +108,7 @@ export function RunGraph({ workflow, steps, states, className }: {
           <li key={node.id}>
             {node.id} ({node.kind === 'map' ? 'map' : node.agent ?? node.kind}){stateOf(node.id) ? ` is ${stateOf(node.id)}` : ''}
             {node.dependsOn.length ? `, after ${node.dependsOn.join(' and ')}` : ', with nothing before it'}
+            {node.review === 'blocking' ? ', and waits for your review before anything downstream runs' : ''}
           </li>
         ))}
       </ul>

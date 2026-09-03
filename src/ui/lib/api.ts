@@ -1,5 +1,5 @@
 // Every call carries the bearer token; SSE is fetch-based (never EventSource) so it can too.
-import type { AgentDetail, AgentListResponse, CreateProjectRequest, CreateRunRequest, DiffResponse, DocumentDetail, DocumentSummary, ModelListResponse, PrivacyResponse, Project, ReloadAgentsResponse, RunDetail, RunSummary, SettingsResponse, WorkflowDetail, WorkflowListResponse } from '../../shared/api/index.js';
+import type { AgentDetail, AgentListResponse, CreateProjectRequest, CreateRunRequest, DashboardResponse, DiffResponse, DocumentDetail, DocumentSummary, ModelListResponse, PrivacyResponse, Project, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunSummary, ScheduleListResponse, ScheduleSummary, SettingsResponse, UpsertScheduleRequest, WorkflowDetail, WorkflowListResponse } from '../../shared/api/index.js';
 import type { EventRecord } from '../../shared/events.js';
 import { getToken, markUnauthorized } from './auth.js';
 
@@ -63,6 +63,23 @@ export const api = {
     apiFetch(`/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }).then((r) => r.json() as Promise<{ cancelled: boolean }>),
   workflows: (): Promise<WorkflowListResponse> => apiFetch('/workflows').then((r) => r.json() as Promise<WorkflowListResponse>),
   workflow: (id: string): Promise<WorkflowDetail> => apiFetch(`/workflows/${encodeURIComponent(id)}`).then((r) => r.json() as Promise<WorkflowDetail>),
+  resumeRun: (id: string): Promise<{ runId: string }> =>
+    apiFetch(`/runs/${encodeURIComponent(id)}/resume`, { method: 'POST' }).then((r) => r.json() as Promise<{ runId: string }>),
+  dashboard: (): Promise<DashboardResponse> => apiFetch('/dashboard').then((r) => r.json() as Promise<DashboardResponse>),
+  reviews: (state = 'open'): Promise<ReviewItem[]> =>
+    apiFetch(`/reviews?state=${encodeURIComponent(state)}`).then((r) => r.json() as Promise<{ reviews: ReviewItem[] }>).then((b) => b.reviews),
+  decideReview: (id: string, decision: 'continue' | 'reject' | 'dismiss', feedback?: string): Promise<ReviewItem> =>
+    apiFetch(`/reviews/${encodeURIComponent(id)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision, ...(feedback ? { feedback } : {}) }) })
+      .then((r) => r.json() as Promise<ReviewItem>),
+  rate: (body: RateRequest): Promise<RatingSummary> =>
+    apiFetch('/ratings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<RatingSummary>),
+  schedules: (): Promise<ScheduleSummary[]> =>
+    apiFetch('/schedules').then((r) => r.json() as Promise<ScheduleListResponse>).then((b) => b.schedules),
+  upsertSchedule: (body: UpsertScheduleRequest, id?: string): Promise<ScheduleSummary> =>
+    apiFetch(`/schedules${id ? `?id=${encodeURIComponent(id)}` : ''}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then((r) => r.json() as Promise<ScheduleSummary>),
+  removeSchedule: (id: string): Promise<{ deleted: boolean }> =>
+    apiFetch(`/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }).then((r) => r.json() as Promise<{ deleted: boolean }>),
 };
 
 export interface SseMessage { id?: string; event?: string; data: string }

@@ -60,3 +60,5 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 - Produced HTML is opened as a folder or zip, never rendered in the app (D-43).
 - Phone: the app is installable and Dashboard, Review, Runs summaries, and Library reading lay out for phone widths; push notifications deep-link to the item (D-61, RUN-12).
 - Usability check before RUN-11 ships: a person who has never seen the app completes the five core tasks (configure, run, read a trace, approve, rate) from the Welcome path without help; what they stumble on becomes a fix, not a doc.
+
+> Amendment (RUN-05, 2026-09-03): the workflow graph marks a `review: 'blocking'` step as one that waits for you, in the picture and in its text alternative — the shape of a workflow includes where it stops.
