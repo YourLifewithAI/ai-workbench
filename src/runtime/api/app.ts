@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { ApprovalDecisionRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type DashboardResponse, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
+import { ApprovalDecisionRequest, CompareRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
@@ -14,6 +14,7 @@ import { ScheduleError, type Scheduler } from '../scheduler/index.js';
 import type { PushStore } from '../push/store.js';
 import { ingestKnowledge, UnsupportedKnowledgeFormat } from '../knowledge/ingest.js';
 import { DEFAULT_LIMITS, type SandboxLimits } from '../sandbox/deno.js';
+import { exportDataset, importDataset } from '../evaluation/transfer.js';
 import { TERMINAL_EVENTS, type EventStore } from '../engine/events.js';
 import { securityHeaders, hostOriginGuard, bearerGuard } from '../security/auth.js';
 import type { Redactor } from '../security/redaction.js';
@@ -627,6 +628,132 @@ export function createApp(deps: AppDeps): Hono {
     deps.setNetworkMode(parsed.data.mode);
     deps.log.info({ mode: parsed.data.mode }, 'network mode changed');
     return json(c, { networkMode: parsed.data.mode });
+  });
+
+  // ---- evaluation (D-36, D-50, D-52) -------------------------------------------------------------------
+
+  app.get('/api/v1/datasets', (c) => json(c, { datasets: deps.engine.evaluation.listDatasets() }));
+
+  app.post('/api/v1/datasets', async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = CreateDatasetRequest.safeParse(raw);
+    if (!parsed.success) return fail(c, 'validation', 'Expected { name, cases?: [{ input, reference?, metadata? }] }.', 400, parsed.error.issues);
+    const dataset = deps.engine.evaluation.createDataset(parsed.data.name);
+    for (const item of parsed.data.cases) deps.engine.evaluation.addCase(dataset.id, item.input, item.reference, item.metadata);
+    return json(c, deps.engine.evaluation.listDatasets().find((d) => d.id === dataset.id), 201);
+  });
+
+  app.get('/api/v1/datasets/:id/cases', (c) => {
+    const dataset = deps.engine.evaluation.dataset(c.req.param('id'));
+    if (!dataset) return fail(c, 'not_found', `There is no dataset with id "${c.req.param('id')}".`, 404);
+    return json(c, { cases: deps.engine.evaluation.caseSummaries(dataset.id) });
+  });
+
+  app.get('/api/v1/datasets/:id/export', (c) => {
+    const dataset = deps.engine.evaluation.dataset(c.req.param('id'));
+    if (!dataset) return fail(c, 'not_found', `There is no dataset with id "${c.req.param('id')}".`, 404);
+    // Redacted on the way out: a dataset built from real run inputs can hold a real credential (SEC-06).
+    return json(c, exportDataset(dataset, deps.engine.evaluation.caseSummaries(dataset.id), deps.redactor));
+  });
+
+  app.post('/api/v1/datasets/import', async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const name = c.req.query('name');
+    try {
+      const imported = importDataset(raw);
+      const dataset = deps.engine.evaluation.createDataset(name ?? imported.name ?? 'imported');
+      for (const item of imported.cases) deps.engine.evaluation.addCase(dataset.id, item.input, item.reference, item.metadata);
+      return json(c, deps.engine.evaluation.listDatasets().find((d) => d.id === dataset.id), 201);
+    } catch (e) {
+      return fail(c, 'validation', (e as Error).message, 400);
+    }
+  });
+
+  app.get('/api/v1/experiments', (c) => json(c, { experiments: deps.engine.evaluation.listExperiments() }));
+
+  app.post('/api/v1/experiments', async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = CreateExperimentRequest.safeParse(raw);
+    if (!parsed.success) return fail(c, 'validation', 'Expected { name, datasetId, target: { kind, id }, models, trials?, evaluators?, budgets? }.', 400, parsed.error.issues);
+    const body = parsed.data;
+    if (!deps.engine.evaluation.dataset(body.datasetId)) return fail(c, 'not_found', `There is no dataset with id "${body.datasetId}".`, 404);
+    if (body.target.kind === 'workflow') return fail(c, 'validation', 'Experiments run an agent for now; a workflow target arrives with the run that needs it.', 400);
+    if (!deps.workspace().agents.has(body.target.id)) return fail(c, 'not_found', `There is no agent called "${body.target.id}".`, 404);
+
+    const experiment = deps.engine.evaluation.createExperiment({
+      name: body.name, datasetId: body.datasetId, targetKind: body.target.kind, targetId: body.target.id,
+      models: body.models, evaluators: body.evaluators, trials: body.trials,
+      ...(body.budgets ? { budgets: body.budgets } : {}),
+    });
+    // 202 and then it runs: an experiment is a thing you leave going, and the results route is how you look.
+    void deps.engine.experiments.run(experiment, { ...(body.project ? { project: body.project } : {}) })
+      .catch((e: unknown) => deps.log.error({ err: e, experiment: experiment.id }, 'an experiment failed outside its own error handling'));
+    return json(c, deps.engine.evaluation.toExperimentSummary(experiment), 202);
+  });
+
+  app.get('/api/v1/experiments/:id/results', (c) => {
+    const experiment = deps.engine.evaluation.experiment(c.req.param('id'));
+    if (!experiment) return fail(c, 'not_found', `There is no experiment with id "${c.req.param('id')}".`, 404);
+    return json(c, deps.engine.experiments.results(experiment));
+  });
+
+  app.post('/api/v1/experiments/:id/cancel', (c) => {
+    const experiment = deps.engine.evaluation.experiment(c.req.param('id'));
+    if (!experiment) return fail(c, 'not_found', `There is no experiment with id "${c.req.param('id')}".`, 404);
+    deps.engine.experiments.cancel(experiment.id);
+    return json(c, { id: experiment.id, cancelling: true }, 202);
+  });
+
+  app.post('/api/v1/compare', async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = CompareRequest.safeParse(raw);
+    if (!parsed.success) return fail(c, 'validation', 'Expected { agentId, input, models: [at least two], project? }.', 400, parsed.error.issues);
+    if (!deps.workspace().agents.has(parsed.data.agentId)) return fail(c, 'not_found', `There is no agent called "${parsed.data.agentId}".`, 404);
+    const result = await deps.engine.experiments.compare(parsed.data);
+    const body: CompareResponse = result;
+    return json(c, body);
+  });
+
+  app.post('/api/v1/compare/pick', async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = ComparePickRequest.safeParse(raw);
+    if (!parsed.success) return fail(c, 'validation', 'Expected { compareId, winner: { runId, modelId }, panes: [{ runId, modelId }] }.', 400, parsed.error.issues);
+    const { compareId, winner, panes, note } = parsed.data;
+    // One row per pane, sharing the compare id: the choice keeps both sides of itself, which is what makes it
+    // preference data rather than a star (D-50).
+    for (const pane of panes) {
+      deps.engine.reviews.rate({
+        runId: pane.runId, stepId: 'main', value: pane.runId === winner.runId ? 5 : 1,
+        compareId, modelId: pane.modelId,
+        ...(note ? { note } : {}),
+      });
+    }
+    return json(c, { compareId, ratings: panes.length }, 201);
   });
 
   // ---- memory and knowledge (D-17, D-35) ---------------------------------------------------------------

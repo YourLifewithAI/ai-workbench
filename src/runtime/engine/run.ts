@@ -19,6 +19,8 @@ import { builtinTools } from '../tools/registry.js';
 import { searchProvider, type MockSearchFixture } from '../search/index.js';
 import { RunTaint } from './taint.js';
 import { MemoryStore } from '../memory/store.js';
+import { EvaluationStore } from '../evaluation/store.js';
+import { ExperimentRunner } from '../evaluation/runner.js';
 import { DEFAULT_LIMITS, type Sandbox } from '../sandbox/deno.js';
 import type { McpHost } from '../mcp/host.js';
 import { scopesFor } from './step.js';
@@ -121,6 +123,8 @@ export class Engine {
   readonly approvals: ApprovalStore;
   readonly tools: ToolExecutor;
   readonly memory: MemoryStore;
+  readonly evaluation: EvaluationStore;
+  readonly experiments: ExperimentRunner;
   private push: { notify: (kind: PushEventKind, ids: { id: string; runId: string }) => Promise<unknown> } | null = null;
 
   /** The live taint of a run, or what the database remembers of one that is no longer in flight. */
@@ -139,6 +143,23 @@ export class Engine {
     this.reviews = new ReviewStore(deps.db);
     this.approvals = new ApprovalStore(deps.db, () => deps.now?.() ?? new Date());
     this.memory = new MemoryStore(deps.db, deps.events);
+    this.evaluation = new EvaluationStore(deps.db);
+    // Closes over `this` like the tool hosts: an experiment starts ordinary runs, so every trial has a trace.
+    this.experiments = new ExperimentRunner({
+      db: deps.db, log: deps.log, store: this.evaluation,
+      startAgentRun: (input) => this.startAgentRun({
+        agentId: input.agentId, inputs: input.inputs,
+        ...(input.project ? { project: input.project } : {}),
+        ...(input.modelOverride ? { modelOverride: input.modelOverride } : {}),
+        ...(input.budget ? { budget: input.budget as BudgetOverride } : {}),
+      }),
+      runDetail: (runId) => this.evaluationDetail(runId),
+      // A judge is a model call like any other, through the same adapter and the same egress checker.
+      judge: (input) => this.steps.callOnce({
+        modelId: input.modelId, prompt: input.prompt, runId: 'judge',
+        ...(deps.providerOverride === 'mock' ? { provider: 'mock' as const } : {}),
+      }),
+    });
     this.steps = new StepRunner({
       db: deps.db, events: deps.events, workspace: deps.workspace, registry: deps.registry,
       credentials: deps.credentials, redactor: deps.redactor, log: deps.log,
@@ -803,6 +824,31 @@ export class Engine {
   }
 
   // ---- reads ---------------------------------------------------------------------------------------------
+
+  /** What an evaluator needs from a finished run: its output, what it cost, and whether it retrieved anything. */
+  private evaluationDetail(runId: string): { state: string; output: string | null; costUsd: number; latencyMs: number; tokensIn: number; tokensOut: number; error: string | null; usedKnowledge: boolean } | null {
+    const run = this.getRun(runId);
+    if (!run) return null;
+    // Tokens live inside `usage_json`; SQLite reads them out with json_extract rather than the runtime parsing
+    // every row to add two numbers.
+    const usage = this.deps.db.prepare(`SELECT
+        COALESCE(SUM(json_extract(usage_json, '$.input')), 0) AS tin,
+        COALESCE(SUM(json_extract(usage_json, '$.output')), 0) AS tout,
+        COALESCE(SUM(latency_ms), 0) AS ms
+      FROM model_calls WHERE run_id = ?`).get(runId) as { tin: number; tout: number; ms: number };
+    const knowledge = this.deps.db.prepare("SELECT COUNT(*) AS n FROM tool_calls WHERE run_id = ? AND tool = 'knowledge.search' AND ok = 1").get(runId) as { n: number };
+    const output = run.outputs?.['output'];
+    return {
+      state: run.state,
+      output: typeof output === 'string' ? output : run.outputs ? JSON.stringify(run.outputs) : null,
+      costUsd: run.spent.costUsd,
+      latencyMs: usage.ms,
+      tokensIn: usage.tin,
+      tokensOut: usage.tout,
+      error: run.error ? (typeof run.error === 'string' ? run.error : JSON.stringify(run.error)) : null,
+      usedKnowledge: knowledge.n > 0,
+    };
+  }
 
   getRun(id: string): RunDetail | null {
     const row = this.deps.db.prepare('SELECT * FROM runs WHERE id = ?').get(id) as RunRow | undefined;

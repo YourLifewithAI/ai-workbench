@@ -1,5 +1,5 @@
 // Every call carries the bearer token; SSE is fetch-based (never EventSource) so it can too.
-import type { AgentDetail, AgentListResponse, ApprovalItem, ApprovalListResponse, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, DashboardResponse, DeleteMemoryResponse, DiffResponse, DocumentDetail, DocumentSummary, GrantCell, KnowledgeSearchResponse, MemoryItem, MemoryResponse, MemoryTracesResponse, ModelListResponse, PrivacyResponse, Project, PushEventKind, PushSubscription, PushSubscriptionsResponse, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunSummary, ScheduleListResponse, ScheduleSummary, SetGrantRequest, SettingsResponse, SubscribePushRequest, ToolsResponse, UpsertScheduleRequest, WorkflowDetail, WorkflowListResponse } from '../../shared/api/index.js';
+import type { AgentDetail, AgentListResponse, ApprovalItem, ApprovalListResponse, CompareRequest, ComparePickRequest, CompareResponse, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, DashboardResponse, DatasetSummary, DeleteMemoryResponse, ExperimentResults, ExperimentSummary, DiffResponse, DocumentDetail, DocumentSummary, GrantCell, KnowledgeSearchResponse, MemoryItem, MemoryResponse, MemoryTracesResponse, ModelListResponse, PrivacyResponse, Project, PushEventKind, PushSubscription, PushSubscriptionsResponse, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunSummary, ScheduleListResponse, ScheduleSummary, SetGrantRequest, SettingsResponse, SubscribePushRequest, ToolsResponse, UpsertScheduleRequest, WorkflowDetail, WorkflowListResponse } from '../../shared/api/index.js';
 import type { EventRecord } from '../../shared/events.js';
 import { getToken, markUnauthorized } from './auth.js';
 
@@ -70,6 +70,18 @@ export const api = {
     apiFetch(`/memory/${encodeURIComponent(id)}?redactTraces=${redactTraces}`, { method: 'DELETE' }).then((r) => r.json() as Promise<DeleteMemoryResponse>),
   searchKnowledge: (q: string, project?: string): Promise<KnowledgeSearchResponse> =>
     apiFetch(`/knowledge/search?q=${encodeURIComponent(q)}${project ? `&project=${encodeURIComponent(project)}` : ''}`).then((r) => r.json() as Promise<KnowledgeSearchResponse>),
+  datasets: (): Promise<DatasetSummary[]> => apiFetch('/datasets').then((r) => r.json() as Promise<{ datasets: DatasetSummary[] }>).then((b) => b.datasets),
+  createDataset: (body: CreateDatasetRequest): Promise<DatasetSummary> =>
+    apiFetch('/datasets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<DatasetSummary>),
+  experiments: (): Promise<ExperimentSummary[]> => apiFetch('/experiments').then((r) => r.json() as Promise<{ experiments: ExperimentSummary[] }>).then((b) => b.experiments),
+  createExperiment: (body: CreateExperimentRequest): Promise<ExperimentSummary> =>
+    apiFetch('/experiments', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<ExperimentSummary>),
+  experimentResults: (id: string): Promise<ExperimentResults> =>
+    apiFetch(`/experiments/${encodeURIComponent(id)}/results`).then((r) => r.json() as Promise<ExperimentResults>),
+  compare: (body: CompareRequest): Promise<CompareResponse> =>
+    apiFetch('/compare', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<CompareResponse>),
+  comparePick: (body: ComparePickRequest): Promise<{ compareId: string; ratings: number }> =>
+    apiFetch('/compare/pick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<{ compareId: string; ratings: number }>),
   trace: (id: string): Promise<string> => apiFetch(`/runs/${encodeURIComponent(id)}/trace.jsonl`).then((r) => r.text()),
   createRun: (body: CreateRunRequest): Promise<{ runId: string }> =>
     apiFetch('/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<{ runId: string }>),

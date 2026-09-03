@@ -402,6 +402,33 @@ export class StepRunner {
     return finished;
   }
 
+  /**
+   * One model call, outside a step: what a judge is (evaluation.md §Evaluators). It goes through the same
+   * adapter, the same credential lookup and the same egress checker an ordinary call does — a judge is a model
+   * call like any other, and the Privacy Inspector should show it as one — but it writes no `model_calls` row
+   * and no events, because a judge's opinion belongs to the score, not to the run it is scoring.
+   */
+  async callOnce(input: { modelId: string; prompt: string; provider?: 'mock' | undefined; runId: string; signal?: AbortSignal | undefined }): Promise<string> {
+    const ws = this.deps.workspace();
+    const { candidates, rejected } = selectCandidates({
+      catalog: ws.catalog,
+      ids: [input.modelId],
+      mode: ws.config.network.mode,
+      hasAdapter: (id) => this.deps.registry.has(id),
+      ...(input.provider === 'mock' ? { forceAdapter: 'mock' } : {}),
+    });
+    const chosen = candidates[0];
+    if (!chosen) throw new ModelUnavailableError(`"${input.modelId}" cannot be used as a judge: ${rejected.map((r) => r.reason).join('; ') || 'it is not in the catalog'}.`);
+    const adapter = this.deps.registry.get(chosen.adapterId)!;
+    const compiled: CompiledRequest = {
+      system: 'You are scoring an output against a rubric. Answer with JSON only.',
+      messages: [{ role: 'user', content: [{ type: 'text', text: input.prompt }] }],
+      tools: [],
+    };
+    const response = await this.callModel(adapter, chosen.entry, compiled, input.signal ?? new AbortController().signal, input.runId, 'judge');
+    return textOf(response.content);
+  }
+
   private candidatesFor(input: AgentStepInput): Candidate[] {
     const ws = this.deps.workspace();
     const policy = input.agent.definition.modelPolicy;

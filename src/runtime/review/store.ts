@@ -15,7 +15,7 @@ export interface ReviewRow {
   id: string; run_id: string; step_id: string; version_id: string | null;
   state: ReviewState; feedback: string | null; attempt: number; created_at: string; decided_at: string | null;
 }
-interface RatingRow { id: string; run_id: string; step_id: string; version_id: string | null; value: number; note: string | null; compare_id: string | null; ts: string }
+interface RatingRow { id: string; run_id: string; step_id: string; version_id: string | null; value: number; note: string | null; compare_id: string | null; model_id: string | null; ts: string }
 
 export interface OpenReviewInput {
   runId: string;
@@ -98,16 +98,19 @@ export class ReviewStore {
     return row ? this.toItem(row) : null;
   }
 
-  rate(input: { runId: string; stepId: string; versionId?: string | undefined; value: number; note?: string | undefined; compareId?: string | undefined }): RatingSummary {
+  rate(input: { runId: string; stepId: string; versionId?: string | undefined; value: number; note?: string | undefined; compareId?: string | undefined; modelId?: string | undefined }): RatingSummary {
     if (!Number.isInteger(input.value) || input.value < 1 || input.value > 5) {
       throw new RangeError(`A rating is 1 to 5 (got ${input.value}).`);
     }
     const row: RatingRow = {
       id: ulid(), run_id: input.runId, step_id: input.stepId, version_id: input.versionId ?? null,
-      value: input.value, note: input.note ?? null, compare_id: input.compareId ?? null, ts: new Date().toISOString(),
+      value: input.value, note: input.note ?? null, compare_id: input.compareId ?? null,
+      // Which model produced the pane: a preference pair is not usable without knowing what was preferred (D-50).
+      model_id: input.modelId ?? null,
+      ts: new Date().toISOString(),
     };
-    this.db.prepare('INSERT INTO ratings (id, run_id, step_id, version_id, value, note, compare_id, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(row.id, row.run_id, row.step_id, row.version_id, row.value, row.note, row.compare_id, row.ts);
+    this.db.prepare('INSERT INTO ratings (id, run_id, step_id, version_id, value, note, compare_id, model_id, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(row.id, row.run_id, row.step_id, row.version_id, row.value, row.note, row.compare_id, row.model_id, row.ts);
     return toRating(row);
   }
 

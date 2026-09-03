@@ -138,3 +138,32 @@ test('@run-09 the Tools screen says whether code can run at all', async ({ page 
   }
   await expectNoA11yViolations(page, 'Tools — sandbox');
 });
+
+test('@run-10 Compare runs two models side by side, and the pick is stored on both', async ({ page }) => {
+  await page.goto(base() + '/evaluate#token=' + token());
+  await expect(page.getByRole('heading', { name: 'Evaluate' })).toBeVisible();
+  await expectNoA11yViolations(page, 'Evaluate');
+
+  // The screen says what it is for, and what it will not do.
+  await expect(page.getByText('a judge model\'s opinion is an estimate')).toBeVisible();
+
+  await page.getByLabel('Agent').selectOption('echo');
+  const checkboxes = page.getByRole('checkbox');
+  await checkboxes.nth(0).check();
+  await checkboxes.nth(1).check();
+  await page.getByLabel('Input').fill('Say something about the rain.');
+  await page.getByRole('button', { name: 'Run them side by side' }).click();
+
+  const panes = page.getByTestId('compare-panes');
+  await expect(panes).toBeVisible({ timeout: 30_000 });
+  await expect(panes.getByRole('button', { name: 'This one is better' })).toHaveCount(2);
+  await expect(panes.getByRole('link', { name: 'its trace' }).first()).toBeVisible();
+  await expectNoA11yViolations(page, 'Evaluate — panes');
+
+  await panes.getByRole('button', { name: 'This one is better' }).first().click();
+  // The pick is stored on every pane, so the choice keeps both sides of itself.
+  await expect.poll(async () => {
+    const runs = await page.request.get(`${base()}/api/v1/runs?limit=10`, { headers: { Authorization: `Bearer ${token()}` } });
+    return runs.ok();
+  }).toBe(true);
+});

@@ -23,3 +23,14 @@ The Compare screen runs one agent step (or one case) across N model ids from the
 ## Results
 
 A table (case × model × metric) with totals for cost and latency and a simple chart; export and import in a promptfoo-compatible JSON shape where the mapping is free, so datasets are portable.
+
+> Amendment (RUN-10, 2026-09-03): a case carries an explicit `ordinal`. Two cases added in the same millisecond
+> have ULIDs that do not sort against each other, and "case 1" in a results table has to mean the first one the
+> person wrote.
+
+> Amendment (RUN-10, 2026-09-03): a Compare pick writes the **model id** on every rating alongside the shared
+> `compare_id`. A preference pair without the names of both sides is not usable as preference data (D-50).
+
+> Amendment (RUN-10, 2026-09-03): the results table is the chart for now. A case × model grid with pass^k beside
+> every mean is already the shape the eye reads; a chart on top of ten numbers would be decoration. It arrives
+> when a dataset is big enough that the table stops being readable.
