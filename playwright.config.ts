@@ -7,6 +7,10 @@ export default defineConfig({
   timeout: 60000,
   retries: 0,
   reporter: [['list']],
-  use: { trace: 'retain-on-failure' },
+  use: {
+    trace: 'retain-on-failure',
+    // A pinned Chromium (e.g. the one preinstalled in a sandbox) can be pointed at with WB_CHROME; CI installs the matching build.
+    ...(process.env['WB_CHROME'] ? { launchOptions: { executablePath: process.env['WB_CHROME'] } } : {}),
+  },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 });
