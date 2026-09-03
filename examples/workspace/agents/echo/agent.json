@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "echo",
+  "name": "Echo",
+  "description": "Replies with exactly the task text. The smallest valid agent and every run's smoke test.",
+  "instructions": [{ "name": "task", "text": "Reply with exactly the task text and nothing else." }],
+  "modelPolicy": { "primary": "mock/echo", "fallbacks": [] }
+}
