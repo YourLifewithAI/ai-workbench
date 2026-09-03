@@ -154,7 +154,10 @@ describe('DoD 3: permission.request parks the run, and a timeout denies', () => 
       expect(pending).toHaveLength(1);
       const card = pending[0]!;
       expect(card.actions[0]!.tool).toBe('permission.request');
-      expect(card.actions[0]!.policy, 'the card says what was asked and why').toContain('the margin note belongs with the draft');
+      // The what and the why are the args, which is what the card's risk line is built from; the policy line
+      // says which rule fired, without repeating them.
+      expect(card.actions[0]!.args).toEqual({ what: 'write projects/anthology/notes/margins.md', why: 'the margin note belongs with the draft' });
+      expect(card.actions[0]!.policy).toContain('not granted');
 
       // Nothing to remember: what was asked for is prose, not a path or a host, so the card offers no rule.
       expect(card.actions[0]!.remember).toBeNull();

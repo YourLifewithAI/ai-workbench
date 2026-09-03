@@ -1,5 +1,5 @@
 // Every call carries the bearer token; SSE is fetch-based (never EventSource) so it can too.
-import type { AgentDetail, AgentListResponse, CreateProjectRequest, CreateRunRequest, DashboardResponse, DiffResponse, DocumentDetail, DocumentSummary, ModelListResponse, PrivacyResponse, Project, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunSummary, ScheduleListResponse, ScheduleSummary, SettingsResponse, UpsertScheduleRequest, WorkflowDetail, WorkflowListResponse } from '../../shared/api/index.js';
+import type { AgentDetail, AgentListResponse, ApprovalItem, ApprovalListResponse, CreateProjectRequest, CreateRunRequest, DashboardResponse, DiffResponse, DocumentDetail, DocumentSummary, GrantCell, ModelListResponse, PrivacyResponse, Project, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunSummary, ScheduleListResponse, ScheduleSummary, SetGrantRequest, SettingsResponse, ToolsResponse, UpsertScheduleRequest, WorkflowDetail, WorkflowListResponse } from '../../shared/api/index.js';
 import type { EventRecord } from '../../shared/events.js';
 import { getToken, markUnauthorized } from './auth.js';
 
@@ -80,6 +80,14 @@ export const api = {
       .then((r) => r.json() as Promise<ScheduleSummary>),
   removeSchedule: (id: string): Promise<{ deleted: boolean }> =>
     apiFetch(`/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }).then((r) => r.json() as Promise<{ deleted: boolean }>),
+  approvals: (state = 'pending'): Promise<ApprovalItem[]> =>
+    apiFetch(`/approvals?state=${encodeURIComponent(state)}`).then((r) => r.json() as Promise<ApprovalListResponse>).then((b) => b.approvals),
+  decideApproval: (id: string, decision: 'allow' | 'allow-remember' | 'deny', actionId?: string): Promise<{ decided: boolean }> =>
+    apiFetch(`/approvals/${encodeURIComponent(id)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision, ...(actionId ? { actionId } : {}) }) })
+      .then((r) => r.json() as Promise<{ decided: boolean }>),
+  tools: (): Promise<ToolsResponse> => apiFetch('/tools').then((r) => r.json() as Promise<ToolsResponse>),
+  setGrant: (body: SetGrantRequest): Promise<GrantCell> =>
+    apiFetch('/tools/grants', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<GrantCell>),
 };
 
 export interface SseMessage { id?: string; event?: string; data: string }

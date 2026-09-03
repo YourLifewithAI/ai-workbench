@@ -291,7 +291,9 @@ export class Engine {
     return {
       ask: async ({ runId, stepId, what, why, signal }) => this.approvalHost().request({
         runId, stepId, tool: 'permission.request', args: { what, why },
-        policy: `The agent asked for permission to ${what}, because: ${why}`, signal,
+        // The card's risk line already carries the what and the why from the args; the policy line says which
+        // rule put this in front of a human, and saying the same thing twice makes both lines skimmable noise.
+        policy: 'The agent asked for something it is not granted.', signal,
       }),
     };
   }

@@ -1,9 +1,11 @@
 // What needs you, what is running, and what today cost (ui.md §Dashboard). One request, in that order: the
 // point of this screen is that a person coming back after a day can see the state of things without reading.
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { money } from '../../shared/summary.js';
 import { api } from '../lib/api.js';
+import { ApprovalCard } from '../components/ApprovalCard.js';
 import { BudgetLine } from '../components/BudgetBar.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { Button } from '../components/ui/button.js';
@@ -18,8 +20,31 @@ export function Dashboard() {
   const cancel = useMutation({ mutationFn: (id: string) => api.cancelRun(id), onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }) });
   const resume = useMutation({ mutationFn: (id: string) => api.resumeRun(id), onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }) });
   const offline = useMutation({ mutationFn: () => api.setNetworkMode('offline'), onSuccess: () => client.invalidateQueries() });
+  const decide = useMutation({
+    mutationFn: (input: { batchId: string; decision: 'allow' | 'deny' }) => api.decideApproval(input.batchId, input.decision),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }),
+  });
 
   const d = q.data;
+  const [cursor, setCursor] = useState(0);
+  const pending = d?.approvals ?? [];
+  const focused = pending[Math.min(cursor, Math.max(0, pending.length - 1))];
+
+  // `a` allows and `d` denies the focused approval, `j`/`k` move between them (D-57, D-59). Nothing here is
+  // modal: the same decisions are buttons on the card and commands in `workbench approvals`.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const target = e.target as HTMLElement | null;
+      if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.tagName === 'SELECT' || target?.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey || !focused) return;
+      if (e.key === 'j') { setCursor((c) => Math.min(pending.length - 1, c + 1)); e.preventDefault(); return; }
+      if (e.key === 'k') { setCursor((c) => Math.max(0, c - 1)); e.preventDefault(); return; }
+      if (e.key === 'a') { decide.mutate({ batchId: focused.batchId, decision: 'allow' }); e.preventDefault(); return; }
+      if (e.key === 'd') { decide.mutate({ batchId: focused.batchId, decision: 'deny' }); e.preventDefault(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [focused, pending.length, decide]);
   const capFraction = d && d.dailySpendCapUsd > 0 ? Math.min(1, d.spentTodayUsd / d.dailySpendCapUsd) : 0;
 
   return (
@@ -39,7 +64,12 @@ export function Dashboard() {
       {d ? (
         <>
           <h2 className="mt-6 text-lg font-medium">Needs you</h2>
-          {d.needsYou.length === 0 && d.failed.length === 0 ? (
+          {pending.length ? (
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+              Keys: <kbd className="font-mono">a</kbd> allow · <kbd className="font-mono">d</kbd> deny · <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> move.
+            </p>
+          ) : null}
+          {d.approvals.length === 0 && d.needsYou.length === 0 && d.failed.length === 0 ? (
             <div className="mt-2">
               <EmptyState title={d.unreviewed > 0
                 ? `Nothing is blocked. ${d.unreviewed} output${d.unreviewed === 1 ? '' : 's'} would like a rating when you have a moment.`
@@ -49,6 +79,10 @@ export function Dashboard() {
             </div>
           ) : (
             <ul className="mt-2 space-y-2">
+              {/* Approvals first: a review waits as long as you like, an approval is refused on a timer. */}
+              {d.approvals.map((a) => (
+                <li key={a.batchId}><ApprovalCard item={a} focused={a.batchId === focused?.batchId} /></li>
+              ))}
               {d.needsYou.map((r) => (
                 <li key={r.id}>
                   <Card className="border-l-4 border-l-amber-600 dark:border-l-amber-400">

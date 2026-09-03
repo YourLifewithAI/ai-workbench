@@ -1,0 +1,145 @@
+// Built-ins, the tool × agent grant matrix, and the denials that have actually happened (ui.md §Tools). The
+// matrix is the authority: what an agent's own file asks for is shown next to it, and is not the same thing.
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import type { GrantCell } from '../../shared/api/index.js';
+import { api } from '../lib/api.js';
+import { Badge, Card } from '../components/ui/card.js';
+
+const TIER_NOTE: Record<string, string> = {
+  read: 'reads something',
+  write: 'changes something',
+  execute: 'runs code',
+};
+
+export function Tools() {
+  const q = useQuery({ queryKey: ['tools'], queryFn: api.tools });
+  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, staleTime: 60_000 });
+  const client = useQueryClient();
+  const setGrant = useMutation({
+    mutationFn: (body: { agentId: string; toolId: string; grant: 'allow' | 'deny' | 'unset' }) => api.setGrant(body),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['tools'] }),
+  });
+
+  const cellFor = (agentId: string, toolId: string): GrantCell | undefined =>
+    q.data?.matrix.find((m) => m.agentId === agentId && m.toolId === toolId);
+
+  return (
+    <section aria-labelledby="screen-title">
+      <h1 id="screen-title" className="text-2xl font-semibold">Tools</h1>
+      <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+        Tools are denied until you grant them. What an agent asks for in its own file is a request; this table is the answer.
+      </p>
+
+      {q.isPending ? <p className="mt-4" role="status">Loading…</p> : null}
+      {q.isError ? <p className="mt-4 text-red-700 dark:text-red-300" role="alert">Could not load tools: {q.error.message}</p> : null}
+
+      {q.data ? (
+        <>
+          <h2 className="mt-6 text-lg font-medium">Who may use what</h2>
+          <div className="mt-2 overflow-x-auto" tabIndex={0}>
+            <table className="w-full text-left text-sm">
+              <caption className="sr-only">The tool by agent grant matrix. Each cell allows, denies, or leaves a tool unset for one agent.</caption>
+              <thead>
+                <tr className="border-b border-gray-200 dark:border-gray-800">
+                  <th scope="col" className="py-2 pr-3 font-medium">Tool</th>
+                  {(agents.data?.agents ?? []).map((a) => (
+                    <th key={a.id} scope="col" className="py-2 pr-3 font-medium">{a.id}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {q.data.tools.map((tool) => (
+                  <tr key={tool.id} className="border-b border-gray-100 align-top dark:border-gray-800">
+                    <th scope="row" className="py-2 pr-3 font-normal">
+                      <span className="font-mono text-xs">{tool.id}</span>
+                      <span className="ml-2 text-xs text-gray-700 dark:text-gray-300">{TIER_NOTE[tool.tier]}</span>
+                      {tool.approvalByDefault ? <Badge tone="busy" className="ml-2">always asks</Badge> : null}
+                    </th>
+                    {(agents.data?.agents ?? []).map((agent) => {
+                      const cell = cellFor(agent.id, tool.id);
+                      const granted = cell?.granted ?? 'unset';
+                      return (
+                        <td key={agent.id} className="py-2 pr-3">
+                          <label className="block">
+                            <span className="sr-only">{tool.id} for {agent.id}</span>
+                            <select
+                              value={granted}
+                              onChange={(e) => setGrant.mutate({ agentId: agent.id, toolId: tool.id, grant: e.target.value as 'allow' })}
+                              className="rounded border border-gray-300 bg-white px-1 py-0.5 text-xs dark:border-gray-700 dark:bg-gray-950"
+                            >
+                              <option value="unset">— denied</option>
+                              <option value="allow">allow</option>
+                              <option value="deny">deny always</option>
+                            </select>
+                          </label>
+                          {cell?.requested && granted === 'unset' ? (
+                            <span className="mt-0.5 block text-xs text-amber-800 dark:text-amber-300">asks for it</span>
+                          ) : null}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {setGrant.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{setGrant.error.message}</p> : null}
+
+          <h2 className="mt-8 text-lg font-medium">What each tool does</h2>
+          <ul className="mt-2 space-y-2">
+            {q.data.tools.map((tool) => (
+              <li key={tool.id}>
+                <Card>
+                  <p className="text-sm"><span className="font-mono text-xs">{tool.id}</span> <span className="text-gray-600 dark:text-gray-400">v{tool.version}</span></p>
+                  <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{tool.description}</p>
+                </Card>
+              </li>
+            ))}
+          </ul>
+
+          {q.data.remembered.length ? (
+            <>
+              <h2 className="mt-8 text-lg font-medium">Approvals you agreed to remember</h2>
+              <ul className="mt-2 space-y-1 text-sm">
+                {q.data.remembered.map((rule) => (
+                  <li key={JSON.stringify(rule)} className="font-mono text-xs">{JSON.stringify(rule)}</li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+
+          <h2 className="mt-8 text-lg font-medium">Refused</h2>
+          {q.data.denials.length === 0 ? (
+            <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">Nothing has been refused. This fills in as agents ask for things they do not have.</p>
+          ) : (
+            <table className="mt-2 w-full text-left text-sm">
+              <caption className="sr-only">Tool calls that were refused, newest first</caption>
+              <thead>
+                <tr className="border-b border-gray-200 text-gray-700 dark:border-gray-800 dark:text-gray-300">
+                  <th scope="col" className="py-2 pr-3 font-medium">When</th>
+                  <th scope="col" className="py-2 pr-3 font-medium">Agent</th>
+                  <th scope="col" className="py-2 pr-3 font-medium">Tool</th>
+                  <th scope="col" className="py-2 pr-3 font-medium">Why</th>
+                </tr>
+              </thead>
+              <tbody>
+                {q.data.denials.map((d) => (
+                  <tr key={d.id} className="border-b border-gray-100 dark:border-gray-800">
+                    <td className="py-2 pr-3"><time dateTime={d.ts}>{new Date(d.ts).toLocaleString()}</time></td>
+                    <td className="py-2 pr-3">{d.agentId ?? '—'}</td>
+                    <td className="py-2 pr-3 font-mono text-xs">{d.tool}</td>
+                    <td className="py-2 pr-3">
+                      {d.reason ?? d.errorCode ?? 'refused'}
+                      {' '}<Link to={`/runs/${d.runId}`} className="text-blue-700 underline underline-offset-4 dark:text-sky-300">trace</Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      ) : null}
+    </section>
+  );
+}

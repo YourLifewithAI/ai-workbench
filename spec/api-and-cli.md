@@ -108,3 +108,11 @@ One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` â
 > - `runs.spent_json` is updated after every model call, not only when the run ends: a budget bar that moves only at the end is not a budget bar.
 > - CLI: `workbench review list|show|continue|reject|dismiss|rate`, `workbench runs resume`, `workbench schedules list|add|remove`.
 > - A blocking CLI run (`run workflow` without `--detach`) stops when the run parks and prints the review id: no amount of polling produces a human, and the ephemeral runtime the CLI started is the only thing that could have decided it. Deciding a gate from the CLI requires a *live* runtime, because deciding it from a second process would leave the first holding a waiter that never resolves.
+
+> Amendment (RUN-06, 2026-09-03): the tool, grant and approval surfaces.
+>
+> - `GET /api/v1/approvals?state=pending|allowed|denied|expired|all` returns batched cards; `POST /api/v1/approvals/:batchOrId` with `{ decision: 'allow' | 'allow-remember' | 'deny', actionId? }` decides the batch or one action of it.
+> - `GET /api/v1/tools` returns the catalogue, the tool Ã— agent grant matrix (requested vs granted vs effective, with the reason the broker would give), the last 50 refusals, and the remembered rules. `PUT /api/v1/tools/grants` with `{ agentId, toolId, grant: 'allow' | 'deny' | 'unset' }` writes to `grants.<agentId>` in `config/workbench.json`.
+> - `GET /api/v1/dashboard` gained `approvals`, listed above blocking reviews: a review waits as long as you like, an approval is refused on a timer.
+> - CLI: `workbench approvals list|allow|deny` (`--remember`, `--action`) and `workbench tools list|grants|grant` (`--deny`, `--unset`).
+> - The trace summary leads with `DENIED` or the tool error code. A denial is the line a human opens a trace to find.
