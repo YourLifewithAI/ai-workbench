@@ -3,7 +3,21 @@
   "id": "architect",
   "name": "The Architect",
   "description": "Turns a premise into structured scene beats. Structure and pacing, never prose.",
-  "instructions": { "file": "instructions.md" },
-  "modelPolicy": { "primary": "google/gemini-2.5-pro", "fallbacks": ["google/gemini-2.5-flash"] },
-  "review": "none"
+  "instructions": {
+    "file": "instructions.md"
+  },
+  "modelPolicy": {
+    "primary": "google/gemini-2.5-pro",
+    "fallbacks": [
+      "google/gemini-2.5-flash"
+    ]
+  },
+  "review": "none",
+  "documents": [
+    "bible.md"
+  ],
+  "output": {
+    "kind": "document",
+    "document": "beats/{{runId}}.md"
+  }
 }

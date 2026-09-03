@@ -26,6 +26,10 @@ Order of checks: `Host`/`Origin` (403) before token (401). Requests without an `
 | export / import | `GET /export/agent/:id` · `GET /export/workflow/:id` · `GET /export/memory?scope=` · `GET /export/runs?ids=` · `GET /export/workspace` · `POST /import/agent` · `POST /import/workflow` · `POST /import/memory` (project export/import are under projects) |
 | settings | `GET /settings` → `{ workspacePath, networkMode, budgets, execution, retention, providersConfigured: string[], sandbox: { deno: boolean } }` · `PUT /settings` (rewrites `config/workbench.json`) · `PUT /settings/credentials` |
 | push | `GET /push/vapid-public-key` · `POST /push/subscribe` `{ endpoint, keys, deviceLabel, events }` · `DELETE /push/subscriptions/:id` (D-61) |
+> Amendment (RUN-03, 2026-09-03): `GET /documents/:id/diff?from=&to=` returns the line diff the Library renders, so the
+> UI and the CLI show the same comparison. `export` and `import` act on the workspace directly rather than over
+> HTTP, like `init` and `doctor`: they move whole folders, and an ephemeral runtime is the wrong shape for that.
+
 > Amendment (RUN-02, 2026-09-03): `PUT /settings/network` `{ mode }` writes just the network mode to
 > `config/workbench.json` and applies it in place. Cutting the network is a safety control, so it is one click
 > (ui.md §Global controls) rather than a config edit and a restart; the rest of `PUT /settings` still waits for

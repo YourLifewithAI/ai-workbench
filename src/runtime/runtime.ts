@@ -22,6 +22,7 @@ import { GoogleAdapter } from './models/adapters/google/index.js';
 import { AnthropicAdapter } from './models/adapters/anthropic/index.js';
 import { OpenAiCompatibleAdapter } from './models/adapters/openai-compatible/index.js';
 import { createApp } from './api/app.js';
+import { ArtifactStore } from './artifacts/store.js';
 import { listModels, pollLocalEndpoints, type PollResult } from './models/availability.js';
 import { createEgressFetch } from './security/egress.js';
 import { directFetch } from './models/fetch.js';
@@ -78,6 +79,7 @@ export class Runtime {
     readonly registry: AdapterRegistry,
     readonly engine: Engine,
     private readonly portRef: { current: number | null },
+    readonly artifacts: ArtifactStore,
   ) {
     this.log = logHandle.logger;
     this.app = createApp({
@@ -93,6 +95,7 @@ export class Runtime {
       denoAvailable: () => findExecutable('deno', opts.bootstrap.childEnvAllowlist['PATH']) !== null,
       reloadAgents: () => this.reloadAgents(),
       models: (refresh) => this.models(refresh),
+      artifacts,
       setNetworkMode: (mode) => this.setNetworkMode(mode),
       db,
       uiDist: pkg.uiDist,
@@ -127,15 +130,20 @@ export class Runtime {
     registry.register(new GoogleAdapter());
     registry.register(new AnthropicAdapter());
     registry.register(new OpenAiCompatibleAdapter());
+    const artifacts = new ArtifactStore(db, workspace.paths.projects, redactor);
+    // A project directory shipped by `init` (or copied in) becomes a real project on first start.
+    artifacts.adoptProjectDirectories();
+
     // The port is only known after listen(), and the checker needs it to refuse calls back into the runtime.
     const portRef: { current: number | null } = { current: null };
     const engine = new Engine({
       db, events, workspace: () => workspace, registry, credentials, redactor,
       log: logHandle.logger, providerOverride: opts.providerOverride ?? null,
       runtimePort: () => portRef.current,
+      artifacts,
       ...(opts.fetch ? { fetch: opts.fetch } : {}),
     });
-    return new Runtime(opts, pkg, workspace, db, redactor, credentials, logHandle, events, registry, engine, portRef);
+    return new Runtime(opts, pkg, workspace, db, redactor, credentials, logHandle, events, registry, engine, portRef, artifacts);
   }
 
   /**

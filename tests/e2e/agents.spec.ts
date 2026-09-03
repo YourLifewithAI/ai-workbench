@@ -26,7 +26,8 @@ test('@run-01 the Agents screen lists the workspace agents with their policy and
 
   await page.getByRole('link', { name: 'The Architect', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'The Architect' })).toBeVisible();
-  await expect(page.getByRole('group').filter({ hasText: '## world' })).toBeVisible();
+  await expect(page.getByRole('group').filter({ hasText: '## task' })).toBeVisible();
+  await expect(page.getByText('bible.md'), 'the world is a project document it injects, not a copy it carries').toBeVisible();
   await expectNoA11yViolations(page, 'AgentDetail');
 });
 
@@ -53,7 +54,7 @@ test('@run-01 running an agent streams its text, then the run reads as a summary
   await page.locator('details summary').filter({ hasText: 'google/gemini-2.5-pro' }).first().click();
   await expect(page.getByRole('heading', { name: 'Compiled prompt' })).toBeVisible();
   await expect(page.getByText('## identity').first()).toBeVisible();
-  await expect(page.getByText('The Hub').first(), 'the world section reached the prompt').toBeVisible();
+  await expect(page.getByText('Turn the premise into scene beats').first(), 'the instructions reached the prompt').toBeVisible();
   await expect(page.getByRole('heading', { name: 'Response' })).toBeVisible();
   await expectNoA11yViolations(page, 'RunDetail');
 });

@@ -80,9 +80,14 @@ test('keyboard-only navigation reaches every route; both themes and reduced moti
   expect([...seen].sort()).toEqual([...names].sort());
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
-  for (const route of ['/dashboard', '/library', '/workflows', '/review', '/memory', '/tools', '/evaluate']) {
-    await page.goto(base() + route + '#token=' + token());
-    await expect(page.getByText(/Arrives in RUN-/)).toBeVisible();
+  // Every navigation route renders something with a heading. Which ones are still placeholders changes every
+  // run, so this asserts the invariant rather than a list that needs editing each time.
+  for (const name of names) {
+    await page.goto(base() + '/welcome#token=' + token());
+    await page.getByRole('link', { name, exact: true }).click();
+    await expect(page.getByRole('heading').first()).toBeVisible();
+    const placeholder = page.getByText(/Arrives in RUN-/);
+    if (await placeholder.count()) await expect(placeholder.first()).toBeVisible();
   }
   await page.selectOption('select[aria-label="Theme"]', 'dark');
   expect(await page.evaluate(() => document.documentElement.classList.contains('dark'))).toBe(true);
