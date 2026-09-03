@@ -218,3 +218,100 @@ export const WorkflowListResponse = z.object({
   errors: z.array(z.object({ id: z.string(), file: z.string(), message: z.string() })),
 });
 export type WorkflowListResponse = z.infer<typeof WorkflowListResponse>;
+
+// ---- review and ratings (spec/workflows-and-execution.md §Review, D-13) -------------------------
+
+export const RatingSummary = z.object({
+  id: z.string(), runId: z.string(), stepId: z.string(), versionId: z.string().nullable(),
+  value: z.number().int().min(1).max(5), note: z.string().nullable(), ts: z.string(),
+});
+export type RatingSummary = z.infer<typeof RatingSummary>;
+
+export const ReviewItem = z.object({
+  id: z.string(),
+  runId: z.string(),
+  stepId: z.string(),
+  state: z.enum(['unreviewed', 'pending', 'continued', 'rejected', 'dismissed']),
+  /** True while a `review: 'blocking'` step is holding its run still. */
+  blocking: z.boolean(),
+  attempt: z.number().int().positive(),
+  feedback: z.string().nullable(),
+  createdAt: z.string(),
+  decidedAt: z.string().nullable(),
+  runKind: z.string(),
+  runState: z.string(),
+  /** The workflow or agent this came from, for the queue's one-line heading. */
+  subject: z.string(),
+  project: z.string().nullable(),
+  modelId: z.string().nullable(),
+  output: z.string().nullable(),
+  versionId: z.string().nullable(),
+  documentId: z.string().nullable(),
+  documentPath: z.string().nullable(),
+  ratings: z.array(RatingSummary),
+});
+export type ReviewItem = z.infer<typeof ReviewItem>;
+
+export const ReviewListResponse = z.object({ reviews: z.array(ReviewItem) });
+export type ReviewListResponse = z.infer<typeof ReviewListResponse>;
+
+export const ReviewDecisionRequest = z.object({
+  decision: z.enum(['continue', 'reject', 'dismiss']),
+  feedback: z.string().max(4000).optional(),
+});
+export type ReviewDecisionRequest = z.infer<typeof ReviewDecisionRequest>;
+
+export const RateRequest = z.object({
+  runId: z.string(),
+  stepId: z.string(),
+  versionId: z.string().optional(),
+  value: z.number().int().min(1).max(5),
+  note: z.string().max(2000).optional(),
+});
+export type RateRequest = z.infer<typeof RateRequest>;
+
+// ---- schedules (spec/workflows-and-execution.md §Scheduler, D-15) -------------------------------
+
+export const ScheduleSummary = z.object({
+  id: z.string(),
+  workflowId: z.string(),
+  cron: z.string(),
+  inputs: z.record(z.string(), z.unknown()),
+  project: z.string().nullable(),
+  enabled: z.boolean(),
+  catchUp: z.enum(['none', 'once']),
+  /** Seeded by a workflow file's `schedule` block; edits here are the owner's and the file no longer touches it. */
+  seededFromFile: z.boolean(),
+  lastFiredAt: z.string().nullable(),
+  nextFireAt: z.string().nullable(),
+});
+export type ScheduleSummary = z.infer<typeof ScheduleSummary>;
+
+export const ScheduleListResponse = z.object({ schedules: z.array(ScheduleSummary) });
+export type ScheduleListResponse = z.infer<typeof ScheduleListResponse>;
+
+export const UpsertScheduleRequest = z.object({
+  workflowId: z.string(),
+  cron: z.string().min(1),
+  inputs: z.record(z.string(), z.unknown()).optional(),
+  project: z.string().optional(),
+  enabled: z.boolean().optional(),
+  catchUp: z.enum(['none', 'once']).optional(),
+});
+export type UpsertScheduleRequest = z.infer<typeof UpsertScheduleRequest>;
+
+// ---- the Dashboard (spec/ui.md §Dashboard) ------------------------------------------------------
+
+export const DashboardResponse = z.object({
+  /** Blocking gates: a run is standing still until one of these is decided. */
+  needsYou: z.array(ReviewItem),
+  /** How many outputs are waiting for a rating. Nothing is blocked by them. */
+  unreviewed: z.number().int().nonnegative(),
+  failed: z.array(RunSummary),
+  running: z.array(RunSummary),
+  spentTodayUsd: z.number(),
+  dailySpendCapUsd: z.number(),
+  schedules: z.array(ScheduleSummary),
+  networkMode: z.string(),
+});
+export type DashboardResponse = z.infer<typeof DashboardResponse>;

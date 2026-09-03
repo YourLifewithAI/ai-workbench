@@ -11,7 +11,8 @@ import type { Logger } from '../log/index.js';
 import type { EventStore } from './events.js';
 import { RunBudget, narrowBudgets, type BudgetOverride } from './budget.js';
 import { StepFailure, StepRunner } from './step.js';
-import { WorkflowExecutor, WorkflowFailure } from './workflow-run.js';
+import { WorkflowExecutor, WorkflowFailure, type ReviewHost } from './workflow-run.js';
+import { MAX_REJECTIONS, ReviewStore, type ReviewDecision } from '../review/store.js';
 import type { RunDetail, RunSummary } from '../../shared/api/index.js';
 import type { RunState, Spent } from '../../shared/events.js';
 import type { LoadedAgent } from '../../shared/agent.js';
@@ -35,6 +36,9 @@ export interface EngineDeps {
   artifacts?: ArtifactStore | undefined;
 }
 
+/** One human decision, handed to whichever run is parked behind it. */
+interface GateDecision { decision: ReviewDecision; feedback?: string | undefined }
+
 export class NotFoundError extends Error { constructor(m: string) { super(m); this.name = 'NotFoundError'; } }
 export class ValidationError extends Error { constructor(m: string) { super(m); this.name = 'ValidationError'; } }
 export class ConflictError extends Error { constructor(m: string) { super(m); this.name = 'ConflictError'; } }
@@ -57,7 +61,7 @@ export interface StartWorkflowRunInput {
 }
 
 interface RunRow {
-  id: string; kind: string; state: RunState; agent_id: string | null; workflow_id: string | null; project_id: string | null;
+  id: string; kind: string; state: RunState; agent_id: string | null; workflow_id: string | null; workflow_version: string | null; project_id: string | null;
   inputs_json: string; outputs_json: string | null; budgets_json: string; spent_json: string;
   started_at: string; finished_at: string | null; error_json: string | null;
 }
@@ -72,8 +76,11 @@ export class Engine {
   private readonly pending = new Map<string, () => Promise<void>>();
   private readonly steps: StepRunner;
   private readonly workflows: WorkflowExecutor;
+  private readonly gates = new Map<string, (d: GateDecision) => void>();
+  readonly reviews: ReviewStore;
 
   constructor(private readonly deps: EngineDeps) {
+    this.reviews = new ReviewStore(deps.db);
     this.steps = new StepRunner({
       db: deps.db, events: deps.events, workspace: deps.workspace, registry: deps.registry,
       credentials: deps.credentials, redactor: deps.redactor, log: deps.log,
@@ -81,8 +88,73 @@ export class Engine {
     });
     this.workflows = new WorkflowExecutor({
       db: deps.db, events: deps.events, workspace: deps.workspace, log: deps.log,
-      artifacts: deps.artifacts, steps: this.steps,
+      artifacts: deps.artifacts, steps: this.steps, review: this.reviewHost(),
     });
+  }
+
+  // ---- review (D-13) -------------------------------------------------------------------------------------
+
+  /**
+   * Every completed step is filed for review. Non-blocking is the default and returns immediately; a blocking
+   * gate parks the run in `waiting_review` with no timeout, and the human's decision is what starts it again.
+   */
+  private reviewHost(): ReviewHost {
+    return {
+      afterStep: async ({ runId, stepId, blocking, versionId, signal }) => {
+        const row = this.reviews.open({ runId, stepId, blocking, ...(versionId ? { versionId } : {}) });
+        if (!blocking) return null;
+
+        this.deps.db.prepare("UPDATE runs SET state = 'waiting_review' WHERE id = ?").run(runId);
+        this.deps.events.append(runId, stepId, 'review-requested', { reviewId: row.id, stepId, attempt: row.attempt, versionId: versionId ?? null });
+
+        const decision = await this.waitForReview(row.id, signal);
+        this.deps.db.prepare("UPDATE runs SET state = 'running' WHERE id = ?").run(runId);
+        this.deps.events.append(runId, stepId, 'review-decided', {
+          reviewId: row.id, decision: decision.decision, feedback: decision.feedback ?? null, attempt: row.attempt,
+        });
+
+        // A third rejection would be a conversation, not a gate: the run carries on with what it has.
+        if (decision.decision === 'reject' && row.attempt <= MAX_REJECTIONS) return { redo: decision.feedback ?? '' };
+        return null;
+      },
+    };
+  }
+
+  private waitForReview(reviewId: string, signal: AbortSignal): Promise<GateDecision> {
+    return new Promise<GateDecision>((resolve, reject) => {
+      const onAbort = (): void => { this.gates.delete(reviewId); reject(new StepFailure('cancelled', null, 'the run was cancelled while waiting for a review')); };
+      if (signal.aborted) { onAbort(); return; }
+      signal.addEventListener('abort', onAbort, { once: true });
+      this.gates.set(reviewId, (d) => {
+        signal.removeEventListener('abort', onAbort);
+        this.gates.delete(reviewId);
+        resolve(d);
+      });
+    });
+  }
+
+  /**
+   * The human decided. A run parked in this process is released; one whose process has since restarted is
+   * resumed instead, so a decision made after a restart is not a decision that goes nowhere.
+   */
+  decideReview(reviewId: string, decision: ReviewDecision, feedback?: string): void {
+    const row = this.reviews.byId(reviewId);
+    if (!row) throw new NotFoundError(`There is no review with id "${reviewId}".`);
+    if (row.state !== 'pending' && row.state !== 'unreviewed') {
+      throw new ConflictError(`That review was already ${row.state}.`);
+    }
+    const wasBlocking = row.state === 'pending';
+    this.reviews.decide(reviewId, decision, feedback);
+
+    const waiting = this.gates.get(reviewId);
+    if (waiting) { waiting({ decision, ...(feedback !== undefined ? { feedback } : {}) }); return; }
+    if (!wasBlocking) return;
+
+    const run = this.deps.db.prepare('SELECT state FROM runs WHERE id = ?').get(row.run_id) as { state: RunState } | undefined;
+    if (run && (run.state === 'waiting_review' || run.state === 'interrupted')) {
+      this.deps.log.info({ runId: row.run_id, reviewId }, 'a review decided after a restart; resuming the run');
+      this.resume(row.run_id);
+    }
   }
 
   /**
@@ -90,6 +162,8 @@ export class Engine {
    * the source of truth (D-14), so the row is corrected on startup and the resume command arrives in RUN-05.
    */
   markInterrupted(): number {
+    // `waiting_review` is durable state, not lost work: the review row still holds the decision the run waits
+    // for, and deciding it resumes the run. Only work that was actually in flight becomes `interrupted`.
     const rows = this.deps.db.prepare("SELECT id FROM runs WHERE state IN ('running', 'queued')").all() as { id: string }[];
     const at = new Date().toISOString();
     for (const row of rows) {
@@ -124,14 +198,24 @@ export class Engine {
 
     return this.schedule(runId, budgets, now, async (budget, signal) => {
       const task = typeof input.inputs['input'] === 'string' ? (input.inputs['input'] as string) : JSON.stringify(input.inputs);
-      const outcome = await this.steps.runAgentStep({
-        runId, stepId: 'main', agent, task,
-        ...(input.project ? { project: input.project } : {}),
-        ...(input.provider ?? this.deps.providerOverride ? { provider: (input.provider ?? this.deps.providerOverride) as 'mock' } : {}),
-        ...(input.modelOverride ? { modelOverride: input.modelOverride } : {}),
-        budget, signal,
-      });
-      return { output: outcome.output };
+      const host = this.reviewHost();
+      let feedback: string | undefined;
+      for (;;) {
+        const outcome = await this.steps.runAgentStep({
+          runId, stepId: 'main', agent, task,
+          ...(input.project ? { project: input.project } : {}),
+          ...(input.provider ?? this.deps.providerOverride ? { provider: (input.provider ?? this.deps.providerOverride) as 'mock' } : {}),
+          ...(input.modelOverride ? { modelOverride: input.modelOverride } : {}),
+          ...(feedback ? { feedback } : {}),
+          budget, signal,
+        });
+        const again = await host.afterStep({
+          runId, stepId: 'main', blocking: agent.definition.review === 'blocking',
+          ...(outcome.versionId ? { versionId: outcome.versionId } : {}), signal,
+        });
+        if (!again) return { output: outcome.output };
+        feedback = again.redo;
+      }
     });
   }
 
@@ -265,6 +349,74 @@ export class Engine {
     }
   }
 
+  /**
+   * Restarts an interrupted run from its last finished step (workflows-and-execution.md §Resume). Events are
+   * the source of truth, so the completed steps come from the rows they wrote: they are not re-run, and their
+   * artifact versions are not written twice.
+   */
+  resume(runId: string): { runId: string; done: Promise<void> } {
+    const row = this.deps.db.prepare('SELECT * FROM runs WHERE id = ?').get(runId) as RunRow | undefined;
+    if (!row) throw new NotFoundError(`Run "${runId}" does not exist.`);
+    if (this.inflight.has(runId)) throw new ConflictError(`Run "${runId}" is already going.`);
+    if (!RESUMABLE_STATES.has(row.state)) throw new ConflictError(`Run "${runId}" is ${row.state}; only an interrupted or parked run can be resumed.`);
+    if (row.kind !== 'workflow') return this.resumeAgentRun(row);
+
+    const ws = this.deps.workspace();
+    const workflow = ws.workflows.get(row.workflow_id ?? '');
+    if (!workflow) throw new NotFoundError(`Workflow "${row.workflow_id}" is no longer in this workspace, so this run cannot be resumed.`);
+    if (workflow.version !== row.workflow_version) {
+      this.deps.log.warn({ runId, was: row.workflow_version, now: workflow.version }, 'the workflow changed since this run started; resuming against the current definition');
+    }
+
+    const completed = this.finishedSteps(runId);
+    const budgets = JSON.parse(row.budgets_json) as ReturnType<typeof narrowBudgets>;
+    const spent = JSON.parse(row.spent_json) as Spent;
+    this.deps.db.prepare("UPDATE runs SET state = 'running', finished_at = NULL, error_json = NULL WHERE id = ?").run(runId);
+    this.deps.events.append(runId, null, 'run-started', {
+      kind: 'workflow', workflowId: workflow.definition.id, workflowVersion: workflow.version,
+      resumed: true, from: [...completed.keys()], spent,
+    });
+
+    return this.schedule(runId, budgets, new Date().toISOString(), async (budget, signal) => {
+      const result = await this.workflows.run({
+        runId, workflow, inputs: JSON.parse(row.inputs_json) as Record<string, unknown>,
+        ...(row.project_id ? { project: row.project_id } : {}),
+        ...(this.deps.providerOverride ? { provider: this.deps.providerOverride } : {}),
+        budget, signal, completed,
+      });
+      return result.outputs;
+    });
+  }
+
+  /** A single-agent run has one step, so resuming it is running it again from the top. */
+  private resumeAgentRun(row: RunRow): { runId: string; done: Promise<void> } {
+    if (!row.agent_id) throw new ConflictError(`Run "${row.id}" names no agent, so there is nothing to resume.`);
+    const budgets = JSON.parse(row.budgets_json) as ReturnType<typeof narrowBudgets>;
+    const agent = this.deps.workspace().agents.get(row.agent_id);
+    if (!agent) throw new NotFoundError(`Agent "${row.agent_id}" is no longer in this workspace, so this run cannot be resumed.`);
+    const inputs = JSON.parse(row.inputs_json) as Record<string, unknown>;
+    this.deps.db.prepare("UPDATE runs SET state = 'running', finished_at = NULL, error_json = NULL WHERE id = ?").run(row.id);
+    this.deps.events.append(row.id, null, 'run-started', { kind: 'agent', agentId: agent.definition.id, agentVersion: agent.version, resumed: true });
+
+    return this.schedule(row.id, budgets, new Date().toISOString(), async (budget, signal) => {
+      const task = typeof inputs['input'] === 'string' ? (inputs['input'] as string) : JSON.stringify(inputs);
+      const outcome = await this.steps.runAgentStep({
+        runId: row.id, stepId: 'main', agent, task,
+        ...(row.project_id ? { project: row.project_id } : {}),
+        ...(this.deps.providerOverride ? { provider: this.deps.providerOverride } : {}),
+        budget, signal,
+      });
+      return { output: outcome.output };
+    });
+  }
+
+  /** What a previous attempt finished: the map is what the executor skips rather than re-running. */
+  private finishedSteps(runId: string): Map<string, { state: 'completed' | 'skipped'; value: unknown }> {
+    const rows = this.deps.db.prepare("SELECT step_id, state, output_json FROM run_steps WHERE run_id = ? AND state IN ('completed', 'skipped') AND parent_step_id IS NULL")
+      .all(runId) as { step_id: string; state: 'completed' | 'skipped'; output_json: string | null }[];
+    return new Map(rows.map((r) => [r.step_id, { state: r.state, value: r.output_json ? (JSON.parse(r.output_json) as unknown) : null }]));
+  }
+
   waitFor(runId: string): Promise<void> {
     return this.inflight.get(runId)?.done ?? Promise.resolve();
   }
@@ -378,6 +530,7 @@ export class Engine {
 
 const EMPTY_SPENT: Spent = { modelCalls: 0, toolCalls: 0, costUsd: 0, wallClockMs: 0 };
 const ACTIVE_STATES = new Set<RunState>(['queued', 'running', 'waiting_review', 'waiting_approval']);
+const RESUMABLE_STATES = new Set<RunState>(['interrupted', 'waiting_review', 'failed']);
 
 function reasonOf(e: unknown): string {
   if (e instanceof StepFailure) return e.reason;

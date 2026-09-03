@@ -6,7 +6,7 @@ export const EVENT_TYPES = [
   'model-started', 'model-completed', 'model-aborted', 'fallback-selected', 'provider-meta-dropped',
   'tool-requested', 'permission-decided', 'approval-requested', 'approval-decided', 'tool-completed',
   'egress-denied', 'memory-retrieved', 'memory-written', 'memory-redacted', 'artifact-written',
-  'review-decided', 'budget-warning', 'run-cancelled', 'run-completed', 'run-failed', 'run-interrupted',
+  'review-requested', 'review-decided', 'budget-warning', 'run-cancelled', 'run-completed', 'run-failed', 'run-interrupted',
 ] as const;
 export const EventType = z.enum(EVENT_TYPES);
 export type EventType = z.infer<typeof EventType>;

@@ -156,9 +156,6 @@ function checkUnsupported(step: Step, at: string, errors: ValidationIssue[]): vo
   if (step.kind === 'tool') {
     errors.push({ path: `${at}.kind`, message: 'tool steps arrive in RUN-06, when tools exist. Use an agent step for now.' });
   }
-  if (step.review === 'blocking') {
-    errors.push({ path: `${at}.review`, message: 'blocking review arrives in RUN-05. Use "none" for now; every output still appears in Review.' });
-  }
 }
 
 function checkExpr(source: string, at: string, errors: ValidationIssue[]): void {
