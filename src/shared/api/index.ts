@@ -382,6 +382,10 @@ export const ToolSummary = z.object({
   approvalByDefault: z.boolean(),
   /** True when the tool leaves the machine, so the network policy applies on top of the grant. */
   usesNetwork: z.boolean(),
+  /** Absent for a built-in; otherwise the MCP server this tool came from. */
+  origin: z.object({ kind: z.literal('mcp'), server: z.string() }).nullable(),
+  /** False when the tool exists but cannot run right now — the execute tier without a sandbox (D-30). */
+  available: z.boolean(),
   inputSchema: z.record(z.string(), z.unknown()),
 });
 export type ToolSummary = z.infer<typeof ToolSummary>;
@@ -433,6 +437,25 @@ export const NetworkSummary = z.object({
 });
 export type NetworkSummary = z.infer<typeof NetworkSummary>;
 
+/** The sandbox, as the Tools screen shows it: whether it exists, and what is switched off when it does not. */
+export const SandboxStatus = z.object({
+  available: z.boolean(),
+  path: z.string().nullable(),
+  /** Tool ids that need the sandbox and are therefore unavailable right now. */
+  disabled: z.array(z.string()),
+  limits: z.object({ wallClockMs: z.number().int(), memoryMb: z.number().int(), maxOutputBytes: z.number().int() }),
+});
+export type SandboxStatus = z.infer<typeof SandboxStatus>;
+
+export const McpServerSummary = z.object({
+  name: z.string(),
+  running: z.boolean(),
+  tools: z.array(z.string()),
+  error: z.string().nullable(),
+  serverInfo: z.object({ name: z.string().optional(), version: z.string().optional() }).nullable(),
+});
+export type McpServerSummary = z.infer<typeof McpServerSummary>;
+
 export const ToolsResponse = z.object({
   tools: z.array(ToolSummary),
   matrix: z.array(GrantCell),
@@ -441,6 +464,9 @@ export const ToolsResponse = z.object({
   remembered: z.array(RememberRule),
   /** The effective network policy, per agent: the half of a tool grant that is not in the matrix. */
   network: NetworkSummary,
+  /** The sandbox and the MCP servers (RUN-09): where the execute tier and the outside tools come from. */
+  sandbox: SandboxStatus,
+  mcpServers: z.array(McpServerSummary),
 });
 export type ToolsResponse = z.infer<typeof ToolsResponse>;
 

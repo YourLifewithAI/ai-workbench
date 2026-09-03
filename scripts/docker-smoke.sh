@@ -42,4 +42,10 @@ docker stop -t 10 "$NAME" >/dev/null
 CODE=$(docker inspect "$NAME" --format '{{.State.ExitCode}}')
 [ "$CODE" = "0" ] || { echo "container exited with $CODE after SIGTERM"; docker logs "$NAME"; exit 1; }
 docker run --rm -v "$VOL:/workspace" --entrypoint sh "$IMAGE" -c 'test ! -e /workspace/data/runtime.json && test ! -e /workspace/data/runtime.token && echo "runtime files removed"'
+
+echo "== RUN-09: the image carries its sandbox, so the execute tier is not switched off in the shipped thing"
+docker run --rm -v "$VOL:/workspace" --entrypoint sh "$IMAGE" -c 'deno --version | head -1'
+docker run --rm -v "$VOL:/workspace" "$IMAGE" doctor --json | grep -q '"name": "deno"' || { echo "doctor does not report deno"; exit 1; }
+docker run --rm -v "$VOL:/workspace" "$IMAGE" doctor --json | grep -q 'the sandbox is available' || { echo "the image has no sandbox"; exit 1; }
+
 echo "docker smoke: ok"

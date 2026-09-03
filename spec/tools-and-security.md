@@ -106,6 +106,27 @@ An approval item records the tool, arguments, the policy that triggered it, and 
 
 `code.execute` and `fs.write` outside the project run in a Deno subprocess launched by the broker with flags generated from the effective policy (`--allow-read=<roots> --allow-write=<roots>`; **never** `--allow-net` or `--allow-run`), an explicitly constructed environment with no credentials, cwd in the run's scratch directory, and CPU time, wall clock, memory, and output-size limits. Network from inside the sandbox exists only through the tool bridge (D-55): granted tools are exposed as functions whose calls travel over the child's stdio as JSON-RPC back to the broker, so DNS pinning, the egress log, and the exfiltration rule apply unchanged. `shell` runs a command as a direct child process with the same scrubbed environment, scratch cwd, and limits; because a subprocess's network cannot be policed portably, `shell` is `approvalRequired` by default and the approval card says so — a container sandbox is the unlock (`vision.md`). Deno absent → `code.execute` and out-of-project `fs.write` are reported unavailable by `workbench doctor` and calls fail with `ToolUnavailable`. There is no in-process fallback and Node `vm` is banned by lint (D-30).
 
+> Amendment (RUN-09, 2026-09-03): the bridge is stdout and stdin, not a separate fd. A call is one line on stdout
+> prefixed with a per-run nonce; the reply comes back on stdin. The nonce is not a secret kept from the script —
+> it reads its own preamble — it is there so an ordinary `console.log` of a JSON object is printing rather than
+> calling. Forging a call gains a script nothing: it can only name tools the broker would decide on anyway.
+
+> Amendment (RUN-09, 2026-09-03): a script may name **any** tool, and the broker answers. An ungranted name comes
+> back as `PermissionDenied` in the words a model would get, recorded in the trace the same way, rather than as a
+> function that is not defined — "you may not" and "there is no such thing" are different answers, and only one
+> of them is true. The exception is the execute tier itself, which is refused from inside: a sandbox does not
+> start a sandbox.
+
+> Amendment (RUN-09, 2026-09-03): the generated flags name `--deny-net`, `--deny-run` and `--deny-ffi` explicitly
+> as well as omitting the allow flags. Omission already denies; naming them means a future Deno that widens a
+> default cannot widen this sandbox silently.
+
+> Amendment (RUN-09, 2026-09-03): a **ceiling narrows only what it mentions**. A workflow whose `permissions`
+> block lists `tools` and no paths has said nothing about paths, and its steps keep the filesystem grants their
+> agents already have. Reading that silence as "no paths" stripped every grant from the first shipped workflow
+> that had a `permissions` block. The grant layer is unaffected: an agent with no `fs.write` still has none,
+> because that layer is an answer rather than a ceiling.
+
 ## MCP (D-31) and plugins (D-32)
 
 MCP servers are configured per workspace (command, args, env allowlist), spawned with a scrubbed environment, and classified by manifest: tools without a read-only annotation are write-tier and require approval by default. Their tools appear in the Tools screen next to built-ins with the same grant model.

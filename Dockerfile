@@ -12,6 +12,10 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
 RUN npm run build \
+ # Deno is the sandbox (D-30). It is a devDependency here because the tests need it, but the image needs it too:
+ # a shipped workbench with no sandbox is a workbench whose execute tier is switched off. The binary is copied
+ # out before the prune, so the runtime image carries the executable and none of the toolchain.
+ && cp "$(node -e "process.stdout.write(require('path').resolve('node_modules/.bin/deno'))")" /usr/local/bin/deno \
  && npm prune --omit=dev
 
 FROM node:22-bookworm-slim
@@ -23,6 +27,7 @@ WORKDIR /app
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY --from=build /usr/local/bin/deno /usr/local/bin/deno
 COPY scripts/docker-entrypoint.sh /usr/local/bin/workbench-entrypoint
 RUN mkdir -p /workspace && chown -R node:node /workspace /app
 USER node

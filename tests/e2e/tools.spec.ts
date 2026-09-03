@@ -119,3 +119,19 @@ test('@run-08 the Memory screen remembers, shows provenance, and deletes with re
 
   await expect(page.getByRole('listitem').filter({ hasText: secret })).toHaveCount(0);
 });
+
+test('@run-09 the Tools screen says whether code can run at all', async ({ page }) => {
+  await page.goto(base() + '/tools#token=' + token());
+  await expect(page.getByRole('heading', { name: 'What can run code' })).toBeVisible();
+
+  // Whichever way this machine is set up, the screen says which one it is and what follows from it.
+  const available = await page.getByText('sandbox available').count();
+  if (available) {
+    await expect(page.getByText('Code runs in Deno with no network')).toBeVisible();
+  } else {
+    await expect(page.getByText('no sandbox')).toBeVisible();
+    await expect(page.getByText('code.execute, shell, fs.write')).toBeVisible();
+    await expect(page.getByText('There is no unsandboxed fallback')).toBeVisible();
+  }
+  await expectNoA11yViolations(page, 'Tools — sandbox');
+});

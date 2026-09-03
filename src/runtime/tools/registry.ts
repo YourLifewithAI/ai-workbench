@@ -7,6 +7,8 @@ import { artifactTools } from './builtin/artifacts.js';
 import { delegateTool, permissionRequestTool, type DelegateHost, type PermissionRequestHost } from './builtin/delegate.js';
 import { webTools, type WebToolDeps } from './builtin/web.js';
 import { memoryTools, type MemoryToolDeps } from './builtin/memory.js';
+import { fileTools, type FileToolDeps } from './builtin/files.js';
+import { codeTools, type CodeToolDeps } from './builtin/code.js';
 
 export interface RegistryDeps {
   artifacts: ArtifactStore;
@@ -17,6 +19,13 @@ export interface RegistryDeps {
   web?: WebToolDeps | undefined;
   /** Memory and knowledge (RUN-08). Absent leaves them out, and a prompt then carries no memory sections. */
   memory?: MemoryToolDeps | undefined;
+  /** The filesystem outside the project (RUN-09). */
+  files?: FileToolDeps | undefined;
+  /**
+   * The execute tier (RUN-09). It is listed whether or not Deno is installed, so the Tools screen can say a tool
+   * exists and is unavailable — a tool that vanishes tells a person nothing about why.
+   */
+  code?: CodeToolDeps | undefined;
 }
 
 export function builtinTools(deps: RegistryDeps): Map<string, ToolDefinition> {
@@ -29,6 +38,8 @@ export function builtinTools(deps: RegistryDeps): Map<string, ToolDefinition> {
     permissionRequestTool(deps.permissions),
     ...(deps.web ? webTools(deps.web) : []),
     ...(deps.memory ? memoryTools(deps.memory) : []),
+    ...(deps.files ? fileTools(deps.files) : []),
+    ...(deps.code ? codeTools(deps.code) : []),
   ];
   return new Map(tools.map((t) => [t.id, t]));
 }

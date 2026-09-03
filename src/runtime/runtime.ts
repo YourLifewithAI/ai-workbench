@@ -20,6 +20,8 @@ import { Scheduler } from './scheduler/index.js';
 import { PushStore, type PushSender } from './push/store.js';
 import { ensureVapidKeys, type VapidKeys } from './push/vapid.js';
 import type { MockSearchFixture } from './search/index.js';
+import { DEFAULT_LIMITS, findDeno, Sandbox } from './sandbox/deno.js';
+import { McpHost } from './mcp/host.js';
 import type { LookupFn } from './security/dns.js';
 import type { NetConnector } from './security/netfetch.js';
 import type { EgressAttempt, EgressDecision } from './security/egress.js';
@@ -37,7 +39,6 @@ import { createEgressFetch } from './security/egress.js';
 import { directFetch } from './models/fetch.js';
 import type { ModelListResponse } from '../shared/api/index.js';
 import type { WorkbenchConfig } from '../shared/workspace.js';
-import { findExecutable } from './util/exec.js';
 
 export const DEFAULT_PORT = 8787;
 
@@ -66,6 +67,8 @@ export interface RuntimeOptions {
   sendPush?: PushSender | undefined;
   /** Injected so a test resolves `*.test` to a TEST-NET-3 address with no DNS server (SEC-17). */
   lookup?: LookupFn | undefined;
+  /** Pins the sandbox's Deno for a test — or removes it, with `null`, to see what happens when it is missing. */
+  denoPath?: string | null | undefined;
   /** Injected so a test dials a local server while the checker still sees the pinned public address. */
   connect?: NetConnector | undefined;
 }
@@ -102,6 +105,8 @@ export class Runtime {
     readonly engine: Engine,
     private readonly portRef: { current: number | null },
     readonly artifacts: ArtifactStore,
+    readonly mcp: McpHost,
+    readonly sandbox: Sandbox,
   ) {
     this.log = logHandle.logger;
     // Generated once per workspace and kept at 0600 next to the runtime token: whoever holds these can send
@@ -136,7 +141,9 @@ export class Runtime {
       token: () => this.token,
       hosts: () => this.hosts,
       health: () => ({ version: pkg.version, bind: this.bind, port: this.port, startedAt: this.startedAt }),
-      denoAvailable: () => findExecutable('deno', opts.bootstrap.childEnvAllowlist['PATH']) !== null,
+      denoAvailable: () => this.sandbox.available,
+      sandbox: () => ({ available: this.sandbox.available, path: this.sandbox.path, limits: DEFAULT_LIMITS }),
+      mcp: { status: () => this.mcp.status() },
       reloadAgents: () => this.reloadAgents(),
       models: (refresh) => this.models(refresh),
       artifacts,
@@ -183,6 +190,14 @@ export class Runtime {
 
     // The port is only known after listen(), and the checker needs it to refuse calls back into the runtime.
     const portRef: { current: number | null } = { current: null };
+    // Deno is found once, at startup: a workbench that gains an execute tier halfway through a run because
+    // something appeared on PATH would be harder to reason about than one that needs a restart.
+    const sandbox = new Sandbox(opts.denoPath === null ? null : findDeno(opts.bootstrap.childEnvAllowlist['PATH'], opts.denoPath ?? undefined));
+    const mcpHost = new McpHost({
+      servers: () => workspace.config.mcp.servers,
+      childEnvAllowlist: opts.bootstrap.childEnvAllowlist,
+      log: logHandle.logger,
+    });
     const engine = new Engine({
       db, events, workspace: () => workspace, registry, credentials, redactor,
       log: logHandle.logger, providerOverride: opts.providerOverride ?? null,
@@ -191,6 +206,9 @@ export class Runtime {
       ...(opts.fetch ? { fetch: opts.fetch } : {}),
       ...(opts.now ? { now: opts.now } : {}),
       persistConfig: (config) => runtime.persistConfig(config),
+      sandbox,
+      childEnvAllowlist: opts.bootstrap.childEnvAllowlist,
+      mcp: mcpHost,
       // Tool egress writes the same egress_log rows a model call does, so the Privacy Inspector shows one story.
       net: {
         record: (attempt, decision) => runtime.recordEgress(attempt, decision),
@@ -208,7 +226,10 @@ export class Runtime {
         }
       },
     });
-    const runtime = new Runtime(opts, pkg, workspace, db, redactor, credentials, logHandle, events, registry, engine, portRef, artifacts);
+    const runtime = new Runtime(opts, pkg, workspace, db, redactor, credentials, logHandle, events, registry, engine, portRef, artifacts, mcpHost, sandbox);
+    // Configured MCP servers are spawned once, here, and their tools join the catalogue before anything runs.
+    // A server that fails to start is on the Tools screen and in `doctor`; it does not stop the runtime.
+    engine.tools.add(await mcpHost.start());
     return runtime;
   }
 
@@ -362,6 +383,7 @@ export class Runtime {
     this.stopped = true;
     this.scheduler.stop();
     this.engine.stopApprovalExpiry();
+    await this.mcp.stop();
     this.shutdown.abort();
     await this.mockUpstream.stop();
     if (this.server) {

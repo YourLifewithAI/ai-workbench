@@ -124,7 +124,59 @@ export function webTools(deps: WebToolDeps): ToolDefinition[] {
 
   void deps.maxResponseBytes;
   void deps.timeoutMs;
-  return [fetchTool as ToolDefinition, searchTool as ToolDefinition];
+  // Non-GET. The exfiltration rule's whole non-GET branch exists for this tool: a tainted run posting to a host
+  // nobody exempted parks in front of a human before the socket opens (D-29). Approval by default on top of that,
+  // because a body is the thing that carries data out.
+  const requestTool: ToolDefinition<
+    { url: string; method: 'POST' | 'PUT' | 'PATCH' | 'DELETE'; body?: string | undefined; contentType?: string | undefined },
+    { status: number; finalUrl: string; contentType: string; text: string; truncated: boolean; bytes: number }
+  > = {
+    id: 'http.request',
+    version: '1.0.0',
+    description: 'Send a non-GET HTTP request. Use it to submit something, not to read something — http.fetch reads. Every call asks a human first.',
+    input: z.object({
+      url: z.string().url(),
+      method: z.enum(['POST', 'PUT', 'PATCH', 'DELETE']),
+      body: z.string().max(1_000_000).optional(),
+      contentType: z.string().max(200).optional(),
+    }),
+    output: z.object({
+      status: z.number().int(), finalUrl: z.string(), contentType: z.string(),
+      text: z.string(), truncated: z.boolean(), bytes: z.number().int(),
+    }),
+    tier: 'write',
+    maxPermissions: NET_ONLY,
+    usesNetwork: true,
+    approvalByDefault: true,
+    execute: async (input, ctx) => {
+      let response: Response;
+      try {
+        response = await ctx.net.fetch(input.url, {
+          method: input.method,
+          headers: { 'content-type': input.contentType ?? 'application/json', accept: '*/*' },
+          ...(input.body !== undefined ? { body: input.body } : {}),
+        });
+      } catch (e) {
+        return toolError('PermissionDenied', (e as Error).message, (e as { hint?: string }).hint);
+      }
+      const limit = deps.maxResponseBytes();
+      const raw = Buffer.from(await response.arrayBuffer());
+      const truncated = raw.length > limit;
+      return {
+        ok: true,
+        output: {
+          status: response.status,
+          finalUrl: response.url || input.url,
+          contentType: response.headers.get('content-type') ?? '',
+          text: raw.subarray(0, limit).toString('utf8'),
+          truncated,
+          bytes: raw.length,
+        },
+      };
+    },
+  };
+
+  return [fetchTool as ToolDefinition, searchTool as ToolDefinition, requestTool as ToolDefinition];
 }
 
 const turndown = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });

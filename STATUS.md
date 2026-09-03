@@ -1,8 +1,8 @@
 # STATUS
 
-**Current run:** RUN-08 — Memory and knowledge · awaiting verification
-**Last verified:** RUN-00 … RUN-07 and RUN-12 merged with CI green; the owner's scripts are still outstanding
-**Gates:** `npm run check` green · `npm run dod -- 00 … 08, 12` green (DoD 07-2 is live-only) · `npm run e2e` 27 passed · Docker smoke: CI job
+**Current run:** RUN-09 — Sandbox, filesystem, code execution, MCP, and the website workflow · awaiting verification
+**Last verified:** RUN-00 … RUN-08 and RUN-12 merged with CI green; the owner's scripts are still outstanding
+**Gates:** `npm run check` green · `npm run dod -- 00 … 09, 12` green (DoD 07-2 is live-only) · `npm run e2e` 28 passed · Docker smoke and a no-sandbox job: CI
 
 Run agents update this file at the end of a run; the human updates it on acceptance.
 
