@@ -24,6 +24,8 @@ export interface WriteDocumentInput {
   agentVersion?: string | undefined;
   modelId?: string | undefined;
   type?: string | undefined;
+  /** The step ran out of budget and summarised instead of finishing (D-14). */
+  partial?: boolean | undefined;
 }
 
 /** Documents are chunked for FTS so a hit can name the document, the version, and where in it (artifacts-and-memory.md). */
@@ -109,7 +111,7 @@ export class ArtifactStore {
     const version: VersionRow = {
       id: ulid(), document_id: doc.id, parent_id: parent?.id ?? null, hash, content,
       created_by: input.createdBy, run_id: input.runId ?? null, step_id: input.stepId ?? null,
-      agent_version: input.agentVersion ?? null, model_id: input.modelId ?? null, partial: 0, created_at: now,
+      agent_version: input.agentVersion ?? null, model_id: input.modelId ?? null, partial: input.partial ? 1 : 0, created_at: now,
     };
     const commit = this.db.transaction(() => {
       this.db.prepare(`INSERT INTO document_versions (id, document_id, parent_id, hash, content, created_by, run_id, step_id, agent_version, model_id, partial, created_at)
@@ -187,7 +189,7 @@ export class ArtifactStore {
       id: row.id, parentId: row.parent_id, hash: row.hash,
       createdBy: row.created_by as DocumentVersionSummary['createdBy'],
       runId: row.run_id, stepId: row.step_id, agentVersion: row.agent_version, modelId: row.model_id,
-      createdAt: row.created_at, bytes: Buffer.byteLength(row.content),
+      createdAt: row.created_at, bytes: Buffer.byteLength(row.content), partial: row.partial === 1,
     };
   }
 

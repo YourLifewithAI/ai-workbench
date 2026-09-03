@@ -4,12 +4,14 @@ import path from 'node:path';
 import { WorkspaceFile, type WorkbenchConfig } from '../../shared/workspace.js';
 import { ModelsFile } from '../../shared/model.js';
 import { Agent, type InstructionSection, type LoadedAgent } from '../../shared/agent.js';
+import { Workflow, validateWorkflow, type LoadedWorkflow } from '../../shared/workflow.js';
 import { workspacePaths, type WorkspacePaths } from '../paths.js';
 import { loadConfig, readJsonFile } from './config.js';
 import { WorkspaceError, formatZodError } from '../util/errors.js';
 import { contentHash } from '../util/canonical.js';
 
 export interface BrokenAgent { id: string; file: string; message: string }
+export interface BrokenWorkflow { id: string; file: string; message: string }
 
 export interface Workspace {
   paths: WorkspacePaths;
@@ -18,6 +20,8 @@ export interface Workspace {
   catalog: ModelsFile;
   agents: Map<string, LoadedAgent>;
   brokenAgents: BrokenAgent[];
+  workflows: Map<string, LoadedWorkflow>;
+  brokenWorkflows: BrokenWorkflow[];
 }
 
 export function loadWorkspace(dir: string, defaultsDir: string): Workspace {
@@ -39,7 +43,45 @@ export function loadWorkspace(dir: string, defaultsDir: string): Workspace {
   }
 
   const { agents, broken } = loadAgents(paths.agents);
-  return { paths, file: wsParsed.data, config, catalog: catalogParsed.data, agents, brokenAgents: broken };
+  const workflows = loadWorkflows(paths.workflows);
+  return {
+    paths, file: wsParsed.data, config, catalog: catalogParsed.data,
+    agents, brokenAgents: broken, workflows: workflows.workflows, brokenWorkflows: workflows.broken,
+  };
+}
+
+/**
+ * `<workflows>/<id>.workflow.json`. A file that does not parse or does not validate is listed as broken rather
+ * than thrown: one bad workflow must not stop the runtime from loading the rest of the workspace.
+ */
+export function loadWorkflows(workflowsDir: string): { workflows: Map<string, LoadedWorkflow>; broken: BrokenWorkflow[] } {
+  const workflows = new Map<string, LoadedWorkflow>();
+  const broken: BrokenWorkflow[] = [];
+  if (!fs.existsSync(workflowsDir)) return { workflows, broken };
+  for (const entry of fs.readdirSync(workflowsDir).sort()) {
+    if (!entry.endsWith('.workflow.json')) continue;
+    const file = path.join(workflowsDir, entry);
+    const id = entry.slice(0, -'.workflow.json'.length);
+    try {
+      workflows.set(id, loadWorkflow(file, id));
+    } catch (e) {
+      broken.push({ id, file, message: (e as Error).message });
+    }
+  }
+  return { workflows, broken };
+}
+
+export function loadWorkflow(file: string, expectedId?: string): LoadedWorkflow {
+  const parsed = Workflow.safeParse(readJsonFile(file));
+  if (!parsed.success) throw formatZodError(file, parsed.error);
+  const definition = parsed.data;
+  const id = expectedId ?? definition.id;
+  if (definition.id !== id) throw new WorkspaceError(file, `id "${definition.id}" must match the file name "${id}.workflow.json"`);
+  const result = validateWorkflow(definition);
+  if (result.errors.length) {
+    throw new WorkspaceError(file, result.errors.map((issue) => `${issue.path}: ${issue.message}`).join('; '));
+  }
+  return { definition, version: contentHash({ definition }), file };
 }
 
 export function loadAgents(agentsDir: string): { agents: Map<string, LoadedAgent>; broken: BrokenAgent[] } {

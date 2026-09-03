@@ -5,11 +5,11 @@ import path from 'node:path';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { CreateProjectRequest, CreateRunRequest, PutDocumentRequest, SetNetworkModeRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type EgressRecord, type HealthResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type SettingsResponse } from '../../shared/api/index.js';
+import { CreateProjectRequest, CreateRunRequest, PutDocumentRequest, SetNetworkModeRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type EgressRecord, type HealthResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type SettingsResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
-import { NotFoundError, ValidationError, type Engine } from '../engine/run.js';
+import { ConflictError, NotFoundError, ValidationError, type Engine } from '../engine/run.js';
 import { TERMINAL_EVENTS, type EventStore } from '../engine/events.js';
 import { securityHeaders, hostOriginGuard, bearerGuard } from '../security/auth.js';
 import type { Redactor } from '../security/redaction.js';
@@ -18,6 +18,8 @@ import type { Credentials } from '../security/credentials.js';
 import type { Logger } from '../log/index.js';
 import type { BrokenAgent, Workspace } from '../workspace/loader.js';
 import type { LoadedAgent } from '../../shared/agent.js';
+import { validateWorkflow, type LoadedWorkflow } from '../../shared/workflow.js';
+import type { BudgetOverride } from '../engine/budget.js';
 
 export interface AppDeps {
   engine: Engine;
@@ -73,6 +75,7 @@ export function createApp(deps: AppDeps): Hono {
   const mapError = (c: Context, e: unknown): Response => {
     if (e instanceof NotFoundError) return fail(c, 'not_found', e.message, 404);
     if (e instanceof ValidationError) return fail(c, 'validation', e.message, 400);
+    if (e instanceof ConflictError) return fail(c, 'conflict', e.message, 409);
     throw e;
   };
   const eventLine = (e: EventRecord): string => deps.redactor.redactJson(e);
@@ -100,11 +103,26 @@ export function createApp(deps: AppDeps): Hono {
     const parsed = CreateRunRequest.safeParse(body);
     if (!parsed.success) return fail(c, 'validation', 'Invalid run request.', 400, parsed.error.issues);
     const req = parsed.data;
-    if (req.kind !== 'agent') return fail(c, 'validation', 'Only agent runs exist yet; workflow runs arrive in RUN-03.', 400);
+    if (req.kind === 'experiment') return fail(c, 'validation', 'Experiment runs arrive in RUN-10.', 400);
+    const budget = budgetOverride(req.overrides);
     try {
-      const model = req.overrides?.['model'];
-      const { runId } = deps.engine.startAgentRun({ agentId: req.id, inputs: req.inputs, project: req.project, provider: req.provider, modelOverride: typeof model === 'string' ? model : undefined });
+      const { runId } = req.kind === 'workflow'
+        ? deps.engine.startWorkflowRun({ workflowId: req.id, inputs: req.inputs, project: req.project, provider: req.provider, budget })
+        : deps.engine.startAgentRun({
+            agentId: req.id, inputs: req.inputs, project: req.project, provider: req.provider, budget,
+            modelOverride: typeof req.overrides?.['model'] === 'string' ? (req.overrides['model'] as string) : undefined,
+          });
       return json(c, { runId }, 202);
+    } catch (e) {
+      return mapError(c, e);
+    }
+  });
+
+  // Cancel is a button on every running run: it aborts in-flight calls and commits nothing (D-14 §Cancel).
+  app.post('/api/v1/runs/:id/cancel', (c) => {
+    try {
+      deps.engine.cancel(c.req.param('id'));
+      return json(c, { cancelled: true }, 202);
     } catch (e) {
       return mapError(c, e);
     }
@@ -212,6 +230,31 @@ export function createApp(deps: AppDeps): Hono {
       sections: agent.sections,
       instructionsSource: Array.isArray(agent.definition.instructions) ? 'inline' : 'file',
       documents: agent.definition.documents,
+    };
+    return json(c, body);
+  });
+
+  // ---- workflows (D-11) -----------------------------------------------------------------------
+  app.get('/api/v1/workflows', (c) => {
+    const ws = deps.workspace();
+    const body: WorkflowListResponse = { workflows: [...ws.workflows.values()].map(workflowSummary), errors: ws.brokenWorkflows };
+    return json(c, body);
+  });
+
+  app.get('/api/v1/workflows/:id', (c) => {
+    const id = c.req.param('id');
+    const ws = deps.workspace();
+    const workflow = ws.workflows.get(id);
+    if (!workflow) {
+      const broken = ws.brokenWorkflows.find((b) => b.id === id);
+      return fail(c, 'not_found', broken ? `Workflow "${id}" failed to load: ${broken.message}` : `Workflow "${id}" does not exist in this workspace.`, 404);
+    }
+    const validation = validateWorkflow(workflow.definition);
+    const body: WorkflowDetail = {
+      ...workflowSummary(workflow),
+      definition: workflow.definition as unknown as Record<string, unknown>,
+      smells: validation.smells,
+      order: validation.order,
     };
     return json(c, body);
   });
@@ -392,6 +435,33 @@ function safeHost(url: string): string | null {
   } catch {
     return null;
   }
+}
+
+function workflowSummary(workflow: LoadedWorkflow): WorkflowSummary {
+  const d = workflow.definition;
+  return {
+    id: d.id,
+    name: d.name,
+    description: d.description,
+    version: workflow.version,
+    file: path.basename(workflow.file),
+    defaultProject: d.defaultProject ?? null,
+    inputs: d.inputs,
+    steps: d.steps.map((s) => ({ id: s.id, kind: s.kind, agent: s.kind === 'agent' ? s.agent : null, dependsOn: s.dependsOn })),
+    hasSchedule: d.schedule !== undefined,
+  };
+}
+
+/** A run may only narrow the workspace's budgets (D-20); the engine enforces that, this just picks the numbers. */
+function budgetOverride(overrides: Record<string, unknown> | undefined): BudgetOverride | undefined {
+  const raw = overrides?.['budget'];
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const out: BudgetOverride = {};
+  for (const key of ['maxModelCalls', 'maxToolCalls', 'maxCostUsd', 'maxWallClockMs', 'toolCallTimeoutMs', 'dailySpendCapUsd'] as const) {
+    const value = (raw as Record<string, unknown>)[key];
+    if (typeof value === 'number' && Number.isFinite(value)) out[key] = value;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 function agentSummary(agent: LoadedAgent): AgentSummary {
