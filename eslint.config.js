@@ -11,6 +11,13 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    // The service worker runs in its own global scope, which has neither `window` nor `process`.
+    files: ['src/ui/public/sw.js'],
+    languageOptions: {
+      globals: { self: 'readonly', caches: 'readonly', fetch: 'readonly', Response: 'readonly', URL: 'readonly', clients: 'readonly' },
+    },
+  },
+  {
     files: ['**/*.ts', '**/*.tsx'],
     rules: {
       'no-eval': 'error',

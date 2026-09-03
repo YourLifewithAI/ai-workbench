@@ -21,7 +21,7 @@ export interface ToolCall { id: string; name: string; input: unknown }
 export interface ApprovalHost {
   request(input: {
     runId: string; stepId: string; tool: string; args: unknown; policy: string;
-    remember?: RememberRule | undefined; signal: AbortSignal;
+    remember?: RememberRule | undefined; ordinal?: number | undefined; signal: AbortSignal;
   }): Promise<{ decision: 'allow' | 'deny'; reason: string }>;
 }
 
@@ -99,10 +99,10 @@ export class ToolExecutor {
    * the slowest, not the sum (workflows-and-execution.md §The agent step loop).
    */
   async run(calls: ToolCall[], input: ExecuteInput): Promise<ExecutedCall[]> {
-    return Promise.all(calls.map((call) => this.one(call, input)));
+    return Promise.all(calls.map((call, index) => this.one(call, input, index)));
   }
 
-  private async one(call: ToolCall, input: ExecuteInput): Promise<ExecutedCall> {
+  private async one(call: ToolCall, input: ExecuteInput, ordinal = 0): Promise<ExecutedCall> {
     const started = Date.now();
     this.deps.events.append(input.runId, input.stepId, 'tool-requested', { callId: call.id, tool: call.name, input: call.input });
 
@@ -130,7 +130,7 @@ export class ToolExecutor {
     if (decision.approval) {
       const outcome = await this.deps.approvals.request({
         runId: input.runId, stepId: input.stepId, tool: tool.id, args: parsed.data,
-        policy: decision.reason, remember: rememberFor(tool.id, parsed.data), signal: input.signal,
+        policy: decision.reason, remember: rememberFor(tool.id, parsed.data), ordinal, signal: input.signal,
       });
       if (outcome.decision === 'deny') {
         const code = outcome.reason === 'timeout' ? 'ApprovalTimeout' : 'ApprovalDenied';

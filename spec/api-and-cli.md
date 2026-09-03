@@ -116,3 +116,11 @@ One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` â
 > - `GET /api/v1/dashboard` gained `approvals`, listed above blocking reviews: a review waits as long as you like, an approval is refused on a timer.
 > - CLI: `workbench approvals list|allow|deny` (`--remember`, `--action`) and `workbench tools list|grants|grant` (`--deny`, `--unset`).
 > - The trace summary leads with `DENIED` or the tool error code. A denial is the line a human opens a trace to find.
+
+> Amendment (RUN-12, 2026-09-03): the push surface.
+>
+> - `GET /api/v1/push/vapid-public-key`, `GET /api/v1/push/subscriptions`, `POST /api/v1/push/subscribe`, `PUT /api/v1/push/subscriptions/:id` (which events this device wants), `DELETE /api/v1/push/subscriptions/:id`. All behind the bearer token, including the public key: a stranger who can read it learns this workbench exists, and nothing needs to tell them that.
+> - A subscription is returned with its push service's **host only**. The full endpoint is a capability URL and would end up in a screenshot.
+> - `data/vapid.json` is written at `init` at 0600 and never rotated: rotating would silently deafen every device that had subscribed. The private half is registered with the redactor.
+> - The payload is `{ kind, id, runId, title, url }` â€” five keys, always. `title` comes from a fixed table of four strings in the runtime, and the service worker's body text is a constant, so a compromised push service cannot put words on a lock screen (SEC-32).
+> - `push.enabled` defaults to true, because it does nothing at all until a device subscribes.

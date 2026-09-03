@@ -424,3 +424,34 @@ export const SetGrantRequest = z.object({
   grant: z.enum(['allow', 'deny', 'unset']),
 });
 export type SetGrantRequest = z.infer<typeof SetGrantRequest>;
+
+// ---- push (spec/ui.md §Phone, D-61) --------------------------------------------------------------
+
+/** The four moments worth interrupting someone for. */
+export const PushEventKind = z.enum(['approval-requested', 'review-blocking', 'run-failed', 'scheduled-run-completed']);
+export type PushEventKind = z.infer<typeof PushEventKind>;
+
+export const PushSubscription = z.object({
+  id: z.string(),
+  /** The push service's host only. The full endpoint is a capability URL and is never shown. */
+  endpoint: z.string(),
+  deviceLabel: z.string().nullable(),
+  events: z.array(PushEventKind),
+  lastSentAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type PushSubscription = z.infer<typeof PushSubscription>;
+
+export const SubscribePushRequest = z.object({
+  endpoint: z.string().url(),
+  keys: z.object({ p256dh: z.string().min(1), auth: z.string().min(1) }),
+  deviceLabel: z.string().max(120).optional(),
+  events: z.array(PushEventKind).optional(),
+});
+export type SubscribePushRequest = z.infer<typeof SubscribePushRequest>;
+
+export const PushSubscriptionsResponse = z.object({
+  enabled: z.boolean(),
+  subscriptions: z.array(PushSubscription),
+});
+export type PushSubscriptionsResponse = z.infer<typeof PushSubscriptionsResponse>;

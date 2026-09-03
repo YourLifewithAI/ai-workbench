@@ -1,5 +1,5 @@
 // Every call carries the bearer token; SSE is fetch-based (never EventSource) so it can too.
-import type { AgentDetail, AgentListResponse, ApprovalItem, ApprovalListResponse, CreateProjectRequest, CreateRunRequest, DashboardResponse, DiffResponse, DocumentDetail, DocumentSummary, GrantCell, ModelListResponse, PrivacyResponse, Project, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunSummary, ScheduleListResponse, ScheduleSummary, SetGrantRequest, SettingsResponse, ToolsResponse, UpsertScheduleRequest, WorkflowDetail, WorkflowListResponse } from '../../shared/api/index.js';
+import type { AgentDetail, AgentListResponse, ApprovalItem, ApprovalListResponse, CreateProjectRequest, CreateRunRequest, DashboardResponse, DiffResponse, DocumentDetail, DocumentSummary, GrantCell, ModelListResponse, PrivacyResponse, Project, PushEventKind, PushSubscription, PushSubscriptionsResponse, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunSummary, ScheduleListResponse, ScheduleSummary, SetGrantRequest, SettingsResponse, SubscribePushRequest, ToolsResponse, UpsertScheduleRequest, WorkflowDetail, WorkflowListResponse } from '../../shared/api/index.js';
 import type { EventRecord } from '../../shared/events.js';
 import { getToken, markUnauthorized } from './auth.js';
 
@@ -88,6 +88,14 @@ export const api = {
   tools: (): Promise<ToolsResponse> => apiFetch('/tools').then((r) => r.json() as Promise<ToolsResponse>),
   setGrant: (body: SetGrantRequest): Promise<GrantCell> =>
     apiFetch('/tools/grants', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<GrantCell>),
+  vapidPublicKey: (): Promise<{ publicKey: string }> => apiFetch('/push/vapid-public-key').then((r) => r.json() as Promise<{ publicKey: string }>),
+  pushSubscriptions: (): Promise<PushSubscriptionsResponse> => apiFetch('/push/subscriptions').then((r) => r.json() as Promise<PushSubscriptionsResponse>),
+  subscribePush: (body: SubscribePushRequest): Promise<PushSubscription> =>
+    apiFetch('/push/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<PushSubscription>),
+  setPushEvents: (id: string, events: PushEventKind[]): Promise<PushSubscription> =>
+    apiFetch(`/push/subscriptions/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ events }) }).then((r) => r.json() as Promise<PushSubscription>),
+  unsubscribePush: (id: string): Promise<{ deleted: boolean }> =>
+    apiFetch(`/push/subscriptions/${encodeURIComponent(id)}`, { method: 'DELETE' }).then((r) => r.json() as Promise<{ deleted: boolean }>),
 };
 
 export interface SseMessage { id?: string; event?: string; data: string }

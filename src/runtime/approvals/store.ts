@@ -14,7 +14,7 @@ export const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 export interface ApprovalRow {
   id: string; run_id: string; step_id: string; tool: string; args_json: string; policy: string;
   batch_id: string; state: ApprovalState; decided_by: string | null; decided_at: string | null;
-  remember_json: string | null; expires_at: string; created_at: string;
+  remember_json: string | null; expires_at: string; created_at: string; ordinal: number;
 }
 
 export interface OpenApprovalInput {
@@ -26,6 +26,8 @@ export interface OpenApprovalInput {
   policy: string;
   /** The narrowest rule "remember" would write: exactly `{ tool, path? , host? }` and nothing wider. */
   remember?: RememberRule | undefined;
+  /** Where this call sat in the response that asked for it, so the card lists them in the order asked. */
+  ordinal?: number | undefined;
   timeoutMs?: number | undefined;
   now?: (() => Date) | undefined;
 }
@@ -50,10 +52,11 @@ export class ApprovalStore {
       remember_json: input.remember ? JSON.stringify(input.remember) : null,
       expires_at: new Date(at.getTime() + (input.timeoutMs ?? DEFAULT_TIMEOUT_MS)).toISOString(),
       created_at: at.toISOString(),
+      ordinal: input.ordinal ?? 0,
     };
-    this.db.prepare(`INSERT INTO approvals (id, run_id, step_id, tool, args_json, policy, batch_id, state, remember_json, expires_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`)
-      .run(row.id, row.run_id, row.step_id, row.tool, row.args_json, row.policy, row.batch_id, row.remember_json, row.expires_at, row.created_at);
+    this.db.prepare(`INSERT INTO approvals (id, run_id, step_id, tool, args_json, policy, batch_id, state, remember_json, expires_at, created_at, ordinal)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`)
+      .run(row.id, row.run_id, row.step_id, row.tool, row.args_json, row.policy, row.batch_id, row.remember_json, row.expires_at, row.created_at, row.ordinal);
     return row;
   }
 
@@ -93,8 +96,10 @@ export class ApprovalStore {
     for (const row of rows) batches.set(row.batch_id, [...(batches.get(row.batch_id) ?? []), row]);
 
     return [...batches.values()].map((unordered) => {
-      // Ids are ULIDs, so ascending id is the order the model asked in — which is the order to show them.
-      const group = [...unordered].sort((a, b) => a.id.localeCompare(b.id));
+      // `ordinal` is the position in the response that asked, which is the order to show them. Ids will not do:
+      // ULIDs are only monotonic within a millisecond when a monotonic factory makes them, and two parallel
+      // tool calls land in the same millisecond.
+      const group = [...unordered].sort((a, b) => a.ordinal - b.ordinal || a.created_at.localeCompare(b.created_at));
       const first = group[0]!;
       const run = this.db.prepare('SELECT agent_id, workflow_id, project_id FROM runs WHERE id = ?')
         .get(first.run_id) as { agent_id: string | null; workflow_id: string | null; project_id: string | null } | undefined;

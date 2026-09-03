@@ -15,6 +15,8 @@ import { createLogger, type Logger, type LogHandle } from './log/index.js';
 import { openDatabase, type Db } from './db/index.js';
 import { EventStore } from './engine/events.js';
 import { Scheduler } from './scheduler/index.js';
+import { PushStore, type PushSender } from './push/store.js';
+import { ensureVapidKeys, type VapidKeys } from './push/vapid.js';
 import { Engine } from './engine/run.js';
 import { AdapterRegistry, type FetchLike } from './models/adapter.js';
 import { MockAdapter } from './models/adapters/mock/index.js';
@@ -54,6 +56,8 @@ export interface RuntimeOptions {
   now?: (() => Date) | undefined;
   /** Leaves the scheduler's loop stopped, so a test can call `tick()` when it means to. */
   noScheduler?: boolean | undefined;
+  /** Injected so a test can see what a notification would carry without a push service (SEC-32). */
+  sendPush?: PushSender | undefined;
 }
 
 export interface RuntimeFile { port: number; pid: number; startedAt: string }
@@ -72,6 +76,8 @@ export class Runtime {
   private polled: PollResult | null = null;
   private stopped = false;
   readonly scheduler: Scheduler;
+  readonly push: PushStore;
+  private readonly vapid: VapidKeys;
 
   private constructor(
     readonly opts: RuntimeOptions,
@@ -88,10 +94,25 @@ export class Runtime {
     readonly artifacts: ArtifactStore,
   ) {
     this.log = logHandle.logger;
+    // Generated once per workspace and kept at 0600 next to the runtime token: whoever holds these can send
+    // notifications as this workbench.
+    this.vapid = ensureVapidKeys(workspace.paths.dir, redactor);
+    this.push = new PushStore({
+      db,
+      log: this.log,
+      keys: () => this.vapid,
+      enabled: () => this.workspace.config.push.enabled,
+      ...(opts.sendPush ? { send: opts.sendPush } : {}),
+    });
+    engine.attachPush(this.push);
     this.scheduler = new Scheduler({
       db,
       log: this.log,
-      start: (input) => engine.startWorkflowRun(input),
+      start: (input) => {
+        const started = engine.startWorkflowRun(input);
+        engine.markScheduled(started.runId);
+        return started;
+      },
       ...(opts.now ? { now: opts.now } : {}),
     });
     this.app = createApp({
@@ -111,6 +132,8 @@ export class Runtime {
       artifacts,
       setNetworkMode: (mode) => this.setNetworkMode(mode),
       setGrant: (agentId, permissions) => this.setGrant(agentId, permissions),
+      push: this.push,
+      vapidPublicKey: () => this.vapid.publicKey,
       db,
       uiDist: pkg.uiDist,
       shutdown: this.shutdown.signal,
