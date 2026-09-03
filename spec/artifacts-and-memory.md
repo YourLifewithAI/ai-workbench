@@ -41,6 +41,16 @@ interface MemoryItem {
 
 Write paths — only these: the `memory.remember({ content, scope })` tool, the Memory screen, and import. There is no automatic end-of-run extraction. **External content** is the result of `http.fetch`, `web.search`, any MCP tool, `knowledge.search` over imported files, or an `untrusted` memory item; `calc`, `datetime`, and `artifact.read` are not external. A run that has consumed external content writes `untrusted` items, and those writes are listed in the Review screen.
 
+> Amendment (RUN-08, 2026-09-03): *external* is tracked as its own flag on the run (`runs.external_tainted`),
+> beside the *private* flag the exfiltration rule uses. They answer different questions — private decides whether
+> a send needs a human (D-29), external decides whether what the run remembers is trusted (D-17) — and a run can
+> be either, both, or neither. `knowledge.search` sets both: an imported file is private to this workspace and
+> foreign to it at once. A tool call that *failed* sets neither: no content arrived, so nothing was consumed.
+
+> Amendment (RUN-08, 2026-09-03): `memory.remember` defaults to `scope: 'agent'`. The narrowest scope that could
+> be meant is the safe default for a tool a model drives; a person writing in the Memory screen gets `workspace`,
+> because a person choosing to write one down usually means everyone.
+
 Read path: at context assembly the engine queries FTS5 plus recency within the scopes the agent may read, takes the top `context.memoryItems` (default 8), and stores the retrieved content in the trace as the `memory.trusted` and `memory.untrusted` sections placed next to the task (D-53). Corrections are new items with `supersedesId`; superseded items are not retrieved.
 
 Deletion (D-35): delete removes the item; the dialog also offers "redact from the N traces that contained it", which rewrites those event payloads and records a `memory-redacted` event.

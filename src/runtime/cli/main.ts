@@ -10,6 +10,7 @@ import { registerRuns } from './commands/runs.js';
 import { registerTrace } from './commands/trace.js';
 import { registerDev } from './commands/dev.js';
 import { registerLibrary } from './commands/library.js';
+import { registerMemory } from './commands/memory.js';
 import { registerReview, registerSchedules } from './commands/review.js';
 import { registerApprovals, registerTools } from './commands/approvals.js';
 
@@ -36,6 +37,7 @@ registerRuns(program, bootstrap);
 registerTrace(program, bootstrap);
 registerDev(program, bootstrap);
 registerLibrary(program, bootstrap);
+registerMemory(program, bootstrap);
 registerReview(program, bootstrap);
 registerSchedules(program, bootstrap);
 registerApprovals(program, bootstrap);

@@ -7,7 +7,8 @@ import type { Db } from '../db/index.js';
 import type { Redactor } from '../security/redaction.js';
 import { contentHash } from '../util/canonical.js';
 import { WorkspaceError } from '../util/errors.js';
-import type { DiffResponse, DocumentDetail, DocumentSummary, DocumentVersionSummary, Project } from '../../shared/api/index.js';
+import type { DiffResponse, DocumentDetail, DocumentSummary, DocumentVersionSummary, KnowledgeChunk, Project } from '../../shared/api/index.js';
+import { ftsQuery } from '../memory/store.js';
 import { diffLines } from './diff.js';
 
 export interface ProjectRow { id: string; slug: string; name: string; description: string | null; created_at: string }
@@ -130,6 +131,32 @@ export class ArtifactStore {
     for (let offset = 0, chunk = 0; offset < content.length || chunk === 0; offset += CHUNK_CHARS, chunk++) {
       insert.run(content.slice(offset, offset + CHUNK_CHARS), documentId, versionId, chunk, offset);
     }
+  }
+
+  /**
+   * Full-text search over document chunks — what `knowledge.search` reads. A hit names the document, the version
+   * it was in, and where in it, so a citation can point at a place rather than at a file.
+   */
+  searchChunks(query: string, options: { projectSlug?: string | undefined; limit?: number | undefined } = {}): KnowledgeChunk[] {
+    const match = ftsQuery(query);
+    if (!match) return [];
+    const limit = options.limit ?? 6;
+    const project = options.projectSlug ? this.requireProject(options.projectSlug) : null;
+    const rows = this.db.prepare(`SELECT f.content AS content, f.chunk_index AS chunk_index, f.offset AS offset,
+        d.id AS document_id, d.path AS path, p.slug AS project, f.version_id AS version_id
+      FROM documents_fts f
+      JOIN documents d ON d.id = f.document_id
+      JOIN projects p ON p.id = d.project_id
+      WHERE documents_fts MATCH ?${project ? ' AND d.project_id = ?' : ''}
+        AND f.version_id = d.latest_version_id
+      ORDER BY rank LIMIT ?`)
+      .all(...(project ? [match, project.id, limit] : [match, limit])) as {
+        content: string; chunk_index: number; offset: number; document_id: string; path: string; project: string; version_id: string;
+      }[];
+    return rows.map((r) => ({
+      documentId: r.document_id, project: r.project, path: r.path, versionId: r.version_id,
+      chunkIndex: r.chunk_index, offset: r.offset, content: r.content,
+    }));
   }
 
   listDocuments(projectSlug: string): DocumentSummary[] {

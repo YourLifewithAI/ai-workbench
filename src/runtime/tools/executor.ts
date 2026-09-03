@@ -10,7 +10,7 @@ import type { Credentials } from '../security/credentials.js';
 import { Broker, PolicyError } from '../security/broker.js';
 import { guardedFetch, NetDeniedError, type NetFetchDeps } from '../security/netfetch.js';
 import type { RunTaint } from '../engine/taint.js';
-import { PRIVATE_TOOLS } from '../engine/taint.js';
+import { EXTERNAL_TOOLS, PRIVATE_TOOLS } from '../engine/taint.js';
 import { EMPTY_PERMISSIONS, effectivePermissions, grantFor, narrowestMode, type ToolDecision } from '../security/permissions.js';
 import type { WorkbenchConfig } from '../../shared/workspace.js';
 import type { NetworkMode, Permissions } from '../../shared/permissions.js';
@@ -299,8 +299,10 @@ export class ToolExecutor {
     const limit = this.deps.config().context.maxToolResultChars;
     const text = JSON.stringify(result.output);
     // What a tool returned is content the run has now seen. Private content taints it; fetched web content
-    // does not, but every URL in it becomes a URL the run may follow without asking (D-29).
+    // does not, but every URL in it becomes a URL the run may follow without asking (D-29). External content
+    // is the separate question of whether what this run remembers can be trusted (D-17).
     if (PRIVATE_TOOLS.has(call.name)) input.taint?.markPrivate(`${call.name} returned private content`);
+    if (EXTERNAL_TOOLS.has(call.name)) input.taint?.markExternal(`${call.name} returned content from outside the workspace`);
     input.taint?.observe(text);
     if (text.length <= limit) return { callId: call.id, tool: call.name, result };
 

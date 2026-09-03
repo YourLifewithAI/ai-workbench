@@ -84,3 +84,38 @@ test('@run-07 the Tools screen says where each agent may actually go', async ({ 
   await expect(row).toContainText('allowlist');
   await expectNoA11yViolations(page, 'Tools — network policy');
 });
+
+test('@run-08 the Memory screen remembers, shows provenance, and deletes with redaction', async ({ page, request }) => {
+  // A memory a run quoted, so the delete dialog has a trace to offer to redact.
+  const secret = `The standing interest is ${Date.now()}-local-first.`;
+  const added = await request.post(`${base()}/api/v1/memory`, {
+    headers: { Authorization: `Bearer ${token()}` },
+    data: { content: secret, scope: 'workspace' },
+  });
+  expect(added.status()).toBe(201);
+
+  await page.goto(base() + '/memory#token=' + token());
+  await expect(page.getByRole('heading', { name: 'Memory' })).toBeVisible();
+  await expectNoA11yViolations(page, 'Memory');
+
+  // Provenance is on the card: how far it may be believed, whose it is, and who wrote it.
+  const card = page.getByRole('listitem').filter({ hasText: secret });
+  await expect(card).toBeVisible();
+  await expect(card).toContainText('trusted');
+  await expect(card).toContainText('workspace:workspace');
+  await expect(card).toContainText('you wrote it');
+
+  // Search narrows to it, and the empty state says so when nothing matches.
+  await page.getByLabel('Search').fill('local-first');
+  await page.getByRole('button', { name: 'Search' }).click();
+  await expect(page.getByRole('listitem').filter({ hasText: secret })).toBeVisible();
+
+  // And deleting it is a two-step: the dialog says what it will do before it does it.
+  await card.getByRole('button', { name: 'Delete…' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Delete this memory?');
+  await expectNoA11yViolations(page, 'Memory — delete dialog');
+  await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
+
+  await expect(page.getByRole('listitem').filter({ hasText: secret })).toHaveCount(0);
+});

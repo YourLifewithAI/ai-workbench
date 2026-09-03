@@ -14,7 +14,7 @@ import type { Credentials } from '../security/credentials.js';
 import type { Redactor } from '../security/redaction.js';
 import type { Logger } from '../log/index.js';
 import type { EventStore } from './events.js';
-import { assemblePrompt, type KnowledgeDocument } from './prompt.js';
+import { assemblePrompt, type KnowledgeDocument, type MemorySnippet } from './prompt.js';
 import { harnessSection } from './harness.js';
 import { WRAP_UP_INSTRUCTION } from './budget.js';
 import type { BudgetKind, BudgetStop, RunBudget } from './budget.js';
@@ -22,6 +22,8 @@ import { parseJsonOutput, validateJson } from '../../shared/jsonschema.js';
 import { toolSpec } from '../../shared/tool.js';
 import type { ExecutedCall, ToolExecutor } from '../tools/executor.js';
 import type { RunTaint } from './taint.js';
+import type { MemoryHit, MemoryStore } from '../memory/store.js';
+import { ownerFor } from '../tools/builtin/memory.js';
 import type { CatalogEntry, CompiledRequest, ContentBlock, JsonSchema, Message, ModelErrorShape, ModelResponse } from '../../shared/model.js';
 import type { Permissions } from '../../shared/permissions.js';
 import type { LoadedAgent } from '../../shared/agent.js';
@@ -59,6 +61,8 @@ export interface StepDeps {
   artifacts?: ArtifactStore | undefined;
   /** Present from RUN-06. Absent means no tool can be called, which is the safe direction to fail. */
   tools?: ToolExecutor | undefined;
+  /** Present from RUN-08. Absent means no memory is retrieved, and the prompt simply has no memory sections. */
+  memory?: MemoryStore | undefined;
 }
 
 export interface AgentStepInput {
@@ -146,6 +150,12 @@ export class StepRunner {
     const schema = input.outputSchema ?? agent.definition.output.schema;
     const knowledge = this.knowledgeFor(agent, input.project);
     if (knowledge.length) input.taint?.markPrivate('the prompt carried a knowledge section');
+    // Retrieval happens once per step, not once per call: the same memory in front of the model all the way
+    // through, and one `memory-retrieved` event a human can read as "this is what it was working from".
+    const memory = this.memoryFor(input);
+    if (memory.trusted.length || memory.untrusted.length) input.taint?.markPrivate('the prompt carried a memory section');
+    // An untrusted item in the prompt is external content, whatever else this run has done (D-17).
+    if (memory.untrusted.length) input.taint?.markExternal('the prompt carried untrusted memory');
     // Every URL the step was handed is one it may follow later without asking.
     input.taint?.observe(input.task);
     const task = input.feedback
@@ -177,7 +187,7 @@ export class StepRunner {
         }
       }
 
-      const prompt = assemblePrompt(agent, task, this.harnessFor(input, wrapUp !== null, available.map((t) => t.id)), { knowledge });
+      const prompt = assemblePrompt(agent, task, this.harnessFor(input, wrapUp !== null, available.map((t) => t.id)), { knowledge, memory });
       const request: CompiledRequest = {
         ...prompt.compiled,
         // The wrap-up turn always sends none: its whole point is that nothing new starts (D-14).
@@ -499,6 +509,31 @@ export class StepRunner {
    * The documents an agent names are injected whole, as data, from the run's project. A named document that is
    * missing is a load-time-ish problem the trace should show, not a silent omission.
    */
+  /**
+   * FTS5 plus recency over the scopes this agent may read, split by trust (artifacts-and-memory.md §Memory).
+   * The retrieved snapshot goes in the trace, because "what did it know when it decided that" is the first
+   * question anyone asks of a run that went wrong, and memory changes between runs.
+   */
+  private memoryFor(input: AgentStepInput): { trusted: MemorySnippet[]; untrusted: MemorySnippet[] } {
+    const empty = { trusted: [], untrusted: [] };
+    if (!this.deps.memory) return empty;
+    const limit = this.deps.workspace().config.context.memoryItems;
+    if (limit <= 0) return empty;
+
+    const scopes = scopesFor(input.agent.definition.id, input.project ?? null);
+    const hits = this.deps.memory.retrieve({ scopes, query: input.task, limit });
+    if (!hits.length) return empty;
+
+    const snippet = (h: MemoryHit): MemorySnippet => ({ id: h.id, scope: `${h.scope}:${h.ownerId}`, content: h.content });
+    const trusted = hits.filter((h) => h.trust === 'trusted').map(snippet);
+    const untrusted = hits.filter((h) => h.trust === 'untrusted').map(snippet);
+    this.deps.events.append(input.runId, input.stepId, 'memory-retrieved', {
+      scopes: scopes.map((s) => `${s.scope}:${s.ownerId}`),
+      items: hits.map((h) => ({ id: h.id, scope: h.scope, ownerId: h.ownerId, trust: h.trust, content: h.content })),
+    });
+    return { trusted, untrusted };
+  }
+
   private knowledgeFor(agent: LoadedAgent, project: string | undefined): KnowledgeDocument[] {
     const wanted = agent.definition.documents;
     if (!wanted.length || !this.deps.artifacts || !project) return [];
@@ -576,4 +611,17 @@ export function sleep(ms: number, signal: AbortSignal): Promise<void> {
     const timer = setTimeout(resolve, ms);
     signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
   });
+}
+
+/**
+ * The scopes an agent reads, narrowest first: its own, then the project it is working in, then the workspace and
+ * the person. An agent never reads another agent's items — that is SEC-16, and it is enforced here by not asking
+ * for them rather than by filtering them out afterwards.
+ */
+export function scopesFor(agentId: string, project: string | null): { scope: 'agent' | 'user' | 'workspace' | 'project'; ownerId: string }[] {
+  const scopes: { scope: 'agent' | 'user' | 'workspace' | 'project'; ownerId: string }[] = [{ scope: 'agent', ownerId: agentId }];
+  if (project) scopes.push({ scope: 'project', ownerId: project });
+  scopes.push({ scope: 'workspace', ownerId: ownerFor('workspace', agentId, project)! });
+  scopes.push({ scope: 'user', ownerId: ownerFor('user', agentId, project)! });
+  return scopes;
 }

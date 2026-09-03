@@ -451,6 +451,68 @@ export const SetGrantRequest = z.object({
 });
 export type SetGrantRequest = z.infer<typeof SetGrantRequest>;
 
+// ---- memory and knowledge (spec/artifacts-and-memory.md, D-17, D-35) ------------------------------
+
+export const MemoryScope = z.enum(['agent', 'user', 'workspace', 'project']);
+export type MemoryScope = z.infer<typeof MemoryScope>;
+
+export const MemoryItem = z.object({
+  id: z.string(),
+  scope: MemoryScope,
+  ownerId: z.string(),
+  content: z.string(),
+  source: z.enum(['user', 'agent-tool', 'import']),
+  /** Derived from what the writing run had consumed, never declared by the writer. */
+  trust: z.enum(['trusted', 'untrusted']),
+  runId: z.string().nullable(),
+  supersedesId: z.string().nullable(),
+  createdAt: z.string(),
+  expiresAt: z.string().nullable(),
+});
+export type MemoryItem = z.infer<typeof MemoryItem>;
+
+export const MemoryResponse = z.object({ items: z.array(MemoryItem) });
+export type MemoryResponse = z.infer<typeof MemoryResponse>;
+
+export const CreateMemoryRequest = z.object({
+  content: z.string().min(1),
+  scope: MemoryScope.default('workspace'),
+  ownerId: z.string().optional(),
+  supersedesId: z.string().optional(),
+  expiresAt: z.string().optional(),
+});
+export type CreateMemoryRequest = z.infer<typeof CreateMemoryRequest>;
+
+/** What the delete dialog needs before it asks: how many traces quoted this item. */
+export const MemoryTracesResponse = z.object({ itemId: z.string(), runIds: z.array(z.string()) });
+export type MemoryTracesResponse = z.infer<typeof MemoryTracesResponse>;
+
+export const DeleteMemoryResponse = z.object({ deleted: z.boolean(), redactedRuns: z.array(z.string()) });
+export type DeleteMemoryResponse = z.infer<typeof DeleteMemoryResponse>;
+
+export const KnowledgeChunk = z.object({
+  documentId: z.string(),
+  project: z.string(),
+  path: z.string(),
+  versionId: z.string(),
+  chunkIndex: z.number().int(),
+  offset: z.number().int(),
+  content: z.string(),
+});
+export type KnowledgeChunk = z.infer<typeof KnowledgeChunk>;
+
+export const KnowledgeSearchResponse = z.object({ chunks: z.array(KnowledgeChunk) });
+export type KnowledgeSearchResponse = z.infer<typeof KnowledgeSearchResponse>;
+
+export const IngestKnowledgeResponse = z.object({
+  path: z.string(),
+  format: z.enum(['markdown', 'text', 'json', 'csv', 'html', 'pdf']),
+  characters: z.number().int(),
+  documentId: z.string(),
+  versionId: z.string(),
+});
+export type IngestKnowledgeResponse = z.infer<typeof IngestKnowledgeResponse>;
+
 // ---- push (spec/ui.md §Phone, D-61) --------------------------------------------------------------
 
 /** The four moments worth interrupting someone for. */

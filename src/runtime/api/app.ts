@@ -5,13 +5,14 @@ import path from 'node:path';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { ApprovalDecisionRequest, CreateProjectRequest, CreateRunRequest, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type DashboardResponse, type EgressRecord, type HealthResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
+import { ApprovalDecisionRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type DashboardResponse, type DeleteMemoryResponse, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
 import { ConflictError, NotFoundError, ValidationError, type Engine } from '../engine/run.js';
 import { ScheduleError, type Scheduler } from '../scheduler/index.js';
 import type { PushStore } from '../push/store.js';
+import { ingestKnowledge, UnsupportedKnowledgeFormat } from '../knowledge/ingest.js';
 import { TERMINAL_EVENTS, type EventStore } from '../engine/events.js';
 import { securityHeaders, hostOriginGuard, bearerGuard } from '../security/auth.js';
 import type { Redactor } from '../security/redaction.js';
@@ -612,6 +613,88 @@ export function createApp(deps: AppDeps): Hono {
     deps.setNetworkMode(parsed.data.mode);
     deps.log.info({ mode: parsed.data.mode }, 'network mode changed');
     return json(c, { networkMode: parsed.data.mode });
+  });
+
+  // ---- memory and knowledge (D-17, D-35) ---------------------------------------------------------------
+
+  app.get('/api/v1/memory', (c) => {
+    const scope = c.req.query('scope');
+    const parsedScope = scope ? MemoryScope.safeParse(scope) : null;
+    if (parsedScope && !parsedScope.success) return fail(c, 'validation', 'scope must be one of agent, user, workspace, project.', 400);
+    const body: MemoryResponse = {
+      items: deps.engine.memory.search({
+        ...(c.req.query('q') ? { query: c.req.query('q')! } : {}),
+        ...(parsedScope?.success ? { scope: parsedScope.data } : {}),
+      }),
+    };
+    return json(c, body);
+  });
+
+  app.post('/api/v1/memory', async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = CreateMemoryRequest.safeParse(raw);
+    if (!parsed.success) return fail(c, 'validation', 'Expected { content, scope?, ownerId?, supersedesId?, expiresAt? }.', 400, parsed.error.issues);
+    const { content, scope, ownerId, supersedesId, expiresAt } = parsed.data;
+    const owner = ownerId ?? (scope === 'workspace' ? 'workspace' : scope === 'user' ? 'owner' : null);
+    if (!owner) return fail(c, 'validation', `A "${scope}" item needs an ownerId: the agent it belongs to, or the project.`, 400);
+    // A human writing in the Memory screen is the trusted path by definition: nothing external wrote this.
+    const item = deps.engine.memory.remember({
+      scope, ownerId: owner, content, source: 'user', trust: 'trusted',
+      ...(supersedesId ? { supersedesId } : {}), ...(expiresAt ? { expiresAt } : {}),
+    });
+    return json(c, item, 201);
+  });
+
+  app.get('/api/v1/memory/:id/traces', (c) => {
+    const id = c.req.param('id');
+    if (!deps.engine.memory.byId(id)) return fail(c, 'not_found', `There is no memory item with id "${id}".`, 404);
+    const body: MemoryTracesResponse = { itemId: id, runIds: deps.engine.memory.tracesContaining(id) };
+    return json(c, body);
+  });
+
+  app.delete('/api/v1/memory/:id', (c) => {
+    const redact = c.req.query('redactTraces') === 'true';
+    const result = deps.engine.memory.delete(c.req.param('id'), redact);
+    if (!result.deleted) return fail(c, 'not_found', `There is no memory item with id "${c.req.param('id')}".`, 404);
+    const body: DeleteMemoryResponse = result;
+    return json(c, body);
+  });
+
+  app.get('/api/v1/knowledge/search', (c) => {
+    const q = c.req.query('q');
+    if (!q) return fail(c, 'validation', 'A search needs a `q`.', 400);
+    const body: KnowledgeSearchResponse = {
+      chunks: deps.artifacts.searchChunks(q, {
+        ...(c.req.query('project') ? { projectSlug: c.req.query('project')! } : {}),
+        ...(c.req.query('limit') ? { limit: Number(c.req.query('limit')) } : {}),
+      }),
+    };
+    return json(c, body);
+  });
+
+  app.post('/api/v1/projects/:slug/knowledge', async (c) => {
+    const slug = c.req.param('slug');
+    const filename = c.req.query('filename');
+    if (!filename) return fail(c, 'validation', 'Name the file with `?filename=`: the extension is how its format is read.', 400);
+    const bytes = new Uint8Array(await c.req.arrayBuffer());
+    if (!bytes.length) return fail(c, 'validation', 'The request body is the file, and it was empty.', 400);
+    try {
+      const result = await ingestKnowledge(deps.artifacts, { projectSlug: slug, filename, bytes });
+      const document = deps.artifacts.findDocumentByPath(slug, result.path);
+      const body: IngestKnowledgeResponse = {
+        path: result.path, format: result.format, characters: result.characters,
+        documentId: document?.id ?? '', versionId: result.version.id,
+      };
+      return json(c, body, 201);
+    } catch (e) {
+      if (e instanceof UnsupportedKnowledgeFormat) return fail(c, 'validation', e.message, 400);
+      return mapError(c, e);
+    }
   });
 
   app.get('/api/v1/settings', (c) => {

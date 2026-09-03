@@ -1,5 +1,5 @@
 // Every call carries the bearer token; SSE is fetch-based (never EventSource) so it can too.
-import type { AgentDetail, AgentListResponse, ApprovalItem, ApprovalListResponse, CreateProjectRequest, CreateRunRequest, DashboardResponse, DiffResponse, DocumentDetail, DocumentSummary, GrantCell, ModelListResponse, PrivacyResponse, Project, PushEventKind, PushSubscription, PushSubscriptionsResponse, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunSummary, ScheduleListResponse, ScheduleSummary, SetGrantRequest, SettingsResponse, SubscribePushRequest, ToolsResponse, UpsertScheduleRequest, WorkflowDetail, WorkflowListResponse } from '../../shared/api/index.js';
+import type { AgentDetail, AgentListResponse, ApprovalItem, ApprovalListResponse, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, DashboardResponse, DeleteMemoryResponse, DiffResponse, DocumentDetail, DocumentSummary, GrantCell, KnowledgeSearchResponse, MemoryItem, MemoryResponse, MemoryTracesResponse, ModelListResponse, PrivacyResponse, Project, PushEventKind, PushSubscription, PushSubscriptionsResponse, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunSummary, ScheduleListResponse, ScheduleSummary, SetGrantRequest, SettingsResponse, SubscribePushRequest, ToolsResponse, UpsertScheduleRequest, WorkflowDetail, WorkflowListResponse } from '../../shared/api/index.js';
 import type { EventRecord } from '../../shared/events.js';
 import { getToken, markUnauthorized } from './auth.js';
 
@@ -56,6 +56,20 @@ export const api = {
     apiFetch(`/documents/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) }).then((r) => r.json() as Promise<DocumentDetail['history'][number]>),
   diff: (id: string, from: string, to: string): Promise<DiffResponse> =>
     apiFetch(`/documents/${encodeURIComponent(id)}/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).then((r) => r.json() as Promise<DiffResponse>),
+  memory: (params: { q?: string; scope?: string } = {}): Promise<MemoryItem[]> => {
+    const query = new URLSearchParams();
+    if (params.q) query.set('q', params.q);
+    if (params.scope) query.set('scope', params.scope);
+    return apiFetch(`/memory${query.size ? `?${query}` : ''}`).then((r) => r.json() as Promise<MemoryResponse>).then((b) => b.items);
+  },
+  addMemory: (body: CreateMemoryRequest): Promise<MemoryItem> =>
+    apiFetch('/memory', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<MemoryItem>),
+  memoryTraces: (id: string): Promise<MemoryTracesResponse> =>
+    apiFetch(`/memory/${encodeURIComponent(id)}/traces`).then((r) => r.json() as Promise<MemoryTracesResponse>),
+  deleteMemory: (id: string, redactTraces: boolean): Promise<DeleteMemoryResponse> =>
+    apiFetch(`/memory/${encodeURIComponent(id)}?redactTraces=${redactTraces}`, { method: 'DELETE' }).then((r) => r.json() as Promise<DeleteMemoryResponse>),
+  searchKnowledge: (q: string, project?: string): Promise<KnowledgeSearchResponse> =>
+    apiFetch(`/knowledge/search?q=${encodeURIComponent(q)}${project ? `&project=${encodeURIComponent(project)}` : ''}`).then((r) => r.json() as Promise<KnowledgeSearchResponse>),
   trace: (id: string): Promise<string> => apiFetch(`/runs/${encodeURIComponent(id)}/trace.jsonl`).then((r) => r.text()),
   createRun: (body: CreateRunRequest): Promise<{ runId: string }> =>
     apiFetch('/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<{ runId: string }>),

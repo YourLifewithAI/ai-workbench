@@ -24,6 +24,12 @@
         "allowLocalAddresses": false,
         "approvalExempt": []
       }
+    },
+    "reviewer": {
+      "tools": {
+        "memory.remember": "allow",
+        "memory.search": "allow"
+      }
     }
   },
   "search": {

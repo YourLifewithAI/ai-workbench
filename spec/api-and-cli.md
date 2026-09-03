@@ -19,6 +19,8 @@ Order of checks: `Host`/`Origin` (403) before token (401). Requests without an `
 | approvals | `GET /approvals?state=pending` · `POST /approvals/:id` (`allow | deny`, `remember?`) |
 | models | `GET /models` (catalog + availability + data policy) · `POST /models/refresh` (Ollama listing) |
 | memory | `GET /memory?q=&scope=` · `POST /memory` · `DELETE /memory/:id?redactTraces=true` |
+| memory (RUN-08) | also `GET /memory/:id/traces` → `{ itemId, runIds }`, so the delete dialog can say how many traces quoted it before it offers to rewrite them |
+| knowledge (RUN-08) | `POST /projects/:slug/knowledge?filename=<name>` takes the file as the raw request body (`application/octet-stream`); the extension decides the format |
 | knowledge | `POST /projects/:slug/knowledge` (ingest) · `GET /knowledge/search?q=` |
 | schedules | `GET /schedules` · `PUT /schedules/:id` |
 | tools | `GET /tools` (built-ins, MCP, sandbox status, grant matrix) · `PUT /tools/grants` |
