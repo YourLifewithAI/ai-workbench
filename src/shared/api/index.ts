@@ -321,3 +321,50 @@ export const DashboardResponse = z.object({
   networkMode: z.string(),
 });
 export type DashboardResponse = z.infer<typeof DashboardResponse>;
+
+// ---- approvals (spec/tools-and-security.md §Approvals, D-13, D-57) -----------------------------
+
+/** Exactly `{ tool, path | host }` — the narrowest rule "remember" can write, and nothing wider. */
+export const RememberRule = z.object({
+  tool: z.string(),
+  path: z.string().optional(),
+  host: z.string().optional(),
+});
+export type RememberRule = z.infer<typeof RememberRule>;
+
+export const ApprovalAction = z.object({
+  id: z.string(),
+  tool: z.string(),
+  args: z.record(z.string(), z.unknown()),
+  /** The rule that fired, in the words the card shows. */
+  policy: z.string(),
+  state: z.enum(['pending', 'allowed', 'denied', 'expired']),
+  remember: RememberRule.nullable(),
+  decidedBy: z.string().nullable(),
+  decidedAt: z.string().nullable(),
+});
+export type ApprovalAction = z.infer<typeof ApprovalAction>;
+
+export const ApprovalItem = z.object({
+  /** Everything one step asked for, as one card (D-57). */
+  batchId: z.string(),
+  runId: z.string(),
+  stepId: z.string(),
+  subject: z.string(),
+  project: z.string().nullable(),
+  state: z.enum(['pending', 'allowed', 'denied', 'expired']),
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  actions: z.array(ApprovalAction),
+});
+export type ApprovalItem = z.infer<typeof ApprovalItem>;
+
+export const ApprovalListResponse = z.object({ approvals: z.array(ApprovalItem) });
+export type ApprovalListResponse = z.infer<typeof ApprovalListResponse>;
+
+export const ApprovalDecisionRequest = z.object({
+  decision: z.enum(['allow', 'allow-remember', 'deny']),
+  /** Decide one action rather than the whole batch. Omit to decide every pending action in it. */
+  actionId: z.string().optional(),
+});
+export type ApprovalDecisionRequest = z.infer<typeof ApprovalDecisionRequest>;
