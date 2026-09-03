@@ -34,7 +34,8 @@ export class ReviewStore {
     const existing = this.find(input.runId, input.stepId);
     const state: ReviewState = input.blocking ? 'pending' : 'unreviewed';
     if (existing) {
-      this.db.prepare('UPDATE reviews SET state = ?, version_id = ?, attempt = attempt + 1, decided_at = NULL WHERE id = ?')
+      // Reopening consumes the feedback: the step has just re-run with it, so it is history, not an instruction.
+      this.db.prepare('UPDATE reviews SET state = ?, version_id = ?, feedback = NULL, attempt = attempt + 1, decided_at = NULL WHERE id = ?')
         .run(state, input.versionId ?? null, existing.id);
       return this.byId(existing.id)!;
     }
@@ -67,6 +68,17 @@ export class ReviewStore {
   /** Everything still pending for a run, so a restart can tell whether it is parked or merely stale. */
   pendingFor(runId: string): ReviewRow[] {
     return this.db.prepare("SELECT * FROM reviews WHERE run_id = ? AND state = 'pending' ORDER BY created_at").all(runId) as ReviewRow[];
+  }
+
+  /** Steps a human rejected and that have not re-run yet: a resume must redo these, not skip them. */
+  rejectedFor(runId: string): ReviewRow[] {
+    return this.db.prepare("SELECT * FROM reviews WHERE run_id = ? AND state = 'rejected' ORDER BY created_at").all(runId) as ReviewRow[];
+  }
+
+  /** What the human asked for instead, for the step that is about to re-run. */
+  feedbackFor(runId: string, stepId: string): string | null {
+    const row = this.find(runId, stepId);
+    return row && row.state === 'rejected' ? row.feedback : null;
   }
 
   /** The queue: blocking gates first, because those are the ones holding a run still. */

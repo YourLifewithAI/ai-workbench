@@ -117,6 +117,7 @@ export class Engine {
         if (decision.decision === 'reject' && row.attempt <= MAX_REJECTIONS) return { redo: decision.feedback ?? '' };
         return null;
       },
+      pendingFeedback: (runId, stepId) => this.reviews.feedbackFor(runId, stepId),
     };
   }
 
@@ -359,6 +360,11 @@ export class Engine {
     if (!row) throw new NotFoundError(`Run "${runId}" does not exist.`);
     if (this.inflight.has(runId)) throw new ConflictError(`Run "${runId}" is already going.`);
     if (!RESUMABLE_STATES.has(row.state)) throw new ConflictError(`Run "${runId}" is ${row.state}; only an interrupted or parked run can be resumed.`);
+    // A run held by an undecided gate is not stuck, it is waiting: resuming past it would ignore the human.
+    const pending = this.reviews.pendingFor(runId);
+    if (pending.length) {
+      throw new ConflictError(`Run "${runId}" is waiting for a review of step "${pending[0]!.step_id}". Decide it (workbench review continue ${pending[0]!.id}) and the run carries on by itself.`);
+    }
     if (row.kind !== 'workflow') return this.resumeAgentRun(row);
 
     const ws = this.deps.workspace();
@@ -414,7 +420,9 @@ export class Engine {
   private finishedSteps(runId: string): Map<string, { state: 'completed' | 'skipped'; value: unknown }> {
     const rows = this.deps.db.prepare("SELECT step_id, state, output_json FROM run_steps WHERE run_id = ? AND state IN ('completed', 'skipped') AND parent_step_id IS NULL")
       .all(runId) as { step_id: string; state: 'completed' | 'skipped'; output_json: string | null }[];
-    return new Map(rows.map((r) => [r.step_id, { state: r.state, value: r.output_json ? (JSON.parse(r.output_json) as unknown) : null }]));
+    // A step the human rejected is finished only in the database's opinion: it re-runs with their feedback.
+    const rejected = new Set(this.reviews.rejectedFor(runId).map((r) => r.step_id));
+    return new Map(rows.filter((r) => !rejected.has(r.step_id)).map((r) => [r.step_id, { state: r.state, value: r.output_json ? (JSON.parse(r.output_json) as unknown) : null }]));
   }
 
   waitFor(runId: string): Promise<void> {

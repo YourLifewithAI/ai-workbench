@@ -395,7 +395,11 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/api/v1/documents/:id', (c) => {
     const version = c.req.query('version');
     const doc = deps.artifacts.getDocument(c.req.param('id'), version);
-    return doc ? json(c, doc) : fail(c, 'not_found', `No document with id "${c.req.param('id')}".`, 404);
+    if (!doc) return fail(c, 'not_found', `No document with id "${c.req.param('id')}".`, 404);
+    // Ratings live in the review store, not the Library's tables: a rating is a judgement about a version,
+    // not part of it. The Library shows them, so the API joins them here rather than in two round trips.
+    const ratings = deps.engine.reviews.ratingsForVersions(doc.history.map((h) => h.id));
+    return json(c, { ...doc, ratings: Object.fromEntries(ratings) });
   });
 
   app.get('/api/v1/documents/:id/versions', (c) => {

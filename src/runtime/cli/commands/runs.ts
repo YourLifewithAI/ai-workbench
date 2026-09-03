@@ -51,6 +51,21 @@ export function registerRuns(program: Command, bootstrap: Bootstrap): void {
       }),
     );
   runs
+    .command('resume <runId>')
+    .description('restart an interrupted or parked run from its last finished step')
+    .action(async (runId: string, _opts: unknown, cmd: Command) =>
+      guarded(async () => {
+        const handle = await connect({ workspaceDir: resolveWorkspace(cmd, bootstrap), bootstrap, requireLive: true });
+        try {
+          await handle.request('POST', `/runs/${runId}/resume`);
+          if (wantsJson(cmd)) return outJson({ runId, resumed: true });
+          out(`${runId}  resuming. Follow it with: workbench trace ${runId}`);
+        } finally {
+          await handle.close();
+        }
+      }),
+    );
+  runs
     .command('cancel <runId>')
     .description('stop a running run: in-flight model calls are aborted and nothing from them is committed')
     .action(async (runId: string, _opts: unknown, cmd: Command) =>

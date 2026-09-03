@@ -6,6 +6,8 @@ import { CliError, connect } from '../client.js';
 import { guarded, out, outJson, resolveWorkspace, wantsJson } from '../context.js';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'interrupted']);
+/** A blocking gate is a stopping point for a blocking CLI run: no amount of waiting produces a human. */
+const PARKED = new Set(['waiting_review', 'waiting_approval']);
 const POLL_MS = 150;
 
 interface RunAgentOptions { input: string; project?: string; provider?: string; model?: string; detach?: boolean }
@@ -43,6 +45,11 @@ export function registerRun(program: Command, bootstrap: Bootstrap): void {
           }
           const detail = await waitForRun(handle.request.bind(handle), runId);
           const result: RunResult = { runId, state: detail.state, ...(detail.outputs ? { outputs: detail.outputs } : {}), costUsd: detail.spent.costUsd };
+          if (PARKED.has(detail.state)) {
+            if (wantsJson(cmd)) outJson(result);
+            else out(parkedMessage(detail));
+            return;
+          }
           if (wantsJson(cmd)) outJson(result);
           else {
             const output = detail.outputs?.['output'];
@@ -90,6 +97,11 @@ export function registerRun(program: Command, bootstrap: Bootstrap): void {
             return;
           }
           const detail = await waitForRun(handle.request.bind(handle), runId);
+          if (PARKED.has(detail.state)) {
+            if (wantsJson(cmd)) outJson({ runId, state: detail.state, costUsd: detail.spent.costUsd, steps: detail.steps });
+            else out(parkedMessage(detail));
+            return;
+          }
           if (wantsJson(cmd)) {
             const result: RunResult = { runId, state: detail.state, ...(detail.outputs ? { outputs: detail.outputs } : {}), costUsd: detail.spent.costUsd };
             outJson({ ...result, steps: detail.steps });
@@ -154,9 +166,15 @@ function collectBudget(opts: RunWorkflowOptions): Record<string, number> | undef
 async function waitForRun(request: <T>(method: string, apiPath: string) => Promise<T>, runId: string): Promise<RunDetail> {
   for (;;) {
     const detail = await request<RunDetail>('GET', `/runs/${runId}`);
-    if (TERMINAL.has(detail.state)) return detail;
+    if (TERMINAL.has(detail.state) || PARKED.has(detail.state)) return detail;
     await new Promise((r) => setTimeout(r, POLL_MS));
   }
+}
+
+/** What to say when a run stops at a gate rather than finishing: it is not an error, and it is not done. */
+function parkedMessage(detail: RunDetail): string {
+  const step = detail.steps.find((s) => s.state === 'completed' && s.stepId)?.stepId ?? 'a step';
+  return `Run ${detail.id} is waiting for your review after ${step}. See it with: workbench review list — then: workbench review continue <reviewId>`;
 }
 
 function describeFailure(detail: RunDetail): string {

@@ -18,6 +18,8 @@ import type { LoadedAgent } from '../../shared/agent.js';
  */
 export interface ReviewHost {
   afterStep(input: { runId: string; stepId: string; blocking: boolean; versionId?: string | undefined; signal: AbortSignal }): Promise<{ redo: string } | null>;
+  /** A rejection the step has not answered yet — a resumed run must carry it, not start over blank. */
+  pendingFeedback(runId: string, stepId: string): string | null;
 }
 
 export interface WorkflowDeps {
@@ -158,7 +160,8 @@ export class WorkflowExecutor {
 
     const attempts = step.retries + 1;
     let last: unknown;
-    let feedback: string | undefined;
+    // A resumed run picks up a rejection made before the restart, rather than re-running the step unchanged.
+    let feedback = this.deps.review.pendingFeedback(input.runId, step.id) ?? undefined;
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
         if (step.kind === 'map') return { skipped: false, value: await this.runMap(input, step, scope, signal) };

@@ -171,6 +171,8 @@ export const DocumentDetail = DocumentSummary.extend({
   content: z.string(),
   version: DocumentVersionSummary.nullable(),
   history: z.array(DocumentVersionSummary),
+  /** What the human thought of each version, by version id (RUN-05). Absent from the store; added by the API. */
+  ratings: z.record(z.string(), z.array(z.lazy(() => RatingSummary))).default({}),
 });
 export type DocumentDetail = z.infer<typeof DocumentDetail>;
 
