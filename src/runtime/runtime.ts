@@ -1,6 +1,8 @@
 // One process, one port (D-21): wires workspace, database, adapters, engine, and the HTTP app together.
 // An ephemeral runtime (D-45) is the same object with no files written and an OS-assigned port.
 import fs from 'node:fs';
+import path from 'node:path';
+import { ulid } from 'ulid';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { serve, type ServerType } from '@hono/node-server';
@@ -17,6 +19,9 @@ import { EventStore } from './engine/events.js';
 import { Scheduler } from './scheduler/index.js';
 import { PushStore, type PushSender } from './push/store.js';
 import { ensureVapidKeys, type VapidKeys } from './push/vapid.js';
+import type { MockSearchFixture } from './search/index.js';
+import type { LookupFn } from './security/dns.js';
+import type { EgressAttempt, EgressDecision } from './security/egress.js';
 import { Engine } from './engine/run.js';
 import { AdapterRegistry, type FetchLike } from './models/adapter.js';
 import { MockAdapter } from './models/adapters/mock/index.js';
@@ -58,6 +63,10 @@ export interface RuntimeOptions {
   noScheduler?: boolean | undefined;
   /** Injected so a test can see what a notification would carry without a push service (SEC-32). */
   sendPush?: PushSender | undefined;
+  /** Injected so a test resolves `*.test` to a TEST-NET-3 address with no DNS server (SEC-17). */
+  lookup?: LookupFn | undefined;
+  /** Injected so a test dials a local server while the checker still sees the pinned public address. */
+  connect?: ((options: unknown, callback: unknown) => void) | undefined;
 }
 
 export interface RuntimeFile { port: number; pid: number; startedAt: string }
@@ -181,6 +190,22 @@ export class Runtime {
       ...(opts.fetch ? { fetch: opts.fetch } : {}),
       ...(opts.now ? { now: opts.now } : {}),
       persistConfig: (config) => runtime.persistConfig(config),
+      // Tool egress writes the same egress_log rows a model call does, so the Privacy Inspector shows one story.
+      net: {
+        record: (attempt, decision) => runtime.recordEgress(attempt, decision),
+        ...(opts.lookup ? { lookup: opts.lookup } : {}),
+        ...(opts.connect ? { connect: opts.connect } : {}),
+      },
+      searchFixture: () => {
+        const file = path.join(workspace.paths.fixtures, 'search.json');
+        if (!fs.existsSync(file)) return null;
+        try {
+          return JSON.parse(fs.readFileSync(file, 'utf8')) as MockSearchFixture;
+        } catch (e) {
+          logHandle.logger.warn({ err: e, file }, 'fixtures/search.json is not valid JSON');
+          return null;
+        }
+      },
     });
     const runtime = new Runtime(opts, pkg, workspace, db, redactor, credentials, logHandle, events, registry, engine, portRef, artifacts);
     return runtime;
@@ -230,6 +255,19 @@ export class Runtime {
     current['grants'] = config.grants;
     current['remembered'] = config.remembered;
     fs.writeFileSync(file, JSON.stringify(current, null, 2) + '\n');
+  }
+
+  /** One egress row, whether it was a model call or a tool's fetch. The Inspector reads them together (D-28). */
+  recordEgress(attempt: EgressAttempt, decision: EgressDecision): void {
+    this.db.prepare(`INSERT INTO egress_log (id, run_id, step_id, purpose, host, ip, method, data_categories, bytes, body_redacted, decision, reason, ts)
+      VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`).run(
+      ulid(), attempt.runId ?? null, attempt.stepId ?? null, attempt.purpose, decision.host, attempt.method,
+      attempt.categories.join(','), attempt.bytes, this.redactor.redactJson(attempt.bodyRedacted),
+      decision.allowed ? 'allowed' : 'denied', decision.reason, new Date().toISOString(),
+    );
+    if (!decision.allowed && attempt.runId) {
+      this.events.append(attempt.runId, attempt.stepId ?? null, 'egress-denied', { host: decision.host, reason: decision.reason, url: attempt.url, purpose: attempt.purpose });
+    }
   }
 
   /** A human granting or withdrawing a tool. This is the authority; what an agent's own file asks for is not. */

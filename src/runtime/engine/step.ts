@@ -21,6 +21,7 @@ import type { BudgetKind, BudgetStop, RunBudget } from './budget.js';
 import { parseJsonOutput, validateJson } from '../../shared/jsonschema.js';
 import { toolSpec } from '../../shared/tool.js';
 import type { ExecutedCall, ToolExecutor } from '../tools/executor.js';
+import type { RunTaint } from './taint.js';
 import type { CatalogEntry, CompiledRequest, ContentBlock, JsonSchema, Message, ModelErrorShape, ModelResponse } from '../../shared/model.js';
 import type { Permissions } from '../../shared/permissions.js';
 import type { LoadedAgent } from '../../shared/agent.js';
@@ -83,6 +84,8 @@ export interface AgentStepInput {
   workflowCeiling?: Permissions | undefined;
   /** Where this run's tools keep their scratch. */
   scratchDir?: string | undefined;
+  /** The exfiltration rule's memory of this run (D-29). */
+  taint?: RunTaint | undefined;
   parentStepId?: string | undefined;
   mapIndex?: number | undefined;
 }
@@ -142,6 +145,9 @@ export class StepRunner {
     const { agent, budget, signal } = input;
     const schema = input.outputSchema ?? agent.definition.output.schema;
     const knowledge = this.knowledgeFor(agent, input.project);
+    if (knowledge.length) input.taint?.markPrivate('the prompt carried a knowledge section');
+    // Every URL the step was handed is one it may follow later without asking.
+    input.taint?.observe(input.task);
     const task = input.feedback
       ? `${input.task}\n\n---\nA human reviewed your previous attempt and asked for this instead:\n\n${input.feedback}`
       : input.task;
@@ -252,6 +258,7 @@ export class StepRunner {
       project: input.project ?? null,
       scratchDir: input.scratchDir ?? `${ws.paths.runs}/${input.runId}`,
       ...(input.workflowCeiling ? { workflowCeiling: input.workflowCeiling } : {}),
+      ...(input.taint ? { taint: input.taint } : {}),
       signal: input.signal,
       timeoutMs: input.budget.limits.toolCallTimeoutMs,
     });

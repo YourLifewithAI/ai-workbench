@@ -8,7 +8,10 @@ import type { EventStore } from '../engine/events.js';
 import type { Redactor } from '../security/redaction.js';
 import type { Credentials } from '../security/credentials.js';
 import { Broker, PolicyError } from '../security/broker.js';
-import { EMPTY_PERMISSIONS, effectivePermissions, grantFor, type ToolDecision } from '../security/permissions.js';
+import { guardedFetch, NetDeniedError, type NetFetchDeps } from '../security/netfetch.js';
+import type { RunTaint } from '../engine/taint.js';
+import { PRIVATE_TOOLS } from '../engine/taint.js';
+import { EMPTY_PERMISSIONS, effectivePermissions, grantFor, narrowestMode, type ToolDecision } from '../security/permissions.js';
 import type { WorkbenchConfig } from '../../shared/workspace.js';
 import type { Permissions } from '../../shared/permissions.js';
 import { toolError, type ToolContext, type ToolDefinition, type ToolResult } from '../../shared/tool.js';
@@ -35,6 +38,15 @@ export interface ExecutorDeps {
   workspaceDir: string;
   tools: Map<string, ToolDefinition>;
   approvals: ApprovalHost;
+  /** Tool egress (RUN-07). Absent means `ctx.net.fetch` refuses, which is the safe direction to fail. */
+  net?: {
+    policy: NetFetchDeps['policy'];
+    record: NetFetchDeps['record'];
+    lookup?: NetFetchDeps['lookup'];
+    connect?: NetFetchDeps['connect'];
+    /** The runtime's own port, refused as a destination in every mode. */
+    runtimePort?: (() => number | null) | undefined;
+  } | undefined;
 }
 
 export interface ExecuteInput {
@@ -46,6 +58,8 @@ export interface ExecuteInput {
   workflowCeiling?: Permissions | undefined;
   signal: AbortSignal;
   timeoutMs: number;
+  /** The exfiltration rule's memory of this run (D-29). */
+  taint?: RunTaint | undefined;
 }
 
 /** What the transcript gets back for one call, after truncation. The trace always keeps the whole thing. */
@@ -187,14 +201,75 @@ export class ToolExecutor {
         write: (p, data) => broker.write(p, data),
         can: (p, mode) => broker.can(p, mode),
       },
-      // Tool egress arrives in RUN-07 with the exfiltration rule. Until then this refuses rather than pretends.
-      net: {
-        fetch: () => Promise.reject(new PolicyError('ToolUnavailable', 'Tools cannot reach the network yet; that arrives with the fetch and search tools.')),
-      },
+      net: { fetch: (url, init) => this.netFetch(tool, input, permissions, url, init) },
       credentials: { get: (name) => (declared.has(name) ? this.deps.credentials.get(name) : undefined) },
       log: (message) => this.deps.log.info({ tool: tool.id, runId: input.runId }, message),
       signal: input.signal,
     };
+  }
+
+  /**
+   * A tool's only way out. The mode and the allowlist decide first, then DNS is resolved with every answer
+   * checked, then the socket dials the pinned address — and the exfiltration rule can park the whole thing in
+   * front of a human before any of that (D-28, D-29).
+   */
+  private async netFetch(tool: ToolDefinition, input: ExecuteInput, permissions: Permissions, url: string | URL | Request, init?: RequestInit): Promise<Response> {
+    const net = this.deps.net;
+    if (!net) throw new PolicyError('ToolUnavailable', 'This runtime has no network layer wired, so no tool can reach the internet.');
+
+    const config = this.deps.config();
+    const target = typeof url === 'string' ? url : url instanceof URL ? url.toString() : url.url;
+    const method = (init?.method ?? 'GET').toUpperCase();
+    // The effective policy is the workspace's, narrowed by whatever the agent and the workflow allow (D-26).
+    const base = net.policy();
+    const effective = {
+      mode: narrowestMode(base.mode, permissions.net.mode),
+      allow: base.allow.filter((entry) => permissions.net.allow.length === 0 || permissions.net.allow.includes(entry)),
+      allowLocalAddresses: base.allowLocalAddresses && permissions.net.allowLocalAddresses,
+      runtimePort: net.runtimePort?.() ?? base.runtimePort,
+    };
+
+    try {
+      const response = await guardedFetch(
+        {
+          policy: () => effective,
+          record: net.record,
+          ...(net.lookup ? { lookup: net.lookup } : {}),
+          ...(net.connect ? { connect: net.connect } : {}),
+          askApproval: async ({ url: parked, method: parkedMethod, reason }) => this.deps.approvals.request({
+            runId: input.runId, stepId: input.stepId, tool: tool.id,
+            args: { url: parked, method: parkedMethod }, policy: reason,
+            remember: { tool: tool.id, host: new URL(parked).hostname },
+            signal: input.signal,
+          }),
+        },
+        {
+          url: target,
+          method,
+          ...(init?.headers ? { headers: headersToRecord(init.headers) } : {}),
+          ...(typeof init?.body === 'string' ? { body: init.body } : {}),
+          maxBytes: config.tools.http.maxResponseBytes,
+          timeoutMs: config.tools.http.timeoutMs,
+          purpose: tool.id === 'web.search' ? 'search' : 'tool',
+          categories: method === 'GET' ? ['url'] : ['url', 'task'],
+          // A configured search provider is an endpoint the owner wrote into config, not a model-chosen one.
+          declared: tool.id === 'web.search',
+          runId: input.runId,
+          stepId: input.stepId,
+          ...(input.taint ? { taint: { privateTainted: input.taint.privateTainted, seenUrls: input.taint.seenUrls, approvalExempt: permissions.net.approvalExempt } } : {}),
+          signal: input.signal,
+        },
+      );
+      const headers = new Headers(response.headers);
+      if (response.truncated) headers.set('x-workbench-truncated', '1');
+      // `Response` needs a URL for `response.url`, which the tool reports as `finalUrl`.
+      const out = new Response(response.status === 204 || response.status === 304 ? null : new Uint8Array(response.body), { status: response.status, headers });
+      Object.defineProperty(out, 'url', { value: response.finalUrl });
+      return out;
+    } catch (e) {
+      if (e instanceof NetDeniedError) throw new PolicyError('PermissionDenied', e.message, e.hint);
+      throw e;
+    }
   }
 
   /**
@@ -219,6 +294,10 @@ export class ToolExecutor {
 
     const limit = this.deps.config().context.maxToolResultChars;
     const text = JSON.stringify(result.output);
+    // What a tool returned is content the run has now seen. Private content taints it; fetched web content
+    // does not, but every URL in it becomes a URL the run may follow without asking (D-29).
+    if (PRIVATE_TOOLS.has(call.name)) input.taint?.markPrivate(`${call.name} returned private content`);
+    input.taint?.observe(text);
     if (text.length <= limit) return { callId: call.id, tool: call.name, result };
 
     // Through the broker like everything else: the scratch directory is writable because it is this run's own,
@@ -257,6 +336,19 @@ function rememberFor(toolId: string, args: unknown): RememberRule | undefined {
     }
   }
   return { tool: toolId };
+}
+
+/** `Headers` is iterable at run time but not in this TS lib target, so the shapes are handled by hand. */
+function headersToRecord(headers: HeadersInit): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (Array.isArray(headers)) {
+    for (const [key, value] of headers) out[key.toLowerCase()] = value;
+  } else if (typeof (headers as Headers).forEach === 'function') {
+    (headers as Headers).forEach((value, key) => { out[key.toLowerCase()] = value; });
+  } else {
+    for (const [key, value] of Object.entries(headers as Record<string, string>)) out[key.toLowerCase()] = value;
+  }
+  return out;
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, toolId: string, signal: AbortSignal): Promise<T> {
