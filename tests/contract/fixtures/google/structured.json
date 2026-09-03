@@ -1,0 +1,13 @@
+[
+  {
+    "method": "POST",
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+    "requestHash": "authored",
+    "status": 200,
+    "statusText": "OK",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": "{\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"{\\\"city\\\":\\\"Chicago\\\",\\\"population\\\":2721000}\"}], \"role\": \"model\"}, \"finishReason\": \"STOP\", \"index\": 0}], \"usageMetadata\": {\"promptTokenCount\": 18, \"candidatesTokenCount\": 16, \"totalTokenCount\": 34}, \"modelVersion\": \"gemini-2.5-flash\", \"responseId\": \"contract-fixture\"}"
+  }
+]

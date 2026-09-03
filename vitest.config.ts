@@ -5,6 +5,7 @@ export default defineConfig({
     projects: [
       { test: { name: 'unit', include: ['tests/unit/**/*.test.ts'], environment: 'node' } },
       { test: { name: 'security', include: ['tests/security/**/*.test.ts'], environment: 'node', testTimeout: 30000 } },
+      { test: { name: 'contract', include: ['tests/contract/**/*.contract.test.ts'], environment: 'node', testTimeout: 60000 } },
       { test: { name: 'dod', include: ['tests/dod/**/*.test.ts'], environment: 'node', testTimeout: 120000 } },
     ],
   },

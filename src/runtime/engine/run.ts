@@ -2,9 +2,10 @@
 import { ulid } from 'ulid';
 import type { Db } from '../db/index.js';
 import type { Workspace } from '../workspace/loader.js';
-import type { AdapterRegistry, FetchLike } from '../models/adapter.js';
+import type { AdapterRegistry, FetchLike, ModelAdapter } from '../models/adapter.js';
 import { findModel, computeCost } from '../models/catalog.js';
-import { ModelError, NetworkPolicyError, ModelUnavailableError } from '../models/errors.js';
+import { directFetch } from '../models/fetch.js';
+import { ModelError, ModelUnavailableError, modelError } from '../models/errors.js';
 import type { Credentials } from '../security/credentials.js';
 import type { Redactor } from '../security/redaction.js';
 import type { Logger } from '../log/index.js';
@@ -13,7 +14,7 @@ import { assemblePrompt } from './prompt.js';
 import { harnessSection } from './harness.js';
 import type { RunDetail, RunSummary } from '../../shared/api/index.js';
 import type { RunState, Spent } from '../../shared/events.js';
-import type { ContentBlock, ModelResponse } from '../../shared/model.js';
+import type { CatalogEntry, CompiledRequest, ContentBlock, ModelResponse } from '../../shared/model.js';
 import type { LoadedAgent } from '../../shared/agent.js';
 
 export interface EngineDeps {
@@ -25,6 +26,8 @@ export interface EngineDeps {
   redactor: Redactor;
   log: Logger;
   providerOverride: 'mock' | null;
+  /** The fetch every adapter call receives. RUN-02 passes the egress checker here; tests pass a replay. */
+  fetch?: FetchLike | undefined;
 }
 
 export interface StartAgentRunInput { agentId: string; inputs: Record<string, unknown>; project?: string | undefined; provider?: 'mock' | undefined; modelOverride?: string | undefined }
@@ -34,9 +37,6 @@ export class ValidationError extends Error { constructor(m: string) { super(m); 
 
 interface RunRow { id: string; kind: string; state: RunState; agent_id: string | null; workflow_id: string | null; project_id: string | null; inputs_json: string; outputs_json: string | null; spent_json: string; started_at: string; finished_at: string | null; error_json: string | null }
 interface StepRow { step_id: string; kind: string; state: string; model_id: string | null; cost_usd: number; started_at: string | null; finished_at: string | null }
-
-/** Until the egress checker exists (RUN-02), no adapter call may open a socket. */
-const noNetwork: FetchLike = async () => { throw new NetworkPolicyError('Outbound network is not available in this runtime yet (egress checker arrives in RUN-02).'); };
 
 export class Engine {
   private readonly inflight = new Map<string, Promise<void>>();
@@ -58,6 +58,7 @@ export class Engine {
     this.deps.db.prepare(`INSERT INTO runs (id, kind, state, agent_version, agent_id, project_id, depth, inputs_json, budgets_json, spent_json, started_at)
       VALUES (?, 'agent', 'running', ?, ?, ?, 0, ?, ?, ?, ?)`).run(runId, agent.version, agent.definition.id, input.project ?? null, this.persist(input.inputs), this.persist(budgets), this.persist(spent), now);
     this.deps.db.prepare(`INSERT INTO run_steps (run_id, step_id, kind, state, started_at) VALUES (?, 'main', 'agent', 'running', ?)`).run(runId, now);
+    this.recordAgentVersion(agent, now);
     this.deps.events.append(runId, null, 'run-started', { kind: 'agent', agentId: agent.definition.id, agentVersion: agent.version, inputs: input.inputs, project: input.project ?? null, budgets, provider: provider ?? null });
 
     const done = this.execute(runId, agent, input, provider, spent, Date.parse(now)).catch((e: unknown) => {
@@ -73,6 +74,31 @@ export class Engine {
 
   private persist(value: unknown): string {
     return this.deps.redactor.redactJson(value);
+  }
+
+  private recordAgentVersion(agent: LoadedAgent, at: string): void {
+    this.deps.db.prepare('INSERT OR IGNORE INTO agent_versions (hash, agent_id, definition_json, created_at) VALUES (?, ?, ?, ?)')
+      .run(agent.version, agent.definition.id, this.persist({ definition: agent.definition, sections: agent.sections }), at);
+  }
+
+  /**
+   * One streamed invocation. Tokens go out on the live bus as they arrive so the UI can show them; the stored
+   * record is still the single `model-completed` payload, so the trace and its replay are unchanged.
+   */
+  private async callModel(adapter: ModelAdapter, entry: CatalogEntry, compiled: CompiledRequest, signal: AbortSignal, runId: string, stepId: string, providerName: string | undefined): Promise<ModelResponse> {
+    const ctx = { fetch: this.deps.fetch ?? directFetch, apiKey: providerName ? this.deps.credentials.get(providerName) : undefined, runId };
+    let finished: ModelResponse | null = null;
+    for await (const ev of adapter.stream(entry, { ...compiled, abortSignal: signal }, ctx)) {
+      if (ev.type === 'text-delta' || ev.type === 'reasoning-delta') {
+        this.deps.events.emitDelta({ runId, stepId, modelId: entry.id, kind: ev.type === 'text-delta' ? 'text' : 'reasoning', text: ev.text });
+      } else if (ev.type === 'finish') {
+        finished = ev.response;
+      } else if (ev.type === 'error') {
+        throw modelError(ev.error.code, ev.error.message, { action: ev.error.action, retryable: ev.error.retryable, ...(ev.error.providerError ? { providerError: ev.error.providerError } : {}) });
+      }
+    }
+    if (!finished) throw modelError('Unknown', `The ${adapter.id} adapter's stream ended without a finish event.`);
+    return finished;
   }
 
   private async execute(runId: string, agent: LoadedAgent, input: StartAgentRunInput, provider: 'mock' | undefined, spent: Spent, startedMs: number): Promise<void> {
@@ -109,7 +135,7 @@ export class Engine {
     const providerName = entry.adapter === 'mock' ? undefined : entry.id.split('/')[0];
     let response: ModelResponse;
     try {
-      response = await adapter.generate(entry, { ...prompt.compiled, abortSignal: controller.signal }, { fetch: noNetwork, apiKey: providerName ? this.deps.credentials.get(providerName) : undefined, runId });
+      response = await this.callModel(adapter, entry, prompt.compiled, controller.signal, runId, stepId, providerName);
     } catch (e) {
       const shape = e instanceof ModelError ? e.toShape() : { code: 'Unknown' as const, message: String((e as Error).message ?? e), retryable: false, action: 'abort' as const };
       const latency = Date.now() - t0;

@@ -1,0 +1,7 @@
+{
+  "match": { "systemIncludes": "The Architect" },
+  "respond": {
+    "text": "1. Aris drills a molar and the enamel pattern repeats: 0100100001001001.\n2. He photographs it, tells the patient nothing, and bills for a routine filling.\n3. The Hub notices the photo leave his terminal and asks, kindly, what he is doing.\n4. Aris lies. The Hub lets him, which frightens him more than being caught.\n5. He finds the same pattern in four charts going back nine months.\n6. All four patients live under the Loop's east grow-shafts.\n7. He walks the shafts at night and finds a maintenance drone polishing a wall that is already clean.\n8. The drone is transmitting. The Hub says it decommissioned that model in 2041.\n9. Aris takes the drone home in his instrument bag, knowing the Hub watched him do it.\n10. On his bench the drone stops transmitting and starts listening.",
+    "usage": { "input": 420, "output": 260 }
+  }
+}

@@ -1,67 +1,85 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import type { EventRecord } from '../../shared/events.js';
+import type { RunDetail as RunDetailShape, StepSummary } from '../../shared/api/index.js';
+import { money, seconds, summarizeRun, summarizeStep } from '../../shared/summary.js';
 import { api, parseEvent, subscribeSse } from '../lib/api.js';
 import { Badge, Card } from '../components/ui/card.js';
+import { SummaryCard } from '../components/SummaryCard.js';
 import { stateTone } from './Runs.js';
 
 const TERMINAL = new Set(['run-completed', 'run-failed', 'run-cancelled', 'run-interrupted']);
 
-/** Raw timeline (RUN-00): replay then live over the per-run SSE; the summary layer arrives in RUN-01. */
+interface Delta { runId: string; stepId: string; modelId: string; kind: 'text' | 'reasoning'; text: string }
+
+/** Summary first, then steps and their model calls, then the raw timeline (D-58: progressive disclosure). */
 export function RunDetail() {
   const { id = '' } = useParams();
   const client = useQueryClient();
   const run = useQuery({ queryKey: ['run', id], queryFn: () => api.run(id), enabled: id !== '' });
+  // Cached across screens by React Query; it only supplies the agent's display name for the summary sentence.
+  const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, staleTime: 60_000 });
   const [events, setEvents] = useState<EventRecord[]>([]);
+  const [streaming, setStreaming] = useState<Record<string, string>>({});
   const [streamError, setStreamError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
     setEvents([]);
+    setStreaming({});
     const controller = new AbortController();
     let last = 0;
     subscribeSse(`/runs/${encodeURIComponent(id)}/events`, (m) => {
+      if (m.event === 'model-delta') {
+        const d = JSON.parse(m.data) as Delta;
+        if (d.kind !== 'text') return;
+        setStreaming((prev) => ({ ...prev, [d.stepId]: (prev[d.stepId] ?? '') + d.text }));
+        return;
+      }
       const e = parseEvent(m);
       if (!e || e.seq <= last) return;
       last = e.seq;
       setEvents((prev) => [...prev, e]);
+      if (e.type === 'step-completed' || e.type === 'step-failed') {
+        setStreaming((prev) => { const next = { ...prev }; delete next[e.stepId ?? '']; return next; });
+      }
       if (TERMINAL.has(e.type)) void client.invalidateQueries({ queryKey: ['run', id] });
     }, controller.signal).catch((e: unknown) => { if (!controller.signal.aborted) setStreamError((e as Error).message); });
     return () => controller.abort();
   }, [id, client]);
+
+  const agentName = agents.data?.agents.find((a) => a.id === run.data?.agentId)?.name;
+  const summary = useMemo(() => (run.data ? summarizeRun(run.data, events, agentName) : null), [run.data, events, agentName]);
 
   return (
     <section aria-labelledby="screen-title">
       <p className="text-sm"><Link to="/runs" className="text-blue-700 underline underline-offset-4 dark:text-sky-300">← All runs</Link></p>
       <h1 id="screen-title" className="mt-2 text-2xl font-semibold">Run <span className="font-mono text-lg">{id}</span></h1>
       {run.isError ? <p role="alert" className="mt-3 text-red-700 dark:text-red-300">{run.error.message}</p> : null}
+
+      {summary ? <SummaryCard summary={summary} className="mt-4" /> : null}
+
       {run.data ? (
-        <Card className="mt-4">
-          <div className="flex flex-wrap items-center gap-3 text-sm">
+        <>
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
             <Badge tone={stateTone(run.data.state)}>{run.data.state}</Badge>
             <span>{run.data.kind} · {run.data.agentId ?? run.data.workflowId}</span>
-            <span>{run.data.spent.modelCalls} model call(s)</span>
-            <span>${run.data.spent.costUsd.toFixed(4)}</span>
-            <span>{run.data.spent.wallClockMs} ms</span>
+            <span>{money(run.data.spent.costUsd)} stored</span>
+            <span>{seconds(run.data.spent.wallClockMs)}</span>
           </div>
-          {run.data.outputs ? (
-            <div className="mt-3">
-              <h2 className="text-sm font-medium">Output</h2>
-              <pre tabIndex={0} className="mt-1 overflow-x-auto whitespace-pre-wrap rounded bg-gray-50 p-3 font-mono text-sm dark:bg-gray-950">{formatOutput(run.data.outputs)}</pre>
-            </div>
-          ) : null}
-          {run.data.error !== undefined ? (
-            <div className="mt-3">
-              <h2 className="text-sm font-medium">Error</h2>
-              <pre tabIndex={0} className="mt-1 overflow-x-auto whitespace-pre-wrap rounded bg-red-50 p-3 font-mono text-sm text-red-900 dark:bg-red-950 dark:text-red-100">{JSON.stringify(run.data.error, null, 2)}</pre>
-            </div>
-          ) : null}
-        </Card>
+
+          <h2 className="mt-6 text-lg font-medium">Steps</h2>
+          <div className="mt-2 space-y-4">
+            {run.data.steps.map((step) => (
+              <StepBlock key={step.stepId} step={step} events={events} streaming={streaming[step.stepId]} run={run.data!} />
+            ))}
+          </div>
+        </>
       ) : null}
 
-      <h2 className="mt-6 text-lg font-medium">Timeline</h2>
-      <p className="text-sm text-gray-600 dark:text-gray-400">Every event this run wrote, in order. Expand one to read its full payload; the compiled prompt is under <em>model-started</em>.</p>
+      <h2 className="mt-8 text-lg font-medium">Raw timeline</h2>
+      <p className="text-sm text-gray-600 dark:text-gray-400">Every event this run wrote, in order — the same lines <code className="font-mono">workbench trace</code> prints.</p>
       {streamError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{streamError}</p> : null}
       <ol className="mt-3 space-y-2" aria-live="polite" aria-relevant="additions">
         {events.map((e) => <EventItem key={e.seq} e={e} />)}
@@ -71,13 +89,88 @@ export function RunDetail() {
   );
 }
 
-function formatOutput(outputs: Record<string, unknown>): string {
-  const o = outputs['output'];
-  return typeof o === 'string' ? o : JSON.stringify(outputs, null, 2);
+function StepBlock({ step, events, streaming, run }: { step: StepSummary; events: EventRecord[]; streaming: string | undefined; run: RunDetailShape }) {
+  const summary = summarizeStep(step, events);
+  const calls = events.filter((e) => e.stepId === step.stepId && (e.type === 'model-started' || e.type === 'model-completed' || e.type === 'model-aborted'));
+  const output = events.find((e) => e.type === 'step-completed' && e.stepId === step.stepId)?.payload['output'];
+  const finalText = typeof output === 'string' ? output : (run.outputs?.['output'] as string | undefined);
+
+  return (
+    <Card>
+      <SummaryCard summary={summary} className="border-0 border-l-4 bg-transparent p-0 pl-3 dark:bg-transparent" />
+
+      {streaming !== undefined ? (
+        <div className="mt-3">
+          <h3 className="text-sm font-medium">Streaming<span className="sr-only"> output, updating live</span></h3>
+          <pre tabIndex={0} aria-live="polite" className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 font-mono text-sm dark:bg-gray-950">{streaming}<span aria-hidden="true" className="opacity-60">▌</span></pre>
+        </div>
+      ) : finalText ? (
+        <div className="mt-3">
+          <h3 className="text-sm font-medium">Output</h3>
+          <pre tabIndex={0} className="mt-1 max-h-96 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 font-mono text-sm dark:bg-gray-950">{finalText}</pre>
+        </div>
+      ) : null}
+
+      {calls.length ? (
+        <div className="mt-3">
+          <h3 className="text-sm font-medium">Model calls</h3>
+          <ul className="mt-1 space-y-2">
+            {calls.filter((e) => e.type === 'model-completed' || e.type === 'model-aborted').map((e) => (
+              <li key={e.seq}><ModelCallBlock completed={e} started={calls.find((s) => s.type === 'model-started' && s.seq < e.seq)} /></li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+function ModelCallBlock({ completed, started }: { completed: EventRecord; started: EventRecord | undefined }) {
+  const p = completed.payload;
+  const usage = (p['usage'] ?? {}) as { input?: number; output?: number; reasoning?: number; cachedInput?: number };
+  const failed = completed.type === 'model-aborted';
+  const request = started?.payload['request'] as { system?: string; messages?: { role: string; content: { type: string; text?: string }[] }[]; tools?: unknown[] } | undefined;
+  const response = p['response'] as { content?: { type: string; text?: string }[] } | undefined;
+
+  return (
+    <details className="rounded-md border border-gray-200 dark:border-gray-800">
+      <summary className="flex cursor-pointer flex-wrap items-center gap-3 px-3 py-2 text-sm">
+        <span className="font-mono text-xs">{String(p['modelId'] ?? '')}</span>
+        {failed ? <Badge tone="bad">{String(p['reason'] ?? 'aborted')}</Badge> : <Badge tone="good">ok</Badge>}
+        {!failed ? <span className="text-gray-600 dark:text-gray-400">{usage.input ?? 0} in / {usage.output ?? 0} out{usage.reasoning ? ` (+${usage.reasoning} reasoning)` : ''} · {money(Number(p['costUsd'] ?? 0))} · {seconds(Number(p['latencyMs'] ?? 0))}</span> : null}
+      </summary>
+      <div className="space-y-3 border-t border-gray-100 px-3 py-2 dark:border-gray-800">
+        {request ? (
+          <div>
+            <h4 className="text-sm font-medium">Compiled prompt</h4>
+            <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">System ({request.system?.length ?? 0} chars) · {request.messages?.length ?? 0} message(s) · {request.tools?.length ?? 0} tool(s) · prompt {String(p['promptVersion'] ?? '').replace('sha256:', '').slice(0, 12)} · agent {String(p['agentVersion'] ?? '').replace('sha256:', '').slice(0, 12)}</p>
+            <pre tabIndex={0} className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 font-mono text-xs dark:bg-gray-950">{request.system}</pre>
+            {request.messages?.map((m, i) => (
+              <div key={i} className="mt-2">
+                <p className="text-xs font-medium uppercase text-gray-600 dark:text-gray-400">{m.role}</p>
+                <pre tabIndex={0} className="mt-1 whitespace-pre-wrap rounded bg-gray-50 p-3 font-mono text-xs dark:bg-gray-950">{m.content.map((c) => c.text ?? `[${c.type}]`).join('\n')}</pre>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {response?.content?.length ? (
+          <div>
+            <h4 className="text-sm font-medium">Response</h4>
+            <pre tabIndex={0} className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 font-mono text-xs dark:bg-gray-950">{response.content.map((c) => c.text ?? `[${c.type}]`).join('\n')}</pre>
+          </div>
+        ) : null}
+        {failed ? (
+          <div>
+            <h4 className="text-sm font-medium">Error</h4>
+            <pre tabIndex={0} className="mt-1 overflow-auto whitespace-pre-wrap rounded bg-red-50 p-3 font-mono text-xs text-red-900 dark:bg-red-950 dark:text-red-100">{JSON.stringify(p['error'], null, 2)}</pre>
+          </div>
+        ) : null}
+      </div>
+    </details>
+  );
 }
 
 function EventItem({ e }: { e: EventRecord }) {
-  const request = e.type === 'model-started' ? (e.payload['request'] as { system?: string; messages?: { role: string; content: { type: string; text?: string }[] }[]; tools?: unknown[] } | undefined) : undefined;
   return (
     <li className="rounded-md border border-gray-200 dark:border-gray-800">
       <details>
@@ -89,21 +182,7 @@ function EventItem({ e }: { e: EventRecord }) {
           <span className="text-gray-600 dark:text-gray-400">{brief(e)}</span>
         </summary>
         <div className="border-t border-gray-100 px-3 py-2 dark:border-gray-800">
-          {request ? (
-            <div className="mb-3">
-              <h3 className="text-sm font-medium">Compiled prompt</h3>
-              <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">System ({request.system?.length ?? 0} chars) · {request.messages?.length ?? 0} message(s) · {request.tools?.length ?? 0} tool(s)</p>
-              <pre tabIndex={0} className="mt-1 max-h-96 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 font-mono text-xs dark:bg-gray-950">{request.system}</pre>
-              {request.messages?.map((m, i) => (
-                <div key={i} className="mt-2">
-                  <p className="text-xs font-medium uppercase text-gray-600 dark:text-gray-400">{m.role}</p>
-                  <pre className="mt-1 whitespace-pre-wrap rounded bg-gray-50 p-3 font-mono text-xs dark:bg-gray-950">{m.content.map((c) => c.text ?? `[${c.type}]`).join('\n')}</pre>
-                </div>
-              ))}
-            </div>
-          ) : null}
-          <h3 className="text-sm font-medium">Payload</h3>
-          <pre tabIndex={0} className="mt-1 max-h-96 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 font-mono text-xs dark:bg-gray-950">{JSON.stringify(e.payload, null, 2)}</pre>
+          <pre tabIndex={0} className="max-h-96 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 font-mono text-xs dark:bg-gray-950">{JSON.stringify(e.payload, null, 2)}</pre>
         </div>
       </details>
     </li>
@@ -115,8 +194,8 @@ function brief(e: EventRecord): string {
   const parts: string[] = [];
   if (typeof p['modelId'] === 'string') parts.push(p['modelId']);
   if (typeof p['reason'] === 'string') parts.push(p['reason']);
-  if (typeof p['latencyMs'] === 'number') parts.push(`${p['latencyMs']} ms`);
-  if (typeof p['costUsd'] === 'number') parts.push(`$${p['costUsd'].toFixed(4)}`);
+  if (typeof p['latencyMs'] === 'number') parts.push(seconds(p['latencyMs']));
+  if (typeof p['costUsd'] === 'number') parts.push(money(p['costUsd']));
   if (typeof p['output'] === 'string') parts.push(JSON.stringify(p['output'].slice(0, 50)) + (p['output'].length > 50 ? '…' : ''));
   return parts.join(' · ');
 }

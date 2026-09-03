@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { CreateRunRequest, type ApiError, type HealthResponse, type SettingsResponse } from '../../shared/api/index.js';
+import { CreateRunRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type HealthResponse, type ReloadAgentsResponse, type SettingsResponse } from '../../shared/api/index.js';
 import type { EventRecord } from '../../shared/events.js';
 import { NotFoundError, ValidationError, type Engine } from '../engine/run.js';
 import { TERMINAL_EVENTS, type EventStore } from '../engine/events.js';
@@ -13,7 +13,8 @@ import { securityHeaders, hostOriginGuard, bearerGuard } from '../security/auth.
 import type { Redactor } from '../security/redaction.js';
 import type { Credentials } from '../security/credentials.js';
 import type { Logger } from '../log/index.js';
-import type { Workspace } from '../workspace/loader.js';
+import type { BrokenAgent, Workspace } from '../workspace/loader.js';
+import type { LoadedAgent } from '../../shared/agent.js';
 
 export interface AppDeps {
   engine: Engine;
@@ -26,6 +27,8 @@ export interface AppDeps {
   hosts: () => Set<string>;
   health: () => HealthResponse;
   denoAvailable: () => boolean;
+  /** Re-reads agent definitions from disk; the Agents screen calls it after an edit. */
+  reloadAgents: () => { loaded: number; errors: BrokenAgent[] };
   uiDist: string;
   /** Fires when the runtime stops; open SSE streams end on it. */
   shutdown: AbortSignal;
@@ -151,6 +154,11 @@ export function createApp(deps: AppDeps): Hono {
         }).catch(() => { finished = true; resolveDone(); });
       };
       const unsubscribe = deps.events.subscribe((e) => { if (e.runId === id) send(e); });
+      // Deltas carry no `id`: they are never stored, so they must not advance a reconnecting client's `after` cursor.
+      const unsubscribeDeltas = deps.events.subscribeDeltas((d) => {
+        if (d.runId !== id || finished) return;
+        chain = chain.then(() => stream.writeSSE({ event: 'model-delta', data: deps.redactor.redactJson(d) })).catch(() => undefined);
+      });
       try {
         for (const e of deps.events.list(id, after)) send(e);
         await chain;
@@ -158,6 +166,7 @@ export function createApp(deps: AppDeps): Hono {
         await chain;
       } finally {
         unsubscribe();
+        unsubscribeDeltas();
       }
     });
   });
@@ -167,6 +176,35 @@ export function createApp(deps: AppDeps): Hono {
     if (!deps.engine.getRun(id)) return fail(c, 'not_found', `Run "${id}" does not exist.`, 404);
     const lines = deps.events.list(id).map(eventLine);
     return c.body(lines.join('\n') + (lines.length ? '\n' : ''), 200, { 'Content-Type': 'application/x-ndjson; charset=utf-8' });
+  });
+
+  app.get('/api/v1/agents', (c) => {
+    const ws = deps.workspace();
+    const body: AgentListResponse = { agents: [...ws.agents.values()].map(agentSummary), errors: ws.brokenAgents };
+    return json(c, body);
+  });
+
+  app.post('/api/v1/agents/reload', (c) => {
+    const { loaded, errors } = deps.reloadAgents();
+    const body: ReloadAgentsResponse = { loaded, errors };
+    return json(c, body);
+  });
+
+  app.get('/api/v1/agents/:id', (c) => {
+    const id = c.req.param('id');
+    const ws = deps.workspace();
+    const agent = ws.agents.get(id);
+    if (!agent) {
+      const broken = ws.brokenAgents.find((b) => b.id === id);
+      return fail(c, 'not_found', broken ? `Agent "${id}" failed to load: ${broken.message}` : `Agent "${id}" does not exist in this workspace.`, 404);
+    }
+    const body: AgentDetail = {
+      ...agentSummary(agent),
+      sections: agent.sections,
+      instructionsSource: Array.isArray(agent.definition.instructions) ? 'inline' : 'file',
+      documents: agent.definition.documents,
+    };
+    return json(c, body);
   });
 
   app.get('/api/v1/settings', (c) => {
@@ -212,6 +250,20 @@ function untilClosed(stream: { onAbort(l: () => void): void; write(s: string): P
     shutdown.addEventListener('abort', finish, { once: true });
     if (shutdown.aborted || stream.aborted || stream.closed) finish();
   });
+}
+
+function agentSummary(agent: LoadedAgent): AgentSummary {
+  const d = agent.definition;
+  return {
+    id: d.id,
+    name: d.name,
+    description: d.description,
+    version: agent.version,
+    modelPolicy: { primary: d.modelPolicy.primary, fallbacks: d.modelPolicy.fallbacks, ...(d.modelPolicy.requires ? { requires: d.modelPolicy.requires as Record<string, unknown> } : {}) },
+    tools: d.tools.map((t) => t.id),
+    outputKind: d.output.kind,
+    review: d.review,
+  };
 }
 
 function serveSpa(c: Context, uiDist: string): Response {

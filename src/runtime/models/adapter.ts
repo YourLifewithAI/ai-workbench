@@ -1,6 +1,6 @@
 import type { CatalogEntry, ModelEvent, ModelRequest, ModelResponse } from '../../shared/model.js';
 
-export type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
+export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 /** Injected into every adapter call; adapters never read env or call global fetch (D-01, D-33). */
 export interface AdapterContext {

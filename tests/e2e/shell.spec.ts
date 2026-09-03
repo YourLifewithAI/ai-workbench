@@ -38,12 +38,16 @@ test('Runs lists the seeded run, updates live when the CLI starts another, and o
 
   const cli = spawnSync(process.execPath, [process.env['WB_E2E_CLI']!, 'run', 'agent', 'echo', '--input', 'from the CLI during e2e', '--json', '--workspace', process.env['WB_E2E_WS']!], { encoding: 'utf8' });
   expect(cli.status, cli.stderr).toBe(0);
-  await expect(page.locator('tbody tr')).toHaveCount(rowsBefore + 1, { timeout: 10_000 });
+  const started = (JSON.parse(cli.stdout) as { runId: string }).runId;
+  // The workspace is shared with the other specs, so assert the new run arrives rather than a row count.
+  await expect(page.getByRole('link', { name: started })).toBeVisible({ timeout: 10_000 });
+  expect(await page.locator('tbody tr').count()).toBeGreaterThan(rowsBefore);
 
   await page.getByRole('link', { name: seeded }).click();
   await expect(page.getByRole('heading', { name: /^Run/ })).toBeVisible();
   await expect(page.getByTestId('event-type')).toHaveText(['run-started', 'step-started', 'model-started', 'model-completed', 'step-completed', 'run-completed']);
-  await page.locator('ol li').nth(2).locator('summary').click();
+  // Since RUN-01 the compiled prompt lives under the step's model call rather than inside the raw event.
+  await page.locator('details summary').filter({ hasText: 'mock/echo' }).first().click();
   await expect(page.getByRole('heading', { name: 'Compiled prompt' })).toBeVisible();
   await expect(page.getByText('seed run from e2e setup').first()).toBeVisible();
   await expectNoA11yViolations(page, 'RunDetail');
@@ -76,7 +80,7 @@ test('keyboard-only navigation reaches every route; both themes and reduced moti
   expect([...seen].sort()).toEqual([...names].sort());
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
-  for (const route of ['/dashboard', '/library', '/workflows', '/agents', '/review', '/models', '/memory', '/tools', '/evaluate']) {
+  for (const route of ['/dashboard', '/library', '/workflows', '/review', '/models', '/memory', '/tools', '/evaluate']) {
     await page.goto(base() + route + '#token=' + token());
     await expect(page.getByText(/Arrives in RUN-/)).toBeVisible();
   }

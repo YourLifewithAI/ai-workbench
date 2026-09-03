@@ -98,8 +98,11 @@ describe('DoD 7: database features and migrations', () => {
     const paths = workspacePaths(ws);
     const pkg = packagePaths();
     const opts = { file: paths.db, migrationsDir: pkg.migrations, backupsDir: paths.backups, keepBackups: 5 };
+    // Every migration on disk, whatever the current count: this assertion must not need editing per run.
+    const all = fs.readdirSync(pkg.migrations).filter((f) => /^\d{4}_.*\.sql$/.test(f)).map((f) => Number(f.slice(0, 4))).sort((a, b) => a - b);
+    expect(all.length).toBeGreaterThan(0);
     const first = await openDatabase(opts);
-    expect(first.applied).toEqual([1]);
+    expect(first.applied).toEqual(all);
     expect(first.backup).toBeNull();
     first.db.close();
     const second = await openDatabase(opts);

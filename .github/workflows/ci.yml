@@ -19,6 +19,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e
       - run: npm run dod -- 00
+      - run: npm run dod -- 01
   docker:
     runs-on: ubuntu-latest
     steps:

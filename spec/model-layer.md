@@ -122,4 +122,8 @@ Native, no SDK. It serves any catalog id (so `--provider mock` keeps per-step mo
                "error": "RateLimit", "finishReason": "stop", "latencyMs": 50, "usage": { "input": 10, "output": 5 } } }
 ```
 
+> Amendment (RUN-01, 2026-09-03): `respond.chunkDelayMs` paces the streamed chunks, so the example workspace can
+> demonstrate streaming — and an e2e case can assert it — with no provider key. `latencyMs` still delays the
+> whole call.
+
 With no matching fixture the mock echoes the last user text. It streams when asked, honors cancellation, and records every call in memory so tests can assert call counts. When its catalog entry has a `baseUrl`, the mock performs a real HTTP round trip to it through the injected `fetch`; the mock adapter itself starts a tiny loopback listener ("mock upstream") on an OS-assigned port at runtime start and the catalog entry's `baseUrl` is rewritten to it, so egress logging, redaction, the declared-endpoint path, and the Privacy Inspector are exercised end to end without a cloud provider and without touching the runtime's own port. Under `--provider mock`, cost is still computed from the *requested* catalog id's price rows, so budget tests work; `mock/echo` has no pricing and costs 0. Every DoD, e2e test, and example runs on it with zero keys and zero cost.

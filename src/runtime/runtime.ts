@@ -7,7 +7,7 @@ import { serve, type ServerType } from '@hono/node-server';
 import type { Hono } from 'hono';
 import { packagePaths, type PackagePaths } from './paths.js';
 import type { Bootstrap } from './bootstrap.js';
-import { loadWorkspace, type Workspace } from './workspace/loader.js';
+import { loadAgents, loadWorkspace, type BrokenAgent, type Workspace } from './workspace/loader.js';
 import { Redactor } from './security/redaction.js';
 import { loadCredentials, type Credentials } from './security/credentials.js';
 import { generateToken, writeTokenFile, acceptedHosts } from './security/auth.js';
@@ -15,8 +15,9 @@ import { createLogger, type Logger, type LogHandle } from './log/index.js';
 import { openDatabase, type Db } from './db/index.js';
 import { EventStore } from './engine/events.js';
 import { Engine } from './engine/run.js';
-import { AdapterRegistry } from './models/adapter.js';
+import { AdapterRegistry, type FetchLike } from './models/adapter.js';
 import { MockAdapter } from './models/adapters/mock/index.js';
+import { GoogleAdapter } from './models/adapters/google/index.js';
 import { createApp } from './api/app.js';
 import { findExecutable } from './util/exec.js';
 
@@ -37,6 +38,8 @@ export interface RuntimeOptions {
   quietLog?: boolean | undefined;
   /** Injectable FTS5 assertion (RUN-00 DoD 7). */
   assertFts5?: ((db: Db) => void) | undefined;
+  /** The fetch every adapter call receives; RUN-02 passes the egress checker, tests pass a replay. */
+  fetch?: FetchLike | undefined;
 }
 
 export interface RuntimeFile { port: number; pid: number; startedAt: string }
@@ -77,6 +80,7 @@ export class Runtime {
       hosts: () => this.hosts,
       health: () => ({ version: pkg.version, bind: this.bind, port: this.port, startedAt: this.startedAt }),
       denoAvailable: () => findExecutable('deno', opts.bootstrap.childEnvAllowlist['PATH']) !== null,
+      reloadAgents: () => this.reloadAgents(),
       uiDist: pkg.uiDist,
       shutdown: this.shutdown.signal,
     });
@@ -106,8 +110,19 @@ export class Runtime {
     const events = new EventStore(db, redactor);
     const registry = new AdapterRegistry();
     registry.register(new MockAdapter(workspace.paths.fixtures));
-    const engine = new Engine({ db, events, workspace: () => workspace, registry, credentials, redactor, log: logHandle.logger, providerOverride: opts.providerOverride ?? null });
+    registry.register(new GoogleAdapter());
+    const engine = new Engine({ db, events, workspace: () => workspace, registry, credentials, redactor, log: logHandle.logger, providerOverride: opts.providerOverride ?? null, ...(opts.fetch ? { fetch: opts.fetch } : {}) });
     return new Runtime(opts, pkg, workspace, db, redactor, credentials, logHandle, events, registry, engine);
+  }
+
+  /** Picks up edits to agent.json and instructions.md without a restart; a broken file becomes a listed error. */
+  reloadAgents(): { loaded: number; errors: BrokenAgent[] } {
+    const { agents, broken } = loadAgents(this.workspace.paths.agents);
+    this.workspace.agents = agents;
+    this.workspace.brokenAgents = broken;
+    (this.registry.get('mock') as MockAdapter | undefined)?.reload();
+    this.log.info({ loaded: agents.size, errors: broken.length }, 'agents reloaded');
+    return { loaded: agents.size, errors: broken };
   }
 
   get bind(): string { return this.opts.bind ?? this.opts.bootstrap.bind; }

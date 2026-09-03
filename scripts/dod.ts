@@ -24,5 +24,17 @@ if (!fs.existsSync(path.join(root, 'dist', 'cli.js')) || !fs.existsSync(path.joi
   if (build.status !== 0) process.exit(build.status ?? 1);
 }
 const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-const result = spawnSync(npx, ['vitest', 'run', '--project', 'dod', suite], { cwd: root, stdio: 'inherit' });
-process.exit(result.status ?? 1);
+const unit = spawnSync(npx, ['vitest', 'run', '--project', 'dod', suite], { cwd: root, stdio: 'inherit' });
+if (unit.status !== 0) process.exit(unit.status ?? 1);
+
+// The brief's DoD also names browser cases; they are tagged `@run-nn` in tests/e2e (spec/api-and-cli.md §Gates).
+const tag = `@run-${nn}`;
+const tagged = fs.readdirSync(path.join(root, 'tests', 'e2e'))
+  .some((f) => f.endsWith('.spec.ts') && fs.readFileSync(path.join(root, 'tests', 'e2e', f), 'utf8').includes(tag));
+if (!tagged) {
+  process.stdout.write(`dod: no e2e case tagged ${tag}\n`);
+  process.exit(0);
+}
+process.stdout.write(`dod: running the e2e cases tagged ${tag}\n`);
+const e2e = spawnSync(npx, ['playwright', 'test', '--grep', tag], { cwd: root, stdio: 'inherit' });
+process.exit(e2e.status ?? 1);

@@ -1,5 +1,5 @@
 // Every call carries the bearer token; SSE is fetch-based (never EventSource) so it can too.
-import type { CreateRunRequest, RunDetail, RunSummary, SettingsResponse } from '../../shared/api/index.js';
+import type { AgentDetail, AgentListResponse, CreateRunRequest, ReloadAgentsResponse, RunDetail, RunSummary, SettingsResponse } from '../../shared/api/index.js';
 import type { EventRecord } from '../../shared/events.js';
 import { getToken, markUnauthorized } from './auth.js';
 
@@ -37,6 +37,10 @@ export const api = {
   settings: (): Promise<SettingsResponse> => apiFetch('/settings').then((r) => r.json() as Promise<SettingsResponse>),
   runs: (): Promise<RunSummary[]> => apiFetch('/runs').then((r) => r.json() as Promise<{ runs: RunSummary[] }>).then((b) => b.runs),
   run: (id: string): Promise<RunDetail> => apiFetch(`/runs/${encodeURIComponent(id)}`).then((r) => r.json() as Promise<RunDetail>),
+  agents: (): Promise<AgentListResponse> => apiFetch('/agents').then((r) => r.json() as Promise<AgentListResponse>),
+  agent: (id: string): Promise<AgentDetail> => apiFetch(`/agents/${encodeURIComponent(id)}`).then((r) => r.json() as Promise<AgentDetail>),
+  reloadAgents: (): Promise<ReloadAgentsResponse> => apiFetch('/agents/reload', { method: 'POST' }).then((r) => r.json() as Promise<ReloadAgentsResponse>),
+  trace: (id: string): Promise<string> => apiFetch(`/runs/${encodeURIComponent(id)}/trace.jsonl`).then((r) => r.text()),
   createRun: (body: CreateRunRequest): Promise<{ runId: string }> =>
     apiFetch('/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<{ runId: string }>),
 };

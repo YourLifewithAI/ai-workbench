@@ -25,6 +25,7 @@ export const RunSummary = z.object({
 export type RunSummary = z.infer<typeof RunSummary>;
 
 export const StepSummary = z.object({ stepId: z.string(), kind: z.string(), state: z.string(), modelId: z.string().nullable(), costUsd: z.number(), startedAt: z.string().nullable(), finishedAt: z.string().nullable() });
+export type StepSummary = z.infer<typeof StepSummary>;
 
 export const RunDetail = RunSummary.extend({
   inputs: z.record(z.string(), z.unknown()),
@@ -47,6 +48,37 @@ export const SettingsResponse = z.object({
   sandbox: z.object({ deno: z.boolean() }),
 });
 export type SettingsResponse = z.infer<typeof SettingsResponse>;
+
+export const AgentModelPolicy = z.object({ primary: z.string(), fallbacks: z.array(z.string()), requires: z.record(z.string(), z.unknown()).optional() });
+
+export const AgentSummary = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  version: z.string(),
+  modelPolicy: AgentModelPolicy,
+  tools: z.array(z.string()),
+  outputKind: z.string(),
+  review: z.string(),
+});
+export type AgentSummary = z.infer<typeof AgentSummary>;
+
+/** A definition that failed to load is data, not a crash: the Agents screen shows it with the file and the reason. */
+export const AgentLoadError = z.object({ id: z.string(), file: z.string(), message: z.string() });
+export type AgentLoadError = z.infer<typeof AgentLoadError>;
+
+export const AgentListResponse = z.object({ agents: z.array(AgentSummary), errors: z.array(AgentLoadError) });
+export type AgentListResponse = z.infer<typeof AgentListResponse>;
+
+export const AgentDetail = AgentSummary.extend({
+  sections: z.array(z.object({ name: z.string(), text: z.string() })),
+  instructionsSource: z.enum(['inline', 'file']),
+  documents: z.array(z.string()),
+});
+export type AgentDetail = z.infer<typeof AgentDetail>;
+
+export const ReloadAgentsResponse = z.object({ loaded: z.number().int(), errors: z.array(AgentLoadError) });
+export type ReloadAgentsResponse = z.infer<typeof ReloadAgentsResponse>;
 
 export const HealthResponse = z.object({ version: z.string(), bind: z.string(), port: z.number().int(), startedAt: z.string() });
 export type HealthResponse = z.infer<typeof HealthResponse>;
