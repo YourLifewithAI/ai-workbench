@@ -1,6 +1,6 @@
 # RUN-07 handoff — Network tools with containment, and the research briefing
 
-**Branch:** `run/07-web` · **Head:** _(filled at push)_ · **Status:** awaiting verification
+**Branch:** `run/07-web` · **Head:** `ed12b07` · **Status:** awaiting verification
 
 ## Built
 - `src/runtime/security/dns.ts` — resolution the checker owns. `resolveAndPin` asks the resolver once, checks *every* answer, and returns the single address the socket will use. One blocked answer blocks the request: a name that resolves to a public address and a private one is not half-safe.
