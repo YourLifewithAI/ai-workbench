@@ -5,8 +5,13 @@
   "description": "A local-first, model-agnostic runtime for automated multi-agent, multi-model workflows.",
   "license": "Apache-2.0",
   "type": "module",
-  "engines": { "node": ">=22" },
-  "bin": { "workbench": "dist/cli.js", "wb": "dist/cli.js" },
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "workbench": "dist/cli.js",
+    "wb": "dist/cli.js"
+  },
   "scripts": {
     "dev": "tsx src/runtime/cli/main.ts dev",
     "build": "npm run build:ui && npm run build:runtime",
@@ -25,16 +30,19 @@
     "@hono/node-server": "2.1.1",
     "@tanstack/react-query": "5.102.8",
     "better-sqlite3": "13.0.3",
+    "clsx": "2.1.1",
     "commander": "15.0.0",
     "hono": "4.13.5",
     "pino": "10.3.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-router-dom": "7.18.3",
+    "tailwind-merge": "3.6.0",
     "ulid": "3.0.2",
     "zod": "4.5.4"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@eslint/js": "9.39.5",
     "@playwright/test": "1.62.1",
     "@tailwindcss/vite": "4.3.3",

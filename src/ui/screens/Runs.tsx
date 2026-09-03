@@ -1,0 +1,97 @@
+import { useEffect } from 'react';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import { Link, useNavigate } from 'react-router-dom';
+import type { RunSummary } from '../../shared/api/index.js';
+import { api, subscribeSse } from '../lib/api.js';
+import { EmptyState } from '../components/EmptyState.js';
+import { Button } from '../components/ui/button.js';
+import { Badge } from '../components/ui/card.js';
+
+export function stateTone(state: RunSummary['state']): 'good' | 'bad' | 'busy' | 'neutral' {
+  if (state === 'completed') return 'good';
+  if (state === 'failed' || state === 'cancelled' || state === 'interrupted') return 'bad';
+  if (state === 'running' || state === 'queued') return 'busy';
+  return 'neutral';
+}
+
+/** Keeps the runs list live: any run-* event on the workspace stream refetches it (no reload needed, DoD 4). */
+export function useLiveRuns() {
+  const client = useQueryClient();
+  useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
+    const loop = async (): Promise<void> => {
+      while (!cancelled) {
+        try {
+          await subscribeSse('/runs/events', (m) => { if (m.event && m.event.startsWith('run-')) void client.invalidateQueries({ queryKey: ['runs'] }); }, controller.signal);
+        } catch {
+          // 401 ends the session elsewhere; anything else retries after a pause
+        }
+        if (!cancelled) await new Promise((r) => setTimeout(r, 2000));
+      }
+    };
+    void loop();
+    return () => { cancelled = true; controller.abort(); };
+  }, [client]);
+}
+
+export function useRunExample() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.createRun({ kind: 'agent', id: 'echo', inputs: { input: 'Hello from the workbench. Echo this back.' }, provider: 'mock' }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['runs'] }),
+  });
+}
+
+export function Runs() {
+  const q = useQuery({ queryKey: ['runs'], queryFn: api.runs });
+  useLiveRuns();
+  const navigate = useNavigate();
+  const example = useRunExample();
+
+  return (
+    <section aria-labelledby="screen-title">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <h1 id="screen-title" className="text-2xl font-semibold">Runs</h1>
+        <Button variant="secondary" size="sm" onClick={() => example.mutate(undefined, { onSuccess: ({ runId }) => navigate(`/runs/${runId}`) })} disabled={example.isPending}>
+          {example.isPending ? 'Starting…' : 'Run the example'}
+        </Button>
+      </div>
+      {example.isError ? <p role="alert" className="mt-3 text-sm text-red-700 dark:text-red-300">{example.error.message}</p> : null}
+      {q.isPending ? <p className="mt-4" role="status">Loading runs…</p> : null}
+      {q.isError ? <p className="mt-4 text-red-700 dark:text-red-300" role="alert">Could not load runs: {q.error.message}</p> : null}
+      {q.data && q.data.length === 0 ? (
+        <div className="mt-6">
+          <EmptyState title="Nothing has run yet. Runs appear here with what they cost and produced.">
+            <Button onClick={() => example.mutate(undefined, { onSuccess: ({ runId }) => navigate(`/runs/${runId}`) })} disabled={example.isPending}>Run the example</Button>
+          </EmptyState>
+        </div>
+      ) : null}
+      {q.data && q.data.length > 0 ? (
+        <table className="mt-4 w-full text-left text-sm">
+          <caption className="sr-only">Runs, newest first</caption>
+          <thead>
+            <tr className="border-b border-gray-200 text-gray-600 dark:border-gray-800 dark:text-gray-400">
+              <th scope="col" className="py-2 pr-3 font-medium">Run</th>
+              <th scope="col" className="py-2 pr-3 font-medium">State</th>
+              <th scope="col" className="py-2 pr-3 font-medium">Agent</th>
+              <th scope="col" className="py-2 pr-3 font-medium">Started</th>
+              <th scope="col" className="py-2 pr-3 font-medium">Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            {q.data.map((r) => (
+              <tr key={r.id} className="border-b border-gray-100 dark:border-gray-800">
+                <td className="py-2 pr-3"><Link to={`/runs/${r.id}`} className="font-mono text-xs text-blue-700 underline-offset-4 hover:underline dark:text-sky-300">{r.id}</Link></td>
+                <td className="py-2 pr-3"><Badge tone={stateTone(r.state)}>{r.state}</Badge></td>
+                <td className="py-2 pr-3">{r.agentId ?? r.workflowId ?? '—'}</td>
+                <td className="py-2 pr-3"><time dateTime={r.startedAt}>{new Date(r.startedAt).toLocaleString()}</time></td>
+                <td className="py-2 pr-3">${r.spent.costUsd.toFixed(4)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+    </section>
+  );
+}
