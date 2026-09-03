@@ -25,7 +25,7 @@ export const Agent = z.object({
     requires: ModelRequirements.optional(),
   }),
   tools: z.array(z.object({ id: z.string(), version: z.string().optional() })).default([]),
-  permissions: Permissions.default({}),
+  permissions: Permissions.prefault({}),
   memory: z.object({ read: z.array(Scope), write: z.array(Scope) }).default({ read: [], write: [] }),
   output: z.object({
     kind: z.enum(['text', 'json', 'document']),
