@@ -1,6 +1,6 @@
 # RUN-08 handoff — Memory and knowledge
 
-**Branch:** `run/08-memory` · **Head:** _(filled at push)_ · **Status:** awaiting verification
+**Branch:** `run/08-memory` · **Head:** `8fe0a33` · **Status:** awaiting verification
 
 ## Built
 - `src/runtime/db/migrations/0010_memory.sql` — `memory_items`, `memory_fts`, and `runs.external_tainted`.
