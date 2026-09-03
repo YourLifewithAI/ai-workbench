@@ -38,6 +38,9 @@ jobs:
         run: rm -rf node_modules/deno node_modules/.bin/deno node_modules/@deno
       - run: '! command -v deno'
       - run: npm run build
+      # `npm run dod -- 09` runs the browser case tagged @run-09 as well, and that case is the point here: it is
+      # the one that reads the "no sandbox" copy on the Tools screen.
+      - run: npx playwright install --with-deps chromium
       - run: npx vitest run --project security tests/security/sec-21-24-sandbox.test.ts
       - run: npm run dod -- 09
 
