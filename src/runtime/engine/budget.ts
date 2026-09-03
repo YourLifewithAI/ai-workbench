@@ -96,7 +96,11 @@ export class RunBudget {
     if (this.spent.costUsd >= this.limits.maxCostUsd) {
       return { reason: 'budget_exceeded', budget: 'maxCostUsd', allowWrapUp: true, message: `This run reached its cost budget ($${this.limits.maxCostUsd.toFixed(2)}).` };
     }
-    if (this.spent.modelCalls >= this.limits.maxModelCalls) {
+    // One call is held back so a bounded run can still say what it produced: with a budget of six, five calls do
+    // the work and the sixth is the wrap-up. Cost cannot be reserved this way — a call's price is not known
+    // until it returns — so the wrap-up after a cost stop may carry the total slightly past the limit.
+    const productive = this.wrapUpUsed ? this.limits.maxModelCalls : Math.max(0, this.limits.maxModelCalls - 1);
+    if (this.spent.modelCalls >= productive) {
       return { reason: 'budget_exceeded', budget: 'maxModelCalls', allowWrapUp: true, message: `This run reached its model-call budget (${this.limits.maxModelCalls} calls).` };
     }
     return null;

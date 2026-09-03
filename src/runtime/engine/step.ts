@@ -17,7 +17,7 @@ import type { EventStore } from './events.js';
 import { assemblePrompt, type KnowledgeDocument } from './prompt.js';
 import { harnessSection } from './harness.js';
 import { WRAP_UP_INSTRUCTION } from './budget.js';
-import type { RunBudget } from './budget.js';
+import type { BudgetKind, BudgetStop, RunBudget } from './budget.js';
 import { parseJsonOutput, validateJson } from '../../shared/jsonschema.js';
 import type { CatalogEntry, CompiledRequest, ContentBlock, JsonSchema, Message, ModelErrorShape, ModelResponse } from '../../shared/model.js';
 import type { LoadedAgent } from '../../shared/agent.js';
@@ -126,7 +126,7 @@ export class StepRunner {
     const knowledge = this.knowledgeFor(agent, input.project);
     const transcript: Message[] = [{ role: 'user', content: [{ type: 'text', text: input.task }] }];
     let repairs = 0;
-    let wrapUp = false;
+    let wrapUp: BudgetStop | null = null;
 
     for (;;) {
       if (signal.aborted) throw new StepFailure('cancelled', null, 'the run was cancelled');
@@ -138,12 +138,15 @@ export class StepRunner {
           if (!stop.allowWrapUp || !budget.takeWrapUp()) {
             throw new StepFailure(stop.reason, { budget: stop.budget }, stop.message);
           }
-          this.deps.events.append(input.runId, input.stepId, 'budget-warning', { budget: stop.budget, wrapUp: true, message: stop.message });
-          wrapUp = true;
+          // One `budget-warning` per budget (D-14): if 80% already announced this one, the wrap-up is not a second.
+          if (!budget.hasWarned(stop.budget as BudgetKind)) {
+            this.deps.events.append(input.runId, input.stepId, 'budget-warning', { budget: stop.budget, wrapUp: true, message: stop.message });
+          }
+          wrapUp = stop;
         }
       }
 
-      const prompt = assemblePrompt(agent, input.task, this.harnessFor(input, wrapUp), { knowledge });
+      const prompt = assemblePrompt(agent, input.task, this.harnessFor(input, wrapUp !== null), { knowledge });
       const request: CompiledRequest = {
         ...prompt.compiled,
         messages: transcript,
@@ -170,17 +173,21 @@ export class StepRunner {
       }
 
       const text = textOf(response.content);
-      if (!schema) return { output: text, value: text, modelId: entry.id, costUsd: 0, partial: wrapUp };
+      const problems = schema ? validateAgainst(text, schema) : null;
 
-      const problems = validateAgainst(text, schema);
-      if (!problems) {
-        const parsed = parseJsonOutput(text);
-        return { output: text, value: parsed.ok ? parsed.value : text, modelId: entry.id, costUsd: 0, partial: wrapUp };
+      // The wrap-up turn is the run's last word, not a step that succeeded: its summary is filed as `partial`
+      // and the run still fails on the budget that ended it (D-14).
+      if (wrapUp) {
+        const outcome: StepOutcome = { output: text, value: text, modelId: entry.id, costUsd: 0, partial: true };
+        throw new StepFailure(wrapUp.reason, { budget: wrapUp.budget, ...(problems ? { problems } : {}) }, wrapUp.message, outcome);
       }
-      if (wrapUp || repairs >= MAX_REPAIR_TURNS) {
-        const failure = new StepFailure('schema_validation', { problems }, `The output does not match this step's schema: ${problems.join('; ')}.`,
-          wrapUp ? { output: text, value: text, modelId: entry.id, costUsd: 0, partial: true } : undefined);
-        throw failure;
+      if (!problems) {
+        if (!schema) return { output: text, value: text, modelId: entry.id, costUsd: 0, partial: false };
+        const parsed = parseJsonOutput(text);
+        return { output: text, value: parsed.ok ? parsed.value : text, modelId: entry.id, costUsd: 0, partial: false };
+      }
+      if (repairs >= MAX_REPAIR_TURNS) {
+        throw new StepFailure('schema_validation', { problems }, `The output does not match this step's schema: ${problems.join('; ')}.`);
       }
       repairs += 1;
       transcript.push({ role: 'user', content: [{ type: 'text', text: repairInstruction(problems) }] });

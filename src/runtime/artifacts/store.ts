@@ -115,8 +115,8 @@ export class ArtifactStore {
     };
     const commit = this.db.transaction(() => {
       this.db.prepare(`INSERT INTO document_versions (id, document_id, parent_id, hash, content, created_by, run_id, step_id, agent_version, model_id, partial, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`)
-        .run(version.id, version.document_id, version.parent_id, version.hash, version.content, version.created_by, version.run_id, version.step_id, version.agent_version, version.model_id, version.created_at);
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(version.id, version.document_id, version.parent_id, version.hash, version.content, version.created_by, version.run_id, version.step_id, version.agent_version, version.model_id, version.partial, version.created_at);
       this.db.prepare('UPDATE documents SET latest_version_id = ? WHERE id = ?').run(version.id, doc!.id);
       this.reindex(doc!.id, version.id, content);
     });

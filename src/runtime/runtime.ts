@@ -181,6 +181,11 @@ export class Runtime {
   }
 
   /** Picks up edits to agent.json and instructions.md without a restart; a broken file becomes a listed error. */
+  /** The scripted provider, for tests that need to see exactly which calls were made (D-37). */
+  get mockAdapter(): MockAdapter {
+    return this.registry.get('mock') as MockAdapter;
+  }
+
   /** Agents and workflows reload together: a workflow names agents, so half a reload is a confusing workspace. */
   reloadAgents(): { loaded: number; errors: BrokenAgent[] } {
     const { agents, broken } = loadAgents(this.workspace.paths.agents);

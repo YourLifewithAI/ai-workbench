@@ -6,8 +6,10 @@ import { loadWorkspace } from '../workspace/loader.js';
 import { Redactor } from '../security/redaction.js';
 import { loadCredentials } from '../security/credentials.js';
 import { ArtifactStore } from '../artifacts/store.js';
+import { EventStore } from '../engine/events.js';
+import type { Db } from '../db/index.js';
 
-export interface OpenedStore { store: ArtifactStore; close: () => Promise<void> }
+export interface OpenedStore { store: ArtifactStore; db: Db; events: EventStore; close: () => Promise<void> }
 
 export async function openWorkspaceStore(workspaceDir: string): Promise<OpenedStore> {
   const pkg = packagePaths();
@@ -23,5 +25,5 @@ export async function openWorkspaceStore(workspaceDir: string): Promise<OpenedSt
   });
   const store = new ArtifactStore(db, workspacePaths(workspaceDir).projects, redactor);
   store.adoptProjectDirectories();
-  return { store, close: async () => { db.close(); } };
+  return { store, db, events: new EventStore(db, redactor), close: async () => { db.close(); } };
 }
