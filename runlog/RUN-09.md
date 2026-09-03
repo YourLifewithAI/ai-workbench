@@ -1,6 +1,6 @@
 # RUN-09 handoff — Sandbox, filesystem, code execution, MCP, and the website workflow
 
-**Branch:** `run/09-sandbox` · **Head:** _(filled at push)_ · **Status:** awaiting verification
+**Branch:** `run/09-sandbox` · **Head:** `fa40f78` · **Status:** awaiting verification
 
 ## Built
 - `src/runtime/sandbox/deno.ts` — the sandbox (D-30). `sandboxFlags()` generates permissions from the effective policy and nothing else: read roots, write roots, `--no-prompt`, a heap ceiling, and `--deny-net --deny-run --deny-ffi` named explicitly so a future Deno that widens a default cannot widen this sandbox silently. Wall clock, memory and output limits, with a kill that is the result rather than an error to retry. `runCommand()` is `shell`, in the same module because process spawning belongs in one place.
