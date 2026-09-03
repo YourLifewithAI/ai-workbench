@@ -1,0 +1,76 @@
+# API and CLI
+
+*Prose cap: 550 words. Decisions cited: D-21, D-14, D-37, D-45.*
+
+Every request and response body is a Zod schema in `src/shared/api/`; the UI and the CLI share one hand-written typed client built on those schemas. Errors are `{ error: { code, message, details? } }` with `code ∈ unauthorized | forbidden | not_found | validation | conflict | budget | unavailable | internal` and conventional status codes.
+
+## HTTP (`/api/v1`, bearer token required)
+
+Order of checks: `Host`/`Origin` (403) before token (401). Requests without an `Origin` header (the CLI) pass the origin check; when present it must be `http://127.0.0.1:<port>` or `http://localhost:<port>`. Static files and `/api/v1/health` need no token but still get the Host check and CSP.
+
+| Resource | Routes |
+|---|---|
+| runs | `POST /runs` `{ kind: 'agent'|'workflow', id, inputs, project?, overrides?, provider?: 'mock' }` → `{ runId }` · `GET /runs?state=&kind=&project=` · `GET /runs/:id` (summary, steps, spent) · `POST /runs/:id/cancel` · `POST /runs/:id/resume` · `GET /runs/:id/events?after=<seq>` (replays stored events after `seq`, then streams live ones; SSE `id` = seq, `event` = type, `data` = the JSONL line; the stream closes after a terminal event) · `GET /runs/events` (workspace-level SSE of `run-*` events for every run, feeding lists and the Dashboard) · `GET /runs/:id/trace.jsonl` · `GET /runs/:id/privacy` |
+| agents | `GET /agents` (incl. load errors) · `GET /agents/:id` · `POST /agents/reload` |
+| workflows | `GET /workflows` · `GET /workflows/:id` |
+| projects | `GET /projects` · `POST /projects` · `GET /projects/:slug` · `GET /projects/:slug/export` · `POST /import/project` |
+| documents | `GET /projects/:slug/documents` · `GET /documents/:id` · `GET /documents/:id/versions` · `PUT /documents/:id` (human edit → version) · `POST /documents/:id/rerun-downstream` · `POST /runs/:id/rerun` `{ model? }` |
+| review | `GET /review?state=unreviewed` · `POST /review/:id` (`rate | edit | reject | continue`) |
+| approvals | `GET /approvals?state=pending` · `POST /approvals/:id` (`allow | deny`, `remember?`) |
+| models | `GET /models` (catalog + availability + data policy) · `POST /models/refresh` (Ollama listing) |
+| memory | `GET /memory?q=&scope=` · `POST /memory` · `DELETE /memory/:id?redactTraces=true` |
+| knowledge | `POST /projects/:slug/knowledge` (ingest) · `GET /knowledge/search?q=` |
+| schedules | `GET /schedules` · `PUT /schedules/:id` |
+| tools | `GET /tools` (built-ins, MCP, sandbox status, grant matrix) · `PUT /tools/grants` |
+| experiments | `GET/POST /datasets` · `GET /datasets/:id/export` · `POST /datasets/import` · `GET/POST /experiments` · `GET /experiments/:id/results` · `POST /compare` |
+| export / import | `GET /export/agent/:id` · `GET /export/workflow/:id` · `GET /export/memory?scope=` · `GET /export/runs?ids=` · `GET /export/workspace` · `POST /import/agent` · `POST /import/workflow` · `POST /import/memory` (project export/import are under projects) |
+| settings | `GET /settings` → `{ workspacePath, networkMode, budgets, execution, retention, providersConfigured: string[], sandbox: { deno: boolean } }` · `PUT /settings` (rewrites `config/workbench.json`) · `PUT /settings/credentials` |
+| push | `GET /push/vapid-public-key` · `POST /push/subscribe` `{ endpoint, keys, deviceLabel, events }` · `DELETE /push/subscriptions/:id` (D-61) |
+| health | `GET /health` → `{ version, bind, port, startedAt }` (no token) |
+
+Shapes used everywhere: `inputs` is an object (`run agent --input <text>` sends `{ input: <text> }`; workflows take their `inputs` schema); a single-agent run's `outputs` is `{ output: <text | validated JSON> }`, a workflow's is its `outputs` record; `spent` is `{ modelCalls, toolCalls, costUsd, wallClockMs }`. `POST /runs` returns 202. `GET /runs` items are `{ id, kind, state, agentId?, workflowId?, project?, startedAt, finishedAt?, spent }`.
+
+Long-running runs are observable from any client: a reconnecting client passes the last `seq`, and a closed tab loses nothing.
+
+## CLI (`workbench`, alias `wb`) — D-45
+
+Parity with the UI, `--json` everywhere, exit 0 on success, `--workspace <path>` on every command (else `WORKBENCH_WORKSPACE`). Commands other than `init`, `doctor`, `start`, and `dev` are HTTP clients that locate the runtime via `data/runtime.json` and `data/runtime.token`. A runtime is *alive* when the file's `pid` is running and `GET /health` on its port returns the same `startedAt`; a stale file is deleted. If none is alive the command starts an ephemeral in-process runtime for its own duration: it binds an OS-assigned port, keeps its token in memory, writes neither `runtime.json` nor `runtime.token`, and logs to the same log file. `--detach` without a live runtime is refused with a message saying to `start` one. This is how agents operate the workbench headlessly, including the agents that test their own work.
+
+```
+workbench init <path>                      copy examples/workspace, seed config/, write workspace.json; refuses if one exists
+workbench start [--open] [--port n|0] [--bind host] [--provider mock] [--expose <origin>]     blocks; prints the tokened URL once; SIGTERM closes cleanly; --provider mock mocks every run the runtime starts (UI, schedules, e2e); --expose adds <origin> to the accepted Host/Origin sets
+workbench dev                              start + Vite dev server with proxy (CSP relaxed for HMR) — from RUN-01
+workbench doctor                           workspace validity, FTS5, Deno, credentials present per provider, disabled tools — whichever checks exist at the current run; exit 1 on invalid workspace
+workbench run agent <id> --input <text> [--project slug] [--provider mock] [--model id] [--detach] [--json]
+workbench run workflow <id> --inputs-file f.json [--project slug] [--provider mock] [--detach] [--json]
+workbench runs list|show|cancel|resume <id>
+workbench trace <runId> [--json]           JSONL to stdout (a readable timeline without --json)
+workbench review list|rate|edit|reject|continue
+workbench projects list|create|show      workbench documents list|show|versions
+workbench schedules list|set|enable|disable    workbench tools list|grant|revoke
+workbench settings get|set               workbench datasets list|create|export|import
+workbench experiments run|results        workbench compare --step <id> --models a,b,c
+workbench approvals list|allow|deny <id> [--remember]
+workbench models list|refresh
+workbench memory search|add|delete
+workbench export project|agent|workflow|memory|runs|workspace <…> --out <dir>
+workbench import project|agent|workflow|memory|knowledge <path>
+```
+
+`run` blocks until the run finishes and prints `{ runId, state, outputs, costUsd }` with `--json`; `--detach` prints `{ runId }` immediately. `--provider mock` forces every model policy onto the mock adapter (which serves any catalog id, so per-step overrides stay distinguishable in fixtures) and switches every other external service (search) to its mock (D-37).
+
+## Gates (`package.json`)
+
+```
+npm run check      typecheck (both tsconfigs) · lint (boundaries, banned globals) · unit · security (tests/security) · secret scan
+npm run e2e        Playwright (chromium) against a temp workspace started by global setup on --port 0
+npm run contract   adapter contract suite [-- --live <adapter>]   (WB_LIVE=1 is the same switch for dod/e2e live cases)
+npm run dod -- 05  builds, then tests/dod/RUN-05.test.ts + the e2e tagged @run-05
+npm run build      SPA + runtime + CLI bin to dist/
+```
+
+The secret scan is a small in-repo scanner over tracked files plus `dist/` (excluding `node_modules`, `.git`, and `spec/`), with length-bounded patterns — `AIza[0-9A-Za-z_-]{30,}`, `sk-ant-[0-9A-Za-z_-]{40,}`, `sk-[0-9A-Za-z]{40,}`, `ghp_[0-9A-Za-z]{36,}`, `xox[abp]-[0-9A-Za-z-]{20,}`, `WORKBENCH_CRED_[A-Z]+=\S{16,}` — exposed as a function so SEC-31 can run it against a planted file whose key is assembled at test time.
+
+## JSONL trace
+
+One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` — the `events` row with `payload` parsed. Types: `run-started, run-queued, step-started, step-completed, step-failed, step-skipped, model-started, model-completed, model-aborted, fallback-selected, provider-meta-dropped, tool-requested, permission-decided, approval-requested, approval-decided, tool-completed, egress-denied, memory-retrieved, memory-written, memory-redacted, artifact-written, review-decided, budget-warning, run-cancelled, run-completed, run-failed, run-interrupted`. Payloads are in `data-model.md`. Debugging a run is reading this file.

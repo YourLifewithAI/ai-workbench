@@ -1,0 +1,91 @@
+# Decisions
+
+Settled (61). Each has a one-line rationale. D-46 onward come from `research.md`. Cite as `D-nn`. Changing one is a spec amendment, not a code comment.
+
+## Model layer
+
+- **D-01** Own thin canonical types; adapters are implemented over `@ai-sdk/*` provider packages; no SDK type crosses the adapter boundary. — *Reuse the transport/normalization treadmill; keep the interface ours.*
+- **D-02** Every message and content block carries optional `providerMeta`, preserved round-trip; requests carry `providerOptions`; usage keeps `raw`. — *Reasoning signatures, cache control, and structured-output dialects need a lossless side channel.*
+- **D-03** The stream event set is fixed: `text-delta, reasoning-delta, tool-call-start, tool-call-delta, tool-call-end, usage, finish, error`. — *The hardest adapter surface is specified once.*
+- **D-04** Fallback happens only at step boundaries. Within-provider retry (max 2, backoff) comes first; a partial stream is discarded with a `model-aborted` event; the canonical transcript is recompiled for the next adapter; provider-opaque blocks are dropped with a `provider-meta-dropped` event. — *Mid-stream cross-provider continuation is undefined and would fail.*
+- **D-05** Normalized errors carry `retryable` and `action: retry | fallback | abort`; `ContentFilterError` exists. — *Fallback policy is data, not ad hoc.*
+- **D-06** No scoring router. Selection = the agent's model policy, then the step override, filtered by catalog capabilities and network mode. — *Scored routing needs experiment history that does not exist yet; named "best quality" policies would be hidden vendor opinion.*
+- **D-07** Adapters, in order: mock, Google, OpenAI-compatible (OpenAI, OpenRouter, Ollama, LM Studio, vLLM), Anthropic. Ollama's management API is used for listing and availability. No separate "local adapter". — *The owner has Gemini keys; one compatible adapter covers every local runtime.*
+- **D-08** The catalog is a user-maintained `config/models.json` with pricing (effective dates) and `dataPolicy`; cost is computed at call time and stored. — *Catalog is data not code; history must not change when prices do; provider training policy is the real privacy exposure.*
+- **D-09** A prompt is ordered named sections, content-hashed. No compiler, no compiler plugins; provider tweaks live in adapters. — *Versioning is the valuable part.*
+- **D-10** Agent version and prompt version are content hashes recorded on every model call. — *A reproducibility record without a versioning workflow.*
+
+## Agents, workflows, execution
+
+- **D-11** A workflow is a versioned DAG of `agent | tool | map` steps with `dependsOn`, `when`, templating, a per-step model override, and an optional review gate. An ensemble is `map` over a model list plus a judge step. — *Multi-agent, model-per-step orchestration in one small grammar.*
+- **D-12** Dynamic orchestration is the `agent.delegate` tool: child runs with permissions ⊆ parent, a budget carved from the parent, depth ≤ 3. — *Planners get a tool, not a second engine.*
+- **D-13** Automated by default. The review queue is non-blocking; blocking gates are per-step opt-in; approvals are a separate security queue that denies on timeout (default 30 min) and remembers only the narrowest rule. — *The human is verifier and tastemaker, not a stage.*
+- **D-14** Runs have explicit states, per-run budgets, a workspace daily spend cap, cancel via `AbortSignal`, and resume from the event log at step granularity. — *Unbounded loops and lost work are the first-week failures.*
+- **D-15** An in-process cron scheduler with persisted schedules and a `catchUp` policy. Runs survive the browser closing; a runtime restart marks them `interrupted` and they resume. — *Recurring work without a daemon installer.*
+
+## Artifacts and memory
+
+- **D-16** Projects, documents, files, and artifact versions are first-class. Text versions live in SQLite; binaries on disk under the project; every version links to the run and step (or human) that produced it. — *The work product has a home.*
+- **D-17** Memory is one table. `scope` replaces the taxonomy; `trust` derives from provenance; `supersedes` replaces edits; there is no `confidence`. Three write paths (tool, UI, import); FTS + recency read path; retrieved snapshots go in the trace; deletion offers trace redaction. — *Write path and read path are the entire memory system.*
+- **D-18** SQLite via `better-sqlite3`, WAL, FTS5 required, one file per workspace. No replaceable-persistence abstraction. sqlite-vec is deferred. — *Exports are the portability story; FTS over curated content beats embeddings at this scale.*
+- **D-19** `schemaVersion` on every persisted JSON and every export; numbered SQL migrations run at startup after an automatic backup; old event payload versions render best-effort. — *A local-first app upgrades user databases forever.*
+- **D-20** Config precedence: shipped defaults < `config/workbench.json` < agent/workflow definition < per-run overrides. Later wins; objects deep-merge; arrays replace; per-run overrides may only narrow permissions and budgets. Permissions are never merged; they compose only by intersection (D-26). — *Four levels, one rule.*
+
+## Process and repository
+
+- **D-21** One Node process: Hono API + SSE + static SPA + engine + scheduler, bound to 127.0.0.1, per-start bearer token, Host/Origin validation, strict CSP. — *The API that spends keys is authenticated from the first run.*
+- **D-22** The UI is a Vite React SPA (React 19, Tailwind, shadcn/ui, react-router, TanStack Query, fetch-based SSE), not Next.js. — *The runtime is long-lived (scheduler, background runs, sandbox children, one database handle); Next.js is request-scoped and its API routes are where runtime logic leaks; there is no SSR need.*
+- **D-23** A single npm package with folder boundaries enforced by ESLint `no-restricted-imports`. Packages graduate only when an external consumer exists. — *Package boundaries harden interfaces still being discovered.*
+- **D-24** The private workspace is a directory outside the repository, selected by `--workspace` or `WORKBENCH_WORKSPACE`. `examples/workspace/` ships `echo`, the story pipeline, the research briefing, and the other example agents and workflows the briefs name; `workbench init` copies it. — *The harness/private split is a path, not a package.*
+- **D-25** Tools are defined with Zod; JSON Schema is derived at the provider and MCP boundaries. — *Ecosystem-native; typed `execute`.*
+
+## Security
+
+- **D-26** One broker mediates all tool I/O with capability handles. Effective permission = tool maximum ∩ agent grant ∩ workflow ceiling ∩ run grant. A hard deny-list covers all agent, workflow, and plugin definitions, workspace config, credentials, the database, and the runtime installation. — *Enforcement has an address; self-escalation is impossible by construction.*
+- **D-27** Paths are canonicalized (realpath plus the platform case rule) on both the policy and the candidate; symlinks that resolve outside the root and symlink creation are refused. — *Prefix matching is not a permission model.*
+- **D-28** One egress checker serves model calls and tools. Modes: `offline | local-only | allowlist | unrestricted`. The broker resolves DNS, checks the IP class, pins it, re-checks redirects, always denies the runtime's own port, and logs every egress with redacted bodies. — *Policy is enforced where packets leave.*
+- **D-29** Exfiltration rule: a private read earlier in the run plus a model-generated outbound request to a destination not pre-approved requires approval. — *Closes the attack "approved domains" leaves open.*
+- **D-30** The sandbox is a Deno subprocess with read/write flags generated from the effective policy and never `--allow-net` or `--allow-run`, a scrubbed environment, a scratch working directory, CPU/time/memory limits, and network only through the stdio tool bridge. `code.execute` and `fs.write` outside project files exist only inside it; `shell` is a direct child process with the same environment and limits, approval-required by default because its network cannot be policed portably. If Deno is absent the sandboxed tools are unavailable — never in-process, never Node `vm`. — *No unsandboxed execution, ever; the limitation of `shell` is stated, not hidden.*
+- **D-31** MCP stdio servers are the tool extensibility boundary, mediated by the same broker; write-like tools default to approval. — *A free tool ecosystem, permission-mediated.*
+- **D-32** Plugins are trusted code with the runtime's full authority. Manifests are transparency, not enforcement. Pinned versions, no postinstall. — *In-process JavaScript cannot be permission-constrained; say so.*
+- **D-33** Credentials live in `config/credentials.json` (mode 0600) or environment variables, are never inherited by subprocesses, and registered secret values are redacted from events, logs, and exports. A secret scan is part of the check gate. — *This project's predecessor leaked a key.*
+- **D-34** Imported agents and workflows arrive with permissions stripped to "requested"; a `schemaVersion` mismatch is refused with a message. — *A downloaded file is not an authorization.*
+- **D-35** Traces snapshot everything the model saw. Deleting a memory offers "also redact from N traces". — *Resolves deletion versus reproducibility in the privacy-preserving direction.*
+
+## Evaluation, testing, project
+
+- **D-36** Evaluation has five entities (dataset, case, experiment, experiment run, score). Compare and human rating ship first; model-judge scores are labeled estimates; there is no "hallucination" metric. — *Numbers nobody trusts are worse than none.*
+- **D-37** The mock provider is native (no SDK), scripted by fixture files, serves any catalog id, and supports streaming, tool calls, errors, latency, and refusals. `--provider mock` also mocks every other external service. It is the only provider CI uses; live contract runs are opt-in. — *Every definition of done is executable without keys.*
+- **D-38** Every run ships its own negative tests (the SEC catalog) as acceptance criteria. — *Security is not a phase.*
+- **D-39** Platforms: Linux and macOS supported and tested; Windows best-effort via WSL2. Node ≥ 22; Deno ≥ 2 optional. — *The path case rule depends on saying this.*
+- **D-40** License Apache-2.0; no vendored provider SDK source. — *A human decision, made.*
+- **D-41** A fresh repository is seeded from this `spec/`. Agent Hub is ported as example content (three instruction sets, a bible as a project document, model-per-step), not refactored. — *The old repository's history contains a leaked key and the app is four files.*
+- **D-42** No calendar framing anywhere; progress is measured by green definitions of done. — *Agents write the code.*
+- **D-43** User-produced HTML is never served from the runtime origin; website outputs open as a folder or zip. — *One origin, one trust level.*
+- **D-44** Web search is a pluggable provider (Brave API, SearXNG, mock). Sandboxed code execution is JavaScript/TypeScript first; Python is backlog. — *Ship what the sandbox can contain today.*
+- **D-45** The CLI is an HTTP client of the running runtime, located through `data/runtime.json` and `data/runtime.token`; when none is alive it starts an ephemeral in-process runtime for the command. — *One process holds the database; the CLI still works on a fresh clone with nothing running.*
+
+## From the literature (`research.md`)
+
+- **D-46** Prompt layout serves prefix caching: the stable prefix (identity, instructions, tool specs serialized in sorted deterministic order) comes first and never contains time-varying text; memory, knowledge, and task follow; the per-call harness block is the last block of the system string; adapters place a cache breakpoint after the stable prefix. — *Caching cuts cost 45–80% and one changed character in the prefix loses it (2601.06007).*
+- **D-47** The agent loop masks tool results older than `context.keepRecentToolResults` rounds with a one-line placeholder that names how to recover them, truncates every result at `context.maxToolResultChars` with a pointer to the full result, executes parallel tool calls concurrently, and never summarizes history with a model by default. — *Masking halves cost and matches summarization (2508.21433); gains concentrate in parallel calls (2608.06370).*
+- **D-48** Steps hand downstream steps their output; `agent.delegate` sends a brief; transcripts are never shared between agents. — *Re-injected artifacts and review loops are where multi-agent tokens go (2601.14470).*
+- **D-49** Author one agent with tools first; add a step only for parallelism, a different model, or an independent verifier. The validator warns on the MAST smells: a step with no declared inputs, a chain that passes a whole artifact through more than two agents, a reviewer with no reject path. — *Most multi-agent failures are specification and coordination, and the gains over one agent are often minimal (2503.13657).*
+- **D-50** Cheap model first for extraction, classification, planning, and judging steps, chosen by the author; Compare ratings are kept in a form usable as preference data for a future router. — *Cascades and preference-trained routers cut cost 85–98% at near-parity (2305.05176, 2406.18665).*
+- **D-51** Tools return structured data, never raw text where a schema exists; `http.fetch` separates extracted text from links; every tool result enters the prompt fenced as content. — *Parsed tool results give the lowest injection success reported (2601.04795); no model-side defense closes leakage (2506.01055).*
+- **D-52** Experiments run each case `k` times (default 3) and report pass^k next to the mean; Compare shows per-run variance. — *Agents are inconsistent across trials (2406.12045).*
+- **D-53** Retrieved memory and knowledge are injected adjacent to the task at the end of the prompt, under budgets (`context.memoryItems`, `context.knowledgeChunks`), never mid-prompt; whole-document injection is an explicit per-step choice. — *Mid-context recall drops by over 30% (2307.03172); small top-k retrieval is an order of magnitude cheaper than stuffing (2502.12110, 2502.09977).*
+- **D-54** Value-level taint (CaMeL-style capabilities on data), automatic memory extraction, and trajectory-to-workflow induction are recorded as unlocks in `vision.md`, not built now. — *Each changes the agent loop or the memory write path; the evidence is promising but the manual versions must fail first.*
+- **D-55** When the sandbox exists, `code.execute` exposes the agent's granted tools as functions inside Deno, so several calls compose in one turn under the same broker and policy. — *Code as the action space gives up to 20% higher success with 30% fewer turns on multi-tool tasks (2402.01030).*
+
+## Interface (`research.md` §UI)
+
+- **D-56** The first run is a guided path — workspace, provider or offline/mock, run the example, read its trace — and every empty list is an empty state that names what will appear and offers the one action that fills it. — *Recognition over recall; the ten-minute path is a definition of done, not a hope.*
+- **D-57** Approvals are designed against fatigue: batched per step, never one modal per action; the card leads with a plain-language risk line and the policy that fired; three buttons with the narrowest remember as default; routine allowlisted actions never prompt; the escalation rate is a visible setting. — *A fatigued human rubber-stamps, so escalate-everything is the less safe policy (2606.08919, 2605.24309).*
+- **D-58** Every run and step has a summary layer (what happened, cost, what changed, what needs you; three lines at most) above the raw timeline, and disclosure proceeds summary → step → call → payload. — *Structured summaries let people find root causes 2.8× faster than raw traces (2603.05941).*
+- **D-59** Copy is plain and honest — every error says what happened, why, and what to do; tone is warm, direct, never sycophantic — and the interface meets WCAG 2.2 AA with 3:1 focus indicators, keyboard-first operation, and one-keystroke feedback. — *Friendliness raises trust, agreement-seeking erodes it (2502.10844); feedback that costs a dialog is not given (2602.01405).*
+
+## Deployment and phone
+
+- **D-60** The runtime runs in Docker on the owner's VPS, bound to `127.0.0.1` inside the container, and is never exposed to the public internet: access is over a Tailscale tailnet, `tailscale serve` fronts the port with TLS, `--expose <tailnet-hostname>` adds that origin to the accepted `Host`/`Origin` sets, and the bearer token stays required on every request. Credentials live in the 0600 file inside the workspace volume; disk encryption is the host's responsibility and the recipe says so. — *Always on and reachable from the phone without a public port.*
+- **D-61** The UI is an installable web app — manifest, a service worker that caches the shell only, phone layouts for Dashboard, Review, Runs summaries, and Library reading — and Web Push (VAPID keys generated per workspace, one subscription per device) notifies the owner of `approval-requested`, a blocking `waiting_review`, `run-failed`, and a completed scheduled run, each deep-linking to the item; payloads carry ids and kinds only. A native wrapper is an unlock in `vision.md`. — *Approvals and finished briefings reach the phone with no App Store and no offline copies of private data.*

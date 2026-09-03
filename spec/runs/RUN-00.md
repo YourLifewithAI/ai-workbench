@@ -1,0 +1,33 @@
+# RUN-00 — Foundation and security floor
+
+**Goal.** A running single-process workbench that executes the echo agent on the mock provider, persists its trace, and refuses unauthenticated callers. Everything later stands on this.
+
+**Reads.** `architecture.md`, `tools-and-security.md` (threat model, security floor, tools section for `ToolSpec`), `api-and-cli.md`, `data-model.md`, `model-layer.md` (types, catalog, mock provider), `agents-and-prompts.md` (schema, prompt assembly, the echo agent), `ui.md` (navigation table only).
+
+**Starting point.** The repository contains `spec/` and nothing else. Copy `spec/repo-root/*` to the root first; `spec/` stays where it is. Human inputs are already in `spec/repo-root/` (contact in `SUPPORT.md`, holder in `NOTICE`).
+
+**Scope.**
+- Repository per `architecture.md`: single package; `tsconfig.json` (runtime) and `tsconfig.ui.json` (browser); Vite + React 19 + Tailwind + react-router + TanStack Query in `src/ui` (shadcn components added as screens need them); Hono runtime on `@hono/node-server`; `workbench` CLI on `commander` (`tsx` in dev, `tsup` bin in `dist/`); the ESLint boundary and banned-global rules from `architecture.md`; Vitest; Playwright (chromium); GitHub Actions running `npm run check` and `npm run e2e` on Linux and macOS; `.gitignore`; `runlog/README.md` placeholder.
+- `bootstrap.ts` (the only `process.env` reader besides the credentials loader); flags beat env.
+- SQLite via `better-sqlite3`: migrations `0001_init.sql` with the tables this run needs (`schema_migrations, runs, run_steps, events, model_calls, settings`), the online-backup-before-migrate rule, refuse-if-newer, FTS5 assertion as an injectable function.
+- Workspace loader with errors naming file and JSON path; `workspace.json` and `config/*.json` schemas in `src/shared`; `examples/workspace/` with the `echo` agent, `fixtures/README.md`, and one fixture (`slow.json`: matches `lastUserIncludes: "slow"`, `latencyMs: 500`) so the echo path stays a true echo; `defaults/workbench.json` and `defaults/models.json` (with `mock/echo`); `workbench init`; config precedence for the two levels that exist now (defaults < workspace).
+- Security floor (D-21, D-33): bind, token (`data/runtime.token`, `data/runtime.json`), Host/Origin order, CSP, credentials loader (`config/credentials.json` or `WORKBENCH_CRED_*`), redaction module, `childEnv()` helper, the in-repo secret scanner wired into `check`, `pino` log to `data/logs/runtime.log` through the redactor.
+- Canonical model types in `src/shared/model.ts` (incl. `ToolSpec`, `CatalogEntry`); the mock adapter with fixture matching and an in-memory call log; catalog loading (validate, find by id); a minimal engine that runs one agent step (`step_id = 'main'`, no tools, single model call) and writes full-payload events; `POST /runs`, `GET /runs`, `GET /runs/:id`, `GET /runs/:id/events`, `GET /runs/:id/trace.jsonl`, `GET /settings`, `GET /health`; CLI `init`, `start`, `doctor`, `run agent` (blocking and `--detach`), `runs list|show`, `trace` — as HTTP clients with the ephemeral-runtime fallback (D-45).
+- UI shell: token handshake from the URL fragment (token kept in memory; a refresh without the fragment shows a "runtime token required" screen after the first 401), navigation skeleton with every screen in `ui.md`'s table as a route — empty placeholders naming the run that ships them; only Welcome, Settings, and Runs have content. Welcome is the first-run path (D-56) with the steps that exist now (workspace, "try it with the mock", run the echo agent, open its trace); the Runs empty state per `ui.md`; the accessibility baseline (D-59): shadcn/ui with the focus ring raised to 3:1, keyboard navigation, both themes, `prefers-reduced-motion`.
+- `Dockerfile` (multi-stage: build SPA + runtime, run `workbench start` bound to `127.0.0.1`, workspace volume at `/workspace`), `compose.yaml`, and `deploy.md` (VPS + Tailscale recipe per `architecture.md` §Deployment) (D-60).
+- `LICENSE`, `NOTICE`, `SECURITY.md`, `SUPPORT.md`, `AGENTS.md`, `CLAUDE.md`, `STATUS.md` from `spec/repo-root/`.
+
+**Do not.** Add real providers, tools, workflows, memory, projects, scheduler, evaluation, `workbench dev`, or any screen content beyond Welcome, Settings, and Runs. Add a second server or port. Use `node:vm`. Put business logic in the SPA (rendering, routing, and the token handshake are not business logic).
+
+**Definition of done** (`npm run dod -- 00`).
+1. `npm run check` green on a fresh clone; `npm run build` produces `dist/` with the CLI bin.
+2. `workbench init /tmp/ws-$RANDOM && workbench start --workspace <it> --port 0` prints exactly one stdout line containing `#token=`, binds 127.0.0.1 only (a connect to `[::1]:<port>` is refused), and on SIGTERM closes the database and removes `data/runtime.json` and `data/runtime.token`.
+3. With no runtime running, `workbench run agent echo --input hi --provider mock --json --workspace <it>` exits 0 printing `{ runId, state: "completed", outputs, costUsd: 0 }`; `workbench trace <runId> --json` contains `run-started`, `step-started`, `model-started` with the compiled request (system string, messages, tools `[]`), `model-completed`, `step-completed`, `run-completed`, in that order.
+4. With a runtime running, the same `run` command goes through HTTP and the run appears in the Runs screen without a reload (via `GET /runs/events`).
+5. `npm run e2e`: global setup starts a runtime on `--port 0` from a temp workspace, creates a run via the CLI, and the shell loads with the token, lists the run, opens its timeline; a keyboard-only pass reaches every route; an axe-core scan of Welcome, Runs, and Settings reports no WCAG 2.2 AA violations.
+6. The Docker image builds in CI and, run with a temp workspace volume, passes items 2 and 3 from inside the container.
+7. Startup fails with a clear message when the injected FTS5 assertion reports absence; migrations run on a fresh workspace (no backup created) and again idempotently (nothing applied, no new backup); a database with a higher `schema_migrations` version refuses to open.
+
+**SEC.** 01, 02, 03, 04, 05, 06 (plant a value both as a credential and as `--input`), 07 (unit + lint halves), 30 (per the catalog wording: header on HTML and API responses, and no cross-origin load in `dist/`), 31 (scanner catches a key assembled at test time in a temp directory).
+
+**Human verification.** Start it, open the URL, see the shell; open the same URL without the fragment in a private window and see the token-required screen; run the echo agent from the CLI and watch it appear in the Runs screen; open the timeline and read the compiled prompt.

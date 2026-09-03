@@ -1,0 +1,97 @@
+# Tools and security
+
+*Prose cap: 1800 words. Decisions cited: D-21, D-25 … D-34, D-38, D-43, D-44. The SEC test catalog is `sec-catalog.md`.*
+
+## Threat model
+
+1. Content the agent reads is hostile: a web page, a tool result, or a stored memory instructs it to read private data and send it somewhere.
+2. Anything on the machine or in the browser is hostile to the API that spends the owner's keys: other processes, other tabs, DNS rebinding.
+3. A tool, MCP server, or plugin is compromised and runs with whatever authority it was given.
+4. Secrets end up at rest where they were never meant to be: traces, logs, exports.
+5. An agent that can write files rewrites its own permissions or another agent's instructions.
+
+The permission layer stays authoritative when the model is manipulated. That is the whole design goal.
+
+## Security floor — Run 00, never deferred (D-21, D-33)
+
+- The runtime binds `127.0.0.1` unless `WORKBENCH_BIND` says otherwise, and says so loudly on start.
+- A bearer token is generated per start, written to `data/runtime.token` (0600), and printed once as a URL fragment (`http://127.0.0.1:8787/#token=…`). The SPA reads the fragment, keeps the token in memory only, and sends `Authorization: Bearer <token>` on every request including SSE (fetch-based, not `EventSource`). Every `/api` route except `health` returns 401 without it.
+- `Host` must be one of `127.0.0.1:<port>`, `localhost:<port>`, `[::1]:<port>` (or the `--bind` address); `Origin`, when present, must be `http://` + one of those; `Origin: null` is 403. No CORS wildcard; no cookies. The SPA uses history routing, the runtime serves `index.html` for non-API paths, and the SPA strips `#token=` from the URL after reading it.
+- CSP: `default-src 'self'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'` — no third-party origins, no analytics, ever.
+- Credentials: `config/credentials.json` (0600), shape `{ "<name>": { "apiKey": "…" } }`, or process env `WORKBENCH_CRED_<NAME>`. The loader is the only module allowed to read them; adapters and tools receive scoped values through their context. Every child process (sandbox, MCP server) gets an explicitly constructed environment.
+- Redaction: every loaded credential value is registered; persisted events, logs, and exports pass through the redactor. Headers named `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, `x-api-key`, `x-subscription-token`, and any `x-goog-*` are never stored. A secret scan runs in `npm run check`.
+- The runtime is never exposed to the public internet (D-60). Remote access is over a Tailscale tailnet: `--expose <tailnet-hostname>` adds that origin to the accepted `Host`/`Origin` sets and `tailscale serve` provides TLS; a Caddy reverse proxy on a private network is the documented alternative for owners without Tailscale. The bearer token is required either way.
+
+## Tools (D-25)
+
+```ts
+interface ToolDefinition<I, O> {
+  id: string; version: string; description: string;
+  input: ZodType<I>; output: ZodType<O>;
+  tier: 'read' | 'write' | 'execute';
+  maxPermissions: Permissions;              // the most this tool can ever be granted
+  credentials?: string[];                   // credential names it may receive, e.g. ['brave']
+  execute(input: I, ctx: ToolContext): Promise<ToolResult<O>>;
+}
+interface ToolContext {
+  runId: string; stepId: string; agentId: string; scratchDir: string;
+  fs: { read(p): Promise<Buffer>; list(p): Promise<Entry[]>; write(p, data): Promise<void> };   // policy-checked
+  net: { fetch(url: string, init?: FetchInit): Promise<Response> };                             // policy-checked
+  credentials: { get(name: string): string | undefined };                                       // only declared names
+  log(message: string): void;
+}
+```
+
+The model sees a `ToolSpec` (name, description, JSON Schema) derived from the definition at the provider boundary. Tool outputs are structured (D-51): the model receives the validated object, `http.fetch` keeps extracted text and links apart, and the engine fences every result as content. Model-side injection defenses do not close data leakage on their own (`research.md`), which is why the broker and the exfiltration rule exist. Built-ins by tier: **read** — `calc`, `datetime`, `json`, `artifact.read` (which also reads the run's own scratch directory as `scratch/…` without a grant, so masked and truncated results are always recoverable), `artifact.list`, `knowledge.search`, `memory.search`, `http.fetch`, `web.search`; **write** — `artifact.write`, `memory.remember`, `fs.read`, `fs.list` (outside the project), `http.request` (non-GET; `approvalRequired` by default), `agent.delegate`, `permission.request`; **execute** — `fs.write` outside project files, `shell`, `code.execute`. Execute-tier tools exist only when the sandbox does (D-30).
+
+**`http.fetch`** — in `{ url, maxBytes?, accept? }`; out `{ status, finalUrl, contentType, title?, text, links: [{ text, url }], truncated, bytes }`. `http:` and `https:` only. HTML is parsed without script execution (`linkedom` + `@mozilla/readability` + `turndown`); JSON and text pass through; PDF goes through `pdf-parse`; anything else is `UnsupportedContentType`. Limits: `tools.http.maxResponseBytes` (default 2 MiB, truncate and flag) and `tools.http.timeoutMs` (default 20 000), separate from `toolCallTimeoutMs`.
+
+**`web.search`** (D-44) — in `{ query, count?: 1..20 = 8, freshness?: 'day' | 'week' | 'month' | 'any' }`; out `{ results: [{ title, url, snippet, published? }] }`. Provider from `config/workbench.json` → `"search": { "provider": "brave" | "searxng" | "mock", "searxng": { "url": "…" } }`; the Brave key is credential `brave`. `--provider mock` mocks every external service, search included; the search mock reads `<workspace>/fixtures/search.json`: `{ "queries": [{ "match": "<substring>", "results": [{ title, url, snippet }] }] }`, falling back to an empty result list.
+
+## Permissions and the broker (D-26, D-27)
+
+```jsonc
+"permissions": {
+  "fs":  { "read": ["projects/briefings/"], "write": ["projects/briefings/files/"] },
+  "net": { "mode": "allowlist", "allow": ["*.gov", "reuters.com"], "allowLocalAddresses": false,
+           "approvalExempt": [] },
+  "tools": { "http.fetch": "allow", "artifact.write": "allow", "shell": "deny" },
+  "approvalRequired": ["http.request", "fs.write"]
+}
+```
+
+Effective permission for a call = tool `maxPermissions` ∩ agent grant (workspace-stored, not the file's request) ∩ workflow ceiling ∩ run overrides. The hard deny-list wins over every grant: `<workspace>/config/`, `agents/`, `workflows/`, `plugins/`, `data/`, `runtime.token`, the runtime's own installation, any `.git/`.
+
+All tool I/O goes through `src/runtime/security/broker`. Tools receive `ctx.fs` and `ctx.net`, which check policy on every call; they never import `node:fs` or call `fetch`. Paths: policy roots and candidates are both canonicalized with `realpath` and the platform case rule (case-insensitive compare on macOS and Windows, case-sensitive on Linux); a candidate whose real path is outside the root is denied even if its lexical path is inside; symlink creation is refused by `fs.write`.
+
+An ungranted tool of any tier is denied (SEC-09). An approval is required, whatever the tier, when the tool is in `approvalRequired`, when the agent calls `permission.request`, when an MCP write-tier tool has no explicit grant, or when the exfiltration rule below fires.
+
+## Egress (D-28, D-29)
+
+One checker serves adapters and tools. Modes form a lattice `offline < local-only < allowlist < unrestricted`; the effective mode is the minimum over workspace config, agent grant, workflow ceiling, and run overrides. `allowLocalAddresses` applies to `allowlist` and `unrestricted` and is true only if every layer says so. Allowlist entries are hostnames: `example.com` matches the host and its subdomains (label-bounded); `*.example.com` matches subdomains only; comparison is case-insensitive on punycode with trailing dots stripped; an optional `:port` restricts the port; with several layers, a host must match each layer's list.
+
+Blocked address classes (checked for every resolved address; one blocked answer blocks the request): IPv4 `0.0.0.0/8, 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10, 224.0.0.0/4, 255.255.255.255`; IPv6 `::, ::1, fc00::/7, fe80::/10` and IPv4-mapped forms; names `localhost`, `metadata`, `metadata.google.internal`. Numeric hosts are parsed canonically (no decimal, octal, or shortened forms). The broker resolves with `dns.lookup({ all: true })`, checks every address, pins one, and connects to it with the hostname as SNI through an `undici` `Agent` whose `lookup` and `connect` are injectable (tests resolve `*.test` names to TEST-NET-3 addresses and dial a local server). Redirects: at most 5, `301 302 303 307 308`, each target re-checked against the allowlist and the address classes, `https → http` refused, headers stripped across hosts. Any request to the runtime's bound address or to loopback on the runtime's port is denied in every mode.
+
+**Declared endpoints** — the `baseUrl` of a catalog model, the configured search provider, and configured MCP commands — are harness endpoints the owner wrote into config. They are subject to the workspace mode and are logged, but not to agent allowlists, and a declared loopback address (Ollama, SearXNG) is allowed by declaration. A model-generated destination never receives this status.
+
+Every egress is logged: destination, resolved address, purpose (`model | tool | search | mcp`), data categories (`instructions | task | memory | document | tool-output | url`), bytes, decision, and a redacted body. This feeds the Privacy Inspector.
+
+**Exfiltration rule (D-29).** Mode and allowlist are evaluated first: a destination the effective mode does not allow is denied outright and never parks. The rule below applies only to requests the mode would allow. A run is *private-tainted* once its prompt included memory or knowledge sections, or a tool returned private content (`artifact.read`, `fs.read`, `memory.search`, `knowledge.search`); fetched web content does not taint; children inherit taint. The run also keeps `seenUrls`: every URL that appeared in a step input or a tool result. A tool-initiated request is parked in `waiting_approval` when the run is private-tainted and either (a) the method is not GET and the host is not in `net.approvalExempt` or a remembered approval, or (b) the mode is `unrestricted`, the method is GET, the host is not in `net.allow`, and the URL is not in `seenUrls`. So a scheduled briefing in `allowlist` mode runs unattended, an agent in `unrestricted` mode may follow links it was shown, and an invented URL or any body carrying private data waits for a human. Harness endpoints are exempt.
+
+## Approvals
+
+An approval item records the tool, arguments, the policy that triggered it, and the run's recent context; the run parks in `waiting_approval` (`approval-requested`). Timeout (default 30 minutes) resolves to deny. The decision returns to the agent as a `ToolResult`; an approved request is then sent. "Remember" writes exactly `{ tool, path | host }` to workspace config. Approvals queue on the Dashboard and in `workbench approvals`.
+
+## Sandbox (D-30)
+
+`code.execute` and `fs.write` outside the project run in a Deno subprocess launched by the broker with flags generated from the effective policy (`--allow-read=<roots> --allow-write=<roots>`; **never** `--allow-net` or `--allow-run`), an explicitly constructed environment with no credentials, cwd in the run's scratch directory, and CPU time, wall clock, memory, and output-size limits. Network from inside the sandbox exists only through the tool bridge (D-55): granted tools are exposed as functions whose calls travel over the child's stdio as JSON-RPC back to the broker, so DNS pinning, the egress log, and the exfiltration rule apply unchanged. `shell` runs a command as a direct child process with the same scrubbed environment, scratch cwd, and limits; because a subprocess's network cannot be policed portably, `shell` is `approvalRequired` by default and the approval card says so — a container sandbox is the unlock (`vision.md`). Deno absent → `code.execute` and out-of-project `fs.write` are reported unavailable by `workbench doctor` and calls fail with `ToolUnavailable`. There is no in-process fallback and Node `vm` is banned by lint (D-30).
+
+## MCP (D-31) and plugins (D-32)
+
+MCP servers are configured per workspace (command, args, env allowlist), spawned with a scrubbed environment, and classified by manifest: tools without a read-only annotation are write-tier and require approval by default. Their tools appear in the Tools screen next to built-ins with the same grant model.
+
+Plugins in `<workspace>/plugins/<name>/` are trusted code with the runtime's authority. Each has `plugin.json` — `{ schemaVersion: 1, name, version, kind: 'adapter' | 'tool' | 'evaluator', entry: '<file>.js', capabilities: string[] }` — shown before first load with the words "this code runs with full access"; the entry module default-exports the matching interface (`ModelAdapter`, `ToolDefinition`, or an evaluator); versions are pinned; postinstall scripts are refused.
+
+## Imports, exports, served content
+
+Import trust is defined in `agents-and-prompts.md` (D-34) and exports in `data-model.md` (D-35). User HTML is never served from the runtime origin (D-43).
