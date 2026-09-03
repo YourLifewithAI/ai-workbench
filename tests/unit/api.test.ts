@@ -30,7 +30,10 @@ describe('HTTP API (spec/api-and-cli.md)', () => {
     const missing = await get('/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'agent', id: 'nope', inputs: {} }) });
     expect(missing.status).toBe(404);
     const workflow = await get('/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'workflow', id: 'x', inputs: {} }) });
-    expect(workflow.status).toBe(400);
+    expect(workflow.status).toBe(404);
+    // A run kind the runtime does not have yet is refused by name, not silently treated as something else.
+    const experiment = await get('/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'experiment', id: 'x', inputs: {} }) });
+    expect(experiment.status).toBe(400);
     expect((await get('/runs/does-not-exist')).status).toBe(404);
     expect((await get('/nothing-here')).status).toBe(404);
   });

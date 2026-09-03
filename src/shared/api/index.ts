@@ -1,6 +1,7 @@
 // HTTP contract (spec/api-and-cli.md). The UI and the CLI share these schemas.
 import { z } from 'zod';
 import { RunKind, RunState, Spent, EventRecord } from '../events.js';
+import { Budgets } from '../permissions.js';
 
 export const ApiErrorCode = z.enum(['unauthorized', 'forbidden', 'not_found', 'validation', 'conflict', 'budget', 'unavailable', 'internal']);
 export const ApiError = z.object({ error: z.object({ code: ApiErrorCode, message: z.string(), details: z.unknown().optional() }) });
@@ -21,10 +22,18 @@ export const RunSummary = z.object({
   id: z.string(), kind: RunKind, state: RunState,
   agentId: z.string().optional(), workflowId: z.string().optional(), project: z.string().optional(),
   startedAt: z.string(), finishedAt: z.string().optional(), spent: Spent,
+  /** What this run may spend, after the workspace's budgets were narrowed for it — the bar's denominator. */
+  budgets: Budgets,
 });
 export type RunSummary = z.infer<typeof RunSummary>;
 
-export const StepSummary = z.object({ stepId: z.string(), kind: z.string(), state: z.string(), modelId: z.string().nullable(), costUsd: z.number(), startedAt: z.string().nullable(), finishedAt: z.string().nullable() });
+export const StepSummary = z.object({
+  stepId: z.string(), kind: z.string(), state: z.string(), modelId: z.string().nullable(), costUsd: z.number(),
+  /** Set on a map item: the map step it belongs to and its position in the list. */
+  parentStepId: z.string().nullable().default(null),
+  mapIndex: z.number().int().nullable().default(null),
+  startedAt: z.string().nullable(), finishedAt: z.string().nullable(),
+});
 export type StepSummary = z.infer<typeof StepSummary>;
 
 export const RunDetail = RunSummary.extend({
@@ -142,6 +151,8 @@ export const DocumentVersionSummary = z.object({
   modelId: z.string().nullable(),
   createdAt: z.string(),
   bytes: z.number().int(),
+  /** Written by a wrap-up turn rather than a finished step: the text is a summary, not the work (D-14). */
+  partial: z.boolean().default(false),
 });
 export type DocumentVersionSummary = z.infer<typeof DocumentVersionSummary>;
 
@@ -178,3 +189,32 @@ export const RunResult = z.object({ runId: z.string(), state: RunState, outputs:
 export type RunResult = z.infer<typeof RunResult>;
 
 export { EventRecord };
+
+// ---- workflows (spec/api-and-cli.md) ------------------------------------------------------------
+
+export const WorkflowSummary = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  version: z.string(),
+  file: z.string(),
+  defaultProject: z.string().nullable(),
+  inputs: z.record(z.string(), z.unknown()),
+  steps: z.array(z.object({ id: z.string(), kind: z.string(), agent: z.string().nullable(), dependsOn: z.array(z.string()) })),
+  hasSchedule: z.boolean(),
+});
+export type WorkflowSummary = z.infer<typeof WorkflowSummary>;
+
+export const WorkflowDetail = WorkflowSummary.extend({
+  definition: z.record(z.string(), z.unknown()),
+  /** Advisory only (D-49): the Workflows screen shows them, nothing blocks on them. */
+  smells: z.array(z.object({ stepId: z.string(), message: z.string() })),
+  order: z.array(z.string()),
+});
+export type WorkflowDetail = z.infer<typeof WorkflowDetail>;
+
+export const WorkflowListResponse = z.object({
+  workflows: z.array(WorkflowSummary),
+  errors: z.array(z.object({ id: z.string(), file: z.string(), message: z.string() })),
+});
+export type WorkflowListResponse = z.infer<typeof WorkflowListResponse>;

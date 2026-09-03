@@ -50,4 +50,19 @@ export function registerRuns(program: Command, bootstrap: Bootstrap): void {
         }
       }),
     );
+  runs
+    .command('cancel <runId>')
+    .description('stop a running run: in-flight model calls are aborted and nothing from them is committed')
+    .action(async (runId: string, _opts: unknown, cmd: Command) =>
+      guarded(async () => {
+        const handle = await connect({ workspaceDir: resolveWorkspace(cmd, bootstrap), bootstrap, requireLive: true });
+        try {
+          await handle.request('POST', `/runs/${runId}/cancel`);
+          if (wantsJson(cmd)) return outJson({ runId, cancelled: true });
+          out(`${runId}  cancelling`);
+        } finally {
+          await handle.close();
+        }
+      }),
+    );
 }

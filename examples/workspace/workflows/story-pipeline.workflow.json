@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "id": "story-pipeline",
+  "name": "Story pipeline",
+  "description": "Premise to beats to prose to a cut draft, each step on the model that suits it.",
+  "defaultProject": "anthology",
+  "inputs": {
+    "type": "object",
+    "properties": {
+      "premise": { "type": "string", "title": "Premise", "description": "One or two sentences. Who, where, and what is about to go wrong." }
+    },
+    "required": ["premise"]
+  },
+  "steps": [
+    {
+      "id": "beats",
+      "kind": "agent",
+      "agent": "architect",
+      "input": "{{inputs.premise}}",
+      "output": { "document": "beats.md" }
+    },
+    {
+      "id": "draft",
+      "kind": "agent",
+      "agent": "weaver",
+      "input": "Turn these beats into prose.\n\n{{steps.beats.output}}",
+      "output": { "document": "draft.md" }
+    },
+    {
+      "id": "final",
+      "kind": "agent",
+      "agent": "cutter",
+      "model": "google/gemini-2.5-flash",
+      "input": "Cut this draft.\n\n{{steps.draft.output}}",
+      "output": { "document": "final.md" }
+    }
+  ],
+  "outputs": {
+    "story": "{{steps.final.output}}"
+  }
+}

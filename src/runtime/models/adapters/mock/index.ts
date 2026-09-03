@@ -92,6 +92,8 @@ export class MockAdapter implements ModelAdapter {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ model: this.modelName(model.id), messages: req.messages, stream: false }),
+        // A cancel must reach the wire, not just the loop around it (SEC-29).
+        signal: req.abortSignal,
       });
     }
     const chosen = this.select(model, req, ctx);

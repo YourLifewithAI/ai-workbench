@@ -38,6 +38,10 @@ const Workflow = z.object({
 
 **Expr.** Bare, no braces: paths (`inputs.topic`, `steps.plan.output.questions`, `steps.drafts.output[0]`, `project.documents["beats.md"]`, `item`), literals (`"text"`, `42`, `true`, `null`, `["a", "b"]`), comparisons (`== != < <= > >=`), `and or not`, `length(x)`. JavaScript truthiness. No calls other than `length`, no assignment, no arbitrary code — this is a small parser, never `eval`.
 
+> Amendment (RUN-04, 2026-09-03): a step's `output.document` may be `null`, meaning "file nothing" — the step's output is intermediate whatever the agent's own `output.document` says. Without it a `map`'s parallel items all resolve to the same agent-default path and overwrite each other: three versions of one document where the author asked for three drafts.
+
+> Amendment (RUN-04, 2026-09-03): template roots also include `runId` and `agentId`, the two an `output.document` path usually wants. They are the same names an agent's own `output.document` uses, so a path written in a workflow reads the same as one written in an agent.
+
 **Names.** `inputs.*` is the run's validated input. `steps.<id>.output` is a step's output: the final text, or the validated JSON when `outputSchema` is set. A `map` step's output is an array in item order; each item runs as a step with id `<mapId>[<n>]` and its own `run_steps` row and events. `item` is the current element inside a map. `project.documents["<path>"]` is the latest version's text of a document in the run's project. A template reference to `steps.x` implies `dependsOn: ["x"]`; the validator adds the edge and rejects cycles.
 
 **Semantics.** Independent steps run in parallel up to `execution.maxParallelSteps` (default 4). A step whose `when` is falsy is skipped with a `step-skipped` event; its output is `null` and dependents still run. The first failed step aborts running siblings and fails the run. `retries` re-runs a step from its beginning after a model error or an `outputSchema` failure (validated with a JSON Schema draft 2020-12 validator, after the model layer's one repair turn). A step's `model` template replaces the agent's primary and keeps the agent's `fallbacks[]`, so `map` over a list of model ids with `model: "{{item}}"` is an ensemble; `examples/workspace/workflows/ensemble-draft.workflow.json` maps three ids into `weaver` and feeds the array to the `judge` agent, whose `output` is `{ kind: 'json', schema: { winner: number, rationale: string } }`.
@@ -79,6 +83,8 @@ A run is `queued` while `execution.maxConcurrentRuns` are running.
 "execution": { "maxParallelSteps": 4, "maxConcurrentRuns": 2 },
 "retention": { "scratchDays": 7 }
 ```
+
+> Amendment (RUN-04, 2026-09-03): "the last permitted model call is the wrap-up turn" is implemented literally for `maxModelCalls` — one call is held back, so a budget of six means five productive calls and a sixth that summarises, and the count never exceeds the budget. Cost cannot be reserved the same way, since a call's price is not known until it returns; a wrap-up after a cost stop may carry the total slightly past `maxCostUsd`. The wrap-up does not emit a second `budget-warning` when 80% already announced that budget: one warning per budget means one.
 
 At 80% of `maxModelCalls`, `maxToolCalls`, or `maxCostUsd` a `budget-warning` event is emitted once per budget and the next harness section says so. The last permitted model call is the wrap-up turn: tools removed, an instruction to summarize what exists and what remains; its output is committed as the step's output flagged `partial`, then the run is `failed { reason: 'budget_exceeded' }`. `maxWallClockMs` and the daily cap are hard stops with no wrap-up. The daily cap sums `model_calls.cost_usd` over the local calendar day; a run that would start past it is refused with `daily_cap_reached`, and a running one fails before its next model call.
 

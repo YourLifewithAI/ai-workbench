@@ -4,8 +4,12 @@ import { Link, useNavigate } from 'react-router-dom';
 import type { RunSummary } from '../../shared/api/index.js';
 import { api, subscribeSse } from '../lib/api.js';
 import { EmptyState } from '../components/EmptyState.js';
+import { BudgetLine } from '../components/BudgetBar.js';
 import { Button } from '../components/ui/button.js';
 import { Badge } from '../components/ui/card.js';
+
+/** The states a run can still be stopped from (workflows-and-execution.md §Cancel). */
+export const CANCELLABLE = new Set<RunSummary['state']>(['queued', 'running', 'waiting_review', 'waiting_approval']);
 
 export function stateTone(state: RunSummary['state']): 'good' | 'bad' | 'busy' | 'neutral' {
   if (state === 'completed') return 'good';
@@ -74,9 +78,10 @@ export function Runs() {
             <tr className="border-b border-gray-200 text-gray-600 dark:border-gray-800 dark:text-gray-400">
               <th scope="col" className="py-2 pr-3 font-medium">Run</th>
               <th scope="col" className="py-2 pr-3 font-medium">State</th>
-              <th scope="col" className="py-2 pr-3 font-medium">Agent</th>
+              <th scope="col" className="py-2 pr-3 font-medium">What ran</th>
               <th scope="col" className="py-2 pr-3 font-medium">Started</th>
-              <th scope="col" className="py-2 pr-3 font-medium">Cost</th>
+              <th scope="col" className="py-2 pr-3 font-medium">Budget</th>
+              <th scope="col" className="py-2 pr-3 font-medium"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
@@ -86,12 +91,27 @@ export function Runs() {
                 <td className="py-2 pr-3"><Badge tone={stateTone(r.state)}>{r.state}</Badge></td>
                 <td className="py-2 pr-3">{r.agentId ?? r.workflowId ?? '—'}</td>
                 <td className="py-2 pr-3"><time dateTime={r.startedAt}>{new Date(r.startedAt).toLocaleString()}</time></td>
-                <td className="py-2 pr-3">${r.spent.costUsd.toFixed(4)}</td>
+                <td className="w-72 py-2 pr-3"><BudgetLine run={r} /></td>
+                <td className="py-2 pr-3">{CANCELLABLE.has(r.state) ? <CancelButton runId={r.id} /> : null}</td>
               </tr>
             ))}
           </tbody>
         </table>
       ) : null}
     </section>
+  );
+}
+
+function CancelButton({ runId }: { runId: string }) {
+  const client = useQueryClient();
+  const cancel = useMutation({
+    mutationFn: () => api.cancelRun(runId),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['runs'] }),
+  });
+  return (
+    <Button variant="secondary" size="sm" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
+      {cancel.isPending ? 'Cancelling…' : 'Cancel'}
+      <span className="sr-only"> run {runId}</span>
+    </Button>
   );
 }

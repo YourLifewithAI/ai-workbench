@@ -7,7 +7,7 @@ import { serve, type ServerType } from '@hono/node-server';
 import type { Hono } from 'hono';
 import { packagePaths, type PackagePaths } from './paths.js';
 import type { Bootstrap } from './bootstrap.js';
-import { loadAgents, loadWorkspace, type BrokenAgent, type Workspace } from './workspace/loader.js';
+import { loadAgents, loadWorkflows, loadWorkspace, type BrokenAgent, type Workspace } from './workspace/loader.js';
 import { Redactor } from './security/redaction.js';
 import { loadCredentials, type Credentials } from './security/credentials.js';
 import { generateToken, writeTokenFile, acceptedHosts } from './security/auth.js';
@@ -181,12 +181,21 @@ export class Runtime {
   }
 
   /** Picks up edits to agent.json and instructions.md without a restart; a broken file becomes a listed error. */
+  /** The scripted provider, for tests that need to see exactly which calls were made (D-37). */
+  get mockAdapter(): MockAdapter {
+    return this.registry.get('mock') as MockAdapter;
+  }
+
+  /** Agents and workflows reload together: a workflow names agents, so half a reload is a confusing workspace. */
   reloadAgents(): { loaded: number; errors: BrokenAgent[] } {
     const { agents, broken } = loadAgents(this.workspace.paths.agents);
     this.workspace.agents = agents;
     this.workspace.brokenAgents = broken;
+    const workflows = loadWorkflows(this.workspace.paths.workflows);
+    this.workspace.workflows = workflows.workflows;
+    this.workspace.brokenWorkflows = workflows.broken;
     (this.registry.get('mock') as MockAdapter | undefined)?.reload();
-    this.log.info({ loaded: agents.size, errors: broken.length }, 'agents reloaded');
+    this.log.info({ loaded: agents.size, errors: broken.length, workflows: workflows.workflows.size }, 'agents and workflows reloaded');
     return { loaded: agents.size, errors: broken };
   }
 
@@ -216,6 +225,8 @@ export class Runtime {
     this.listening = true;
     this.port = info.port;
     this.portRef.current = info.port;
+    // Anything the last process left `running` never finished (D-14 §Resume). Correct it before serving.
+    this.engine.markInterrupted();
     await this.startMockUpstream();
     this.hosts = acceptedHosts(this.port, this.bind, this.opts.expose ?? []);
     if (!this.ephemeral) {

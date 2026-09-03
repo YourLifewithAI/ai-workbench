@@ -11,6 +11,7 @@ import { Runs } from './screens/Runs.js';
 import { Agents, AgentDetail } from './screens/Agents.js';
 import { Models } from './screens/Models.js';
 import { Library, ProjectDetail, DocumentView } from './screens/Library.js';
+import { Workflows, WorkflowDetail } from './screens/Workflows.js';
 import { RunDetail } from './screens/RunDetail.js';
 import { Settings } from './screens/Settings.js';
 
@@ -35,10 +36,12 @@ export function App() {
             <Route path="/library/:slug" element={<ProjectDetail />} />
             <Route path="/library/:slug/:id" element={<DocumentView />} />
             <Route path="/models" element={<Models />} />
+            <Route path="/workflows" element={<Workflows />} />
+            <Route path="/workflows/:id" element={<WorkflowDetail />} />
             <Route path="/runs" element={<Runs />} />
             <Route path="/runs/:id" element={<RunDetail />} />
             <Route path="/settings" element={<Settings />} />
-            {SCREENS.filter((s) => !['/welcome', '/runs', '/settings', '/agents', '/models', '/library'].includes(s.path)).map((s) => (
+            {SCREENS.filter((s) => !['/welcome', '/runs', '/settings', '/agents', '/models', '/library', '/workflows'].includes(s.path)).map((s) => (
               <Route key={s.path} path={s.path} element={<Placeholder title={s.label} shipsIn={s.shipsIn} summary={s.summary} />} />
             ))}
             <Route path="*" element={<Placeholder title="Not found" shipsIn="no run" summary="There is no screen at this address." />} />

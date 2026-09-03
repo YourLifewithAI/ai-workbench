@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "id": "ensemble-draft",
+  "name": "Ensemble draft",
+  "description": "The same scene drafted by three models at once, then judged. The map's `item` is the model id.",
+  "defaultProject": "anthology",
+  "inputs": {
+    "type": "object",
+    "properties": {
+      "premise": {
+        "type": "string",
+        "title": "Premise",
+        "description": "One or two sentences to draft from."
+      },
+      "models": {
+        "type": "array",
+        "title": "Models",
+        "description": "The model ids to draft with. Each one runs the same agent.",
+        "items": {
+          "type": "string"
+        },
+        "default": [
+          "google/gemini-2.5-pro",
+          "google/gemini-2.5-flash",
+          "anthropic/claude-sonnet-5"
+        ]
+      }
+    },
+    "required": [
+      "premise"
+    ]
+  },
+  "steps": [
+    {
+      "id": "drafts",
+      "kind": "map",
+      "over": "inputs.models",
+      "concurrency": 3,
+      "step": {
+        "id": "draft",
+        "kind": "agent",
+        "agent": "weaver",
+        "model": "{{item}}",
+        "input": "Draft this premise as a scene, in your own voice.\n\n{{inputs.premise}}",
+        "output": {
+          "document": null
+        }
+      }
+    },
+    {
+      "id": "verdict",
+      "kind": "agent",
+      "agent": "judge",
+      "input": "{{steps.drafts.output}}",
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "winner": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "winner",
+          "rationale"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "cut-winner",
+      "kind": "agent",
+      "agent": "cutter",
+      "when": "steps.verdict.output.winner >= 0",
+      "input": "The judge chose draft {{steps.verdict.output.winner}}, because: {{steps.verdict.output.rationale}}\n\nThe drafts, in order:\n\n{{steps.drafts.output}}\n\nCut the one the judge chose.",
+      "output": {
+        "document": "ensemble/{{runId}}.md"
+      }
+    }
+  ],
+  "outputs": {
+    "verdict": "{{steps.verdict.output}}",
+    "drafts": "{{steps.drafts.output}}"
+  }
+}
