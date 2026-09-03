@@ -160,11 +160,12 @@ export class Engine {
     };
   }
 
-  listRuns(filter: { state?: string | undefined; kind?: string | undefined; limit?: number | undefined } = {}): RunSummary[] {
+  listRuns(filter: { state?: string | undefined; kind?: string | undefined; project?: string | undefined; limit?: number | undefined } = {}): RunSummary[] {
     const clauses: string[] = [];
     const params: unknown[] = [];
     if (filter.state) { clauses.push('state = ?'); params.push(filter.state); }
     if (filter.kind) { clauses.push('kind = ?'); params.push(filter.kind); }
+    if (filter.project) { clauses.push('project_id = ?'); params.push(filter.project); }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const rows = this.deps.db.prepare(`SELECT * FROM runs ${where} ORDER BY started_at DESC LIMIT ?`).all(...params, filter.limit ?? 100) as RunRow[];
     return rows.map((r) => this.summary(r));

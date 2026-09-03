@@ -7,7 +7,9 @@ import type { Redactor } from '../security/redaction.js';
 
 export type { Logger };
 
-export function createLogger(logFile: string, redactor: Redactor, opts: { stderr: boolean; level?: string } = { stderr: true }): Logger {
+export interface LogHandle { logger: Logger; close(): Promise<void> }
+
+export function createLogger(logFile: string, redactor: Redactor, opts: { stderr: boolean; level?: string } = { stderr: true }): LogHandle {
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
   const file = fs.createWriteStream(logFile, { flags: 'a', mode: 0o600 });
   const sink = new Writable({
@@ -18,5 +20,9 @@ export function createLogger(logFile: string, redactor: Redactor, opts: { stderr
       cb();
     },
   });
-  return pino({ level: opts.level ?? 'info', base: null }, sink);
+  const logger = pino({ level: opts.level ?? 'info', base: null }, sink);
+  return {
+    logger,
+    close: () => new Promise<void>((resolve) => { sink.end(() => file.end(() => resolve())); }),
+  };
 }
