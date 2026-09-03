@@ -63,6 +63,8 @@ export function Tools() {
                       <span className="ml-2 text-xs text-gray-700 dark:text-gray-300">{TIER_NOTE[tool.tier]}</span>
                       {tool.approvalByDefault ? <Badge tone="busy" className="ml-2">always asks</Badge> : null}
                       {tool.usesNetwork ? <Badge tone="busy" className="ml-2">leaves the machine</Badge> : null}
+                      {tool.origin?.kind === 'mcp' ? <Badge className="ml-2">{tool.origin.server}</Badge> : null}
+                      {!tool.available ? <Badge tone="bad" className="ml-2">no sandbox</Badge> : null}
                     </th>
                     {(agents.data?.agents ?? []).map((agent) => {
                       const cell = cellFor(agent.id, tool.id);
@@ -93,6 +95,65 @@ export function Tools() {
             </table>
           </div>
           {setGrant.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{setGrant.error.message}</p> : null}
+
+          <h2 className="mt-8 text-lg font-medium">What can run code</h2>
+          <Card className="mt-2" data-testid="sandbox-status">
+            {q.data.sandbox.available ? (
+              <>
+                <p className="text-sm">
+                  <Badge tone="good">sandbox available</Badge>{' '}
+                  Code runs in Deno with no network and no filesystem beyond what an agent was granted. A script reaches
+                  its tools through the bridge, where every check still applies.
+                </p>
+                <p className="mt-2 text-xs text-gray-700 dark:text-gray-300">
+                  <span className="font-mono">{q.data.sandbox.path}</span> · stopped after{' '}
+                  {Math.round(q.data.sandbox.limits.wallClockMs / 1000)}s, {q.data.sandbox.limits.memoryMb} MB, or{' '}
+                  {Math.round(q.data.sandbox.limits.maxOutputBytes / 1024)} KB of output
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm">
+                  <Badge tone="bad">no sandbox</Badge>{' '}
+                  Deno is not installed, so nothing can be executed. These tools exist and cannot run:{' '}
+                  <span className="font-mono text-xs">{q.data.sandbox.disabled.join(', ') || 'none'}</span>.
+                </p>
+                <p className="mt-2 text-xs text-gray-700 dark:text-gray-300">
+                  Install Deno (deno.land) and restart. There is no unsandboxed fallback: running a model's code in this
+                  process would be the thing the sandbox exists to prevent.
+                </p>
+              </>
+            )}
+          </Card>
+
+          {q.data.mcpServers.length ? (
+            <>
+              <h2 className="mt-8 text-lg font-medium">MCP servers</h2>
+              <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+                Tools from outside this workbench. They are granted in the same table as the built-ins, and a tool the
+                server did not mark read-only asks you every time.
+              </p>
+              <ul className="mt-2 space-y-2">
+                {q.data.mcpServers.map((server) => (
+                  <li key={server.name}>
+                    <Card>
+                      <p className="text-sm">
+                        <Badge tone={server.running ? 'good' : 'bad'}>{server.running ? 'running' : 'not running'}</Badge>{' '}
+                        <span className="font-mono text-xs">{server.name}</span>
+                        {server.serverInfo?.name ? <span className="ml-2 text-gray-600 dark:text-gray-400">{server.serverInfo.name} {server.serverInfo.version ?? ''}</span> : null}
+                      </p>
+                      {server.error ? <p className="mt-1 text-sm text-red-700 dark:text-red-300">{server.error}</p> : null}
+                      {server.tools.length ? (
+                        <p className="mt-1 text-xs text-gray-700 dark:text-gray-300">
+                          <span className="font-mono">{server.tools.join(', ')}</span>
+                        </p>
+                      ) : null}
+                    </Card>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : null}
 
           <h2 className="mt-8 text-lg font-medium">Where they may go</h2>
           <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">

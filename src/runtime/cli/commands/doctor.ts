@@ -7,7 +7,10 @@ import { loadWorkspace } from '../../workspace/loader.js';
 import { loadCredentials } from '../../security/credentials.js';
 import { Redactor } from '../../security/redaction.js';
 import { defaultAssertFts5 } from '../../db/index.js';
-import { findExecutable } from '../../util/exec.js';
+import { findDeno } from '../../sandbox/deno.js';
+
+/** The tools that exist only when the sandbox does, named here so `doctor` can list them without a runtime. */
+const EXECUTE_TIER = ['code.execute', 'shell', 'fs.write'];
 import { findLiveRuntime } from '../client.js';
 import { guarded, out, outJson, resolveWorkspace, wantsJson } from '../context.js';
 
@@ -50,8 +53,16 @@ export function registerDoctor(program: Command, bootstrap: Bootstrap): void {
           checks.push({ name: 'sqlite fts5', ok: false, detail: (e as Error).message });
         }
 
-        const deno = findExecutable('deno', bootstrap.childEnvAllowlist['PATH']);
-        checks.push({ name: 'deno', ok: true, detail: deno ? `${deno} (sandboxed code tools arrive in RUN-02)` : 'not on PATH; needed from RUN-02 for the code sandbox' });
+        // The sandbox is not a failure when it is missing: a workbench without Deno is a workbench that cannot
+        // execute code, which is a smaller thing than a broken one. It says exactly which tools that switches off.
+        const deno = findDeno(bootstrap.childEnvAllowlist['PATH']);
+        checks.push({
+          name: 'deno',
+          ok: true,
+          detail: deno
+            ? `${deno} — the sandbox is available, so ${EXECUTE_TIER.join(', ')} can run`
+            : `not on PATH, so these are unavailable: ${EXECUTE_TIER.join(', ')}. Install Deno (https://deno.land) and restart. There is no unsandboxed fallback (D-30).`,
+        });
         checks.push({ name: 'ui', ok: true, detail: fs.existsSync(`${pkg.uiDist}/index.html`) ? 'built' : 'not built (npm run build:ui); the API and CLI work without it' });
 
         const failed = checks.filter((c) => !c.ok);

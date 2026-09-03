@@ -19,6 +19,8 @@ import { builtinTools } from '../tools/registry.js';
 import { searchProvider, type MockSearchFixture } from '../search/index.js';
 import { RunTaint } from './taint.js';
 import { MemoryStore } from '../memory/store.js';
+import { DEFAULT_LIMITS, type Sandbox } from '../sandbox/deno.js';
+import type { McpHost } from '../mcp/host.js';
 import { scopesFor } from './step.js';
 import { MAX_DEPTH, type DelegateHost, type PermissionRequestHost } from '../tools/builtin/delegate.js';
 import type { PushEventKind, RememberRule } from '../../shared/api/index.js';
@@ -57,6 +59,12 @@ export interface EngineDeps {
     lookup?: LookupFn | undefined;
     connect?: NetConnector | undefined;
   } | undefined;
+  /** The sandbox (RUN-09). The runtime finds Deno once and hands it in; absent disables the execute tier. */
+  sandbox?: Sandbox | undefined;
+  /** MCP servers (RUN-09). Their tools join the catalogue after `start()`, through `Engine.addTools`. */
+  mcp?: McpHost | undefined;
+  /** PATH HOME TMPDIR LANG LC_* TZ — the only variables a child of this runtime inherits (D-33). */
+  childEnvAllowlist?: Record<string, string> | undefined;
   /** `<workspace>/fixtures/search/results.json`, read by the runtime for the mock provider. */
   searchFixture?: (() => MockSearchFixture | null) | undefined;
 }
@@ -147,6 +155,17 @@ export class Engine {
         workspaceDir: deps.workspace().paths.dir,
         delegate: this.delegateHost(),
         permissions: this.permissionRequestHost(),
+        files: {
+          sandboxAvailable: () => deps.sandbox?.available ?? false,
+          maxBytes: () => deps.workspace().config.context.maxToolResultChars,
+        },
+        code: {
+          available: () => deps.sandbox?.available ?? false,
+          limits: () => DEFAULT_LIMITS,
+          // Closes over `this`, like the delegate and permission hosts above: nothing calls it during construction.
+          runScript: (input) => this.tools.runScriptFor(input),
+          runShell: (input) => this.tools.runShellFor(input),
+        },
         memory: {
           memory: this.memory,
           artifacts,
@@ -171,6 +190,8 @@ export class Engine {
         },
       }),
       approvals: this.approvalHost(),
+      ...(deps.sandbox ? { sandbox: deps.sandbox } : {}),
+      ...(deps.childEnvAllowlist ? { childEnvAllowlist: deps.childEnvAllowlist } : {}),
       ...(deps.net ? {
         net: {
           policy: () => {

@@ -18,10 +18,32 @@ jobs:
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e
-      - run: npm run dod -- 00
-      - run: npm run dod -- 01
-      - run: npm run dod -- 02
-      - run: npm run dod -- 03
+      # Every definition-of-done suite, in order. `npm ci` installs Deno as a devDependency, so the sandbox
+      # exists here and the execute-tier cases actually run rather than skipping.
+      - run: npx deno --version
+      - run: |
+          for n in 00 01 02 03 04 05 06 07 08 09 12; do
+            npm run dod -- $n || exit 1
+          done
+  # The other half of SEC-23: a machine with no Deno on it. The execute tier must be unavailable by name, and
+  # nothing may fall back to running code in this process.
+  no-sandbox:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: remove Deno so this is really a machine without one
+        run: rm -rf node_modules/deno node_modules/.bin/deno node_modules/@deno
+      - run: '! command -v deno'
+      - run: npm run build
+      # `npm run dod -- 09` runs the browser case tagged @run-09 as well, and that case is the point here: it is
+      # the one that reads the "no sandbox" copy on the Tools screen.
+      - run: npx playwright install --with-deps chromium
+      - run: npx vitest run --project security tests/security/sec-21-24-sandbox.test.ts
+      - run: npm run dod -- 09
+
   docker:
     runs-on: ubuntu-latest
     steps:

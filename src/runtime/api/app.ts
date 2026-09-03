@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { ApprovalDecisionRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type DashboardResponse, type DeleteMemoryResponse, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
+import { ApprovalDecisionRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type DashboardResponse, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
@@ -13,6 +13,7 @@ import { ConflictError, NotFoundError, ValidationError, type Engine } from '../e
 import { ScheduleError, type Scheduler } from '../scheduler/index.js';
 import type { PushStore } from '../push/store.js';
 import { ingestKnowledge, UnsupportedKnowledgeFormat } from '../knowledge/ingest.js';
+import { DEFAULT_LIMITS, type SandboxLimits } from '../sandbox/deno.js';
 import { TERMINAL_EVENTS, type EventStore } from '../engine/events.js';
 import { securityHeaders, hostOriginGuard, bearerGuard } from '../security/auth.js';
 import type { Redactor } from '../security/redaction.js';
@@ -39,6 +40,9 @@ export interface AppDeps {
   hosts: () => Set<string>;
   health: () => HealthResponse;
   denoAvailable: () => boolean;
+  /** The sandbox as the Tools screen shows it (RUN-09), and the MCP servers that came up. */
+  sandbox?: (() => { available: boolean; path: string | null; limits: SandboxLimits }) | undefined;
+  mcp?: { status: () => McpServerSummary[] } | undefined;
   /** Re-reads agent definitions from disk; the Agents screen calls it after an edit. */
   reloadAgents: () => { loaded: number; errors: BrokenAgent[] };
   /** The catalog with availability; `refresh` re-polls local endpoints first. */
@@ -367,6 +371,7 @@ export function createApp(deps: AppDeps): Hono {
   app.get('/api/v1/tools', (c) => {
     const ws = deps.workspace();
     const tools = deps.engine.tools.catalog();
+    const sandbox = deps.sandbox?.() ?? { available: false, path: null, limits: DEFAULT_LIMITS };
     const matrix: GrantCell[] = [];
     for (const agent of ws.agents.values()) {
       for (const tool of tools) matrix.push(deps.engine.tools.grantCell(agent, tool));
@@ -379,6 +384,8 @@ export function createApp(deps: AppDeps): Hono {
         id: t.id, version: t.version, description: t.description, tier: t.tier,
         approvalByDefault: t.approvalByDefault ?? false,
         usesNetwork: t.usesNetwork ?? false,
+        origin: t.origin ?? null,
+        available: t.tier !== 'execute' || sandbox.available,
         inputSchema: toolSpec(t).inputSchema,
       })),
       matrix,
@@ -387,6 +394,13 @@ export function createApp(deps: AppDeps): Hono {
         decision: d.decision, reason: d.reason, errorCode: d.error_code, ts: d.ts,
       })),
       remembered: ws.config.remembered,
+      sandbox: {
+        available: sandbox.available,
+        path: sandbox.path,
+        disabled: sandbox.available ? [] : tools.filter((t) => t.tier === 'execute').map((t) => t.id),
+        limits: sandbox.limits,
+      },
+      mcpServers: deps.mcp?.status() ?? [],
       network: {
         mode: ws.config.network.mode,
         allow: ws.config.network.allow,

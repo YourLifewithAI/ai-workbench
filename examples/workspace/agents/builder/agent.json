@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "builder",
+  "name": "The Builder",
+  "description": "Turns a plan for a small site into the files that are the site.",
+  "instructions": { "file": "instructions.md" },
+  "modelPolicy": { "primary": "google/gemini-2.5-pro", "fallbacks": ["google/gemini-2.5-flash"] },
+  "permissions": {
+    "tools": { "artifact.write": "allow", "artifact.read": "allow", "code.execute": "allow" }
+  },
+  "review": "none",
+  "output": { "kind": "text" }
+}

@@ -30,6 +30,21 @@
         "memory.remember": "allow",
         "memory.search": "allow"
       }
+    },
+    "builder": {
+      "tools": {
+        "artifact.write": "allow",
+        "artifact.read": "allow",
+        "code.execute": "allow"
+      },
+      "fs": {
+        "read": [
+          "projects/"
+        ],
+        "write": [
+          "projects/"
+        ]
+      }
     }
   },
   "search": {

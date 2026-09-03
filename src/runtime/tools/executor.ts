@@ -17,6 +17,14 @@ import type { NetworkMode, Permissions } from '../../shared/permissions.js';
 import { toolError, type ToolContext, type ToolDefinition, type ToolResult } from '../../shared/tool.js';
 import type { GrantCell, RememberRule } from '../../shared/api/index.js';
 import type { LoadedAgent } from '../../shared/agent.js';
+import { childEnv } from '../security/childEnv.js';
+import { DEFAULT_LIMITS, runCommand, type Sandbox, type SandboxLimits } from '../sandbox/deno.js';
+import { bridgePreamble, bridgeResponse, newNonce, readBridgeLine } from '../sandbox/bridge.js';
+import type { CodeRunResult } from './builtin/code.js';
+import { Permissions as PermissionsSchema } from '../../shared/permissions.js';
+
+/** The widest ceiling there is: used when composing an agent's own policy without a particular tool in hand. */
+const ANY_TOOL = PermissionsSchema.parse({ fs: { read: ['/'], write: ['/'] }, net: { allow: [], allowLocalAddresses: true } });
 
 export interface ToolCall { id: string; name: string; input: unknown }
 
@@ -47,6 +55,11 @@ export interface ExecutorDeps {
     /** The runtime's own port, refused as a destination in every mode. */
     runtimePort?: (() => number | null) | undefined;
   } | undefined;
+  /** The sandbox (RUN-09). Absent means the execute tier refuses by name; there is no in-process fallback (D-30). */
+  sandbox?: Sandbox | undefined;
+  /** PATH HOME TMPDIR LANG LC_* TZ — the only variables any child of this runtime ever inherits (D-33). */
+  childEnvAllowlist?: Record<string, string> | undefined;
+  sandboxLimits?: (() => SandboxLimits) | undefined;
 }
 
 export interface ExecuteInput {
@@ -72,7 +85,22 @@ export interface ExecutedCall {
 }
 
 export class ToolExecutor {
+  /**
+   * The step each in-flight call belongs to, so a tool that needs the *step's* context — `code.execute` needs
+   * the scratch directory, the agent and the workflow ceiling to build the sandbox — can ask for it by run and
+   * step rather than being handed a second, wider context that every other tool would also get.
+   */
+  private readonly inflight = new Map<string, ExecuteInput>();
+
   constructor(private readonly deps: ExecutorDeps) {}
+
+  /**
+   * Tools that arrive after startup: an MCP server publishes its list only once it has been spawned and has
+   * answered the handshake, which is after the executor exists.
+   */
+  add(tools: ToolDefinition[]): void {
+    for (const tool of tools) this.deps.tools.set(tool.id, tool);
+  }
 
   /** Every tool that exists, granted or not — the Tools screen shows the whole catalogue. */
   catalog(): ToolDefinition[] {
@@ -123,7 +151,36 @@ export class ToolExecutor {
    * the slowest, not the sum (workflows-and-execution.md §The agent step loop).
    */
   async run(calls: ToolCall[], input: ExecuteInput): Promise<ExecutedCall[]> {
-    return Promise.all(calls.map((call, index) => this.one(call, input, index)));
+    const key = `${input.runId}:${input.stepId}`;
+    this.inflight.set(key, input);
+    try {
+      return await Promise.all(calls.map((call, index) => this.one(call, input, index)));
+    } finally {
+      this.inflight.delete(key);
+    }
+  }
+
+  /** `code.execute`'s way back to the step it is part of. */
+  async runScriptFor(input: { source: string; runId: string; stepId: string; agentId: string; signal: AbortSignal }): Promise<CodeRunResult> {
+    const step = this.inflight.get(`${input.runId}:${input.stepId}`);
+    if (!step) throw new PolicyError('ToolUnavailable', 'code.execute was called outside a step, which cannot happen.');
+    return this.runScript({ ...step, source: input.source, callId: `code-${ulid()}` });
+  }
+
+  /** `shell`'s. One command, no shell line: the arguments are an array, so there is nothing to quote wrong. */
+  async runShellFor(input: { command: string; args: string[]; runId: string; stepId: string; signal: AbortSignal }): Promise<Omit<CodeRunResult, 'toolCalls'>> {
+    const step = this.inflight.get(`${input.runId}:${input.stepId}`);
+    if (!step) throw new PolicyError('ToolUnavailable', 'shell was called outside a step, which cannot happen.');
+    const result = await runCommand({
+      command: input.command,
+      args: input.args,
+      cwd: step.scratchDir,
+      // The same scrubbed environment the sandbox gets: a subprocess sees no credential (SEC-07, D-33).
+      env: childEnv(this.deps.childEnvAllowlist ?? {}),
+      limits: this.deps.sandboxLimits?.() ?? DEFAULT_LIMITS,
+      signal: input.signal,
+    });
+    return { ok: result.ok, stdout: result.stdout, stderr: result.stderr, code: result.code, killedBy: result.killedBy, durationMs: result.durationMs };
   }
 
   private async one(call: ToolCall, input: ExecuteInput, ordinal = 0): Promise<ExecutedCall> {
@@ -191,6 +248,84 @@ export class ToolExecutor {
         : toolError('ToolError', `"${tool.id}" failed: ${(e as Error).message}`);
     }
     return this.finish(call, input, result, started, 'allowed');
+  }
+
+  /**
+   * `code.execute`, from the inside. The script runs in Deno with permissions generated from the same effective
+   * policy a tool call gets, and every bridged call re-enters `one()` — so a call from inside the sandbox is
+   * decided by the grant matrix, may park in the approval queue, and lands in the trace exactly like a call the
+   * model made itself. That is the point of the bridge: one door, not two (D-55).
+   */
+  async runScript(input: ExecuteInput & { source: string; callId: string }): Promise<CodeRunResult> {
+    const sandbox = this.deps.sandbox;
+    if (!sandbox?.available) throw new PolicyError('ToolUnavailable', 'Deno is not installed, so nothing can be executed.');
+
+    const permissions = this.permissionsFor(input.agent, input.workflowCeiling);
+    const nonce = newNonce();
+    const scriptPath = path.join(input.scratchDir, `${input.callId}.ts`);
+    const broker = new Broker({ workspaceDir: this.deps.workspaceDir, permissions: EMPTY_PERMISSIONS, scratchDir: input.scratchDir });
+    await broker.write(scriptPath, `${bridgePreamble(nonce)}\n${input.source}\n`);
+
+    const toolCalls: string[] = [];
+    let child: { stdin: { write(chunk: string): void } } | null = null;
+    let pending = Promise.resolve();
+    const printed: string[] = [];
+
+    const result = await sandbox.run({
+      scriptPath,
+      policy: {
+        scratchDir: input.scratchDir,
+        read: this.rootsFor(permissions.fs.read),
+        write: this.rootsFor(permissions.fs.write),
+      },
+      env: childEnv(this.deps.childEnvAllowlist ?? {}),
+      ...(this.deps.sandboxLimits ? { limits: this.deps.sandboxLimits() } : {}),
+      signal: input.signal,
+      onSpawn: (spawned) => { child = spawned as unknown as { stdin: { write(chunk: string): void } }; },
+      onStdoutLine: (line) => {
+        const read = readBridgeLine(nonce, line);
+        if ('output' in read) { printed.push(read.output); return; }
+        if ('error' in read) { printed.push(line); return; }
+        const { call } = read;
+        toolCalls.push(call.tool);
+        // Serialised on purpose: the approval queue is a conversation with a person, and two cards at once for
+        // one script would be two questions about the same decision.
+        pending = pending.then(async () => {
+          // A script cannot start another script: nesting sandboxes is not a capability anyone asked for, and
+          // the refusal reads like every other one rather than like a missing function.
+          const nested = this.deps.tools.get(call.tool);
+          const result = nested?.tier === 'execute'
+            ? toolError('PermissionDenied', `"${call.tool}" cannot be called from inside the sandbox.`, 'Run it as a tool call of its own, outside this script.')
+            : (await this.one({ id: `${input.callId}:${call.id}`, name: call.tool, input: call.input }, input)).result;
+          child?.stdin.write(`${JSON.stringify(bridgeResponse(call.id, result))}\n`);
+        });
+      },
+    });
+    await pending;
+
+    return {
+      ok: result.ok,
+      stdout: printed.join('\n'),
+      stderr: result.stderr,
+      code: result.code,
+      killedBy: result.killedBy,
+      durationMs: result.durationMs,
+      toolCalls,
+    };
+  }
+
+  /** Grant roots as absolute paths, for the sandbox flags. A relative root is relative to the workspace (D-27). */
+  private rootsFor(roots: string[]): string[] {
+    return roots.map((root) => (path.isAbsolute(root) ? root : path.resolve(this.deps.workspaceDir, root)));
+  }
+
+  private permissionsFor(agent: LoadedAgent, workflowCeiling?: Permissions): Permissions {
+    return effectivePermissions({
+      requested: agent.definition.permissions,
+      granted: grantFor(this.deps.config(), agent.definition.id),
+      toolMax: ANY_TOOL,
+      ...(workflowCeiling ? { workflowCeiling } : {}),
+    }).permissions;
   }
 
   private contextFor(tool: ToolDefinition, input: ExecuteInput, permissions: Permissions): ToolContext {

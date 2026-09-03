@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "id": "build-site",
+  "name": "Build a small site",
+  "description": "A brief becomes a plan, the plan becomes files, a sandboxed check reads them back, and a reviewer says what a visitor would notice.",
+  "defaultProject": "site",
+  "inputs": {
+    "type": "object",
+    "properties": {
+      "brief": {
+        "type": "string",
+        "title": "Brief",
+        "description": "What the site is for, and who is meant to read it. A few sentences."
+      }
+    },
+    "required": ["brief"]
+  },
+  "permissions": {
+    "net": { "mode": "offline", "allow": [] },
+    "tools": { "artifact.write": "allow", "artifact.read": "allow", "code.execute": "allow" }
+  },
+  "steps": [
+    {
+      "id": "plan",
+      "kind": "agent",
+      "agent": "architect",
+      "input": "Plan a small static site. The brief:\n\n{{inputs.brief}}\n\nList the pages, and for each one say what it is for and what it links to. Three pages at most.",
+      "output": { "document": null }
+    },
+    {
+      "id": "build",
+      "kind": "agent",
+      "agent": "builder",
+      "input": "The plan:\n\n{{steps.plan.output}}\n\nWrite the files, then check them.",
+      "output": { "document": null }
+    },
+    {
+      "id": "critique",
+      "kind": "agent",
+      "agent": "reviewer",
+      "input": "The brief:\n\n{{inputs.brief}}\n\nWhat was built:\n\n{{steps.build.output}}\n\nSay what a visitor would notice first, and what is missing.",
+      "output": { "document": null }
+    }
+  ],
+  "outputs": {
+    "plan": "{{steps.plan.output}}",
+    "built": "{{steps.build.output}}",
+    "critique": "{{steps.critique.output}}"
+  }
+}

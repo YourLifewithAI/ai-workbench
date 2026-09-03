@@ -50,6 +50,23 @@ export function intersectAll(...layers: (Permissions | undefined)[]): Permission
  * narrower of the two is what is kept). Prefix comparison is on normalised, slash-terminated strings so
  * `projects/a` never matches `projects/ab`.
  */
+/**
+ * A ceiling narrows only what it mentions. A workflow that writes `permissions: { tools: {...} }` has said which
+ * tools its steps may use and nothing about paths; reading its silence as "no paths" would strip every grant the
+ * agents already have, which is what the first shipped workflow with a `permissions` block did. The grant layer
+ * is unaffected: an agent with no `fs.write` still has none, because that layer is an answer, not a ceiling.
+ */
+function asCeiling(ceiling: Permissions | undefined): Permissions | undefined {
+  if (!ceiling) return undefined;
+  return {
+    ...ceiling,
+    fs: {
+      read: ceiling.fs.read.length ? ceiling.fs.read : ['/'],
+      write: ceiling.fs.write.length ? ceiling.fs.write : ['/'],
+    },
+  };
+}
+
 function intersectPaths(a: string[], b: string[]): string[] {
   const out = new Set<string>();
   for (const left of a) {
@@ -116,7 +133,7 @@ export type ToolDecision =
  */
 export function effectivePermissions(source: GrantSource): EffectivePermissions {
   const granted = source.granted ?? EMPTY_PERMISSIONS;
-  const permissions = intersectAll(source.toolMax, granted, source.workflowCeiling, source.runOverride);
+  const permissions = intersectAll(source.toolMax, granted, asCeiling(source.workflowCeiling), asCeiling(source.runOverride));
 
   return {
     permissions,

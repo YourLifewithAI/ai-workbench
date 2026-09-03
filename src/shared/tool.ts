@@ -69,6 +69,13 @@ export interface ToolDefinition<I = unknown, O = unknown> {
   approvalByDefault?: boolean | undefined;
   /** This tool leaves the machine. The network policy applies on top of the grant, and the Tools screen says so. */
   usesNetwork?: boolean | undefined;
+  /**
+   * The schema the model is shown, when the tool's own is not derived from `input`. An MCP server publishes JSON
+   * Schema and the workbench does not get to rewrite it: what the server said is what the model sees (D-31).
+   */
+  inputSchemaOverride?: JsonSchema | undefined;
+  /** Where the tool came from, for the Tools screen. Absent means a built-in. */
+  origin?: { kind: 'mcp'; server: string } | undefined;
   execute(input: I, ctx: ToolContext): Promise<ToolResult<O>>;
 }
 
@@ -77,7 +84,8 @@ export interface ToolDefinition<I = unknown, O = unknown> {
  * produces the same bytes on every call and a prompt cache is not invalidated by key order (D-46).
  */
 export function toolSpec(tool: ToolDefinition): ToolSpec {
-  return { name: tool.id, description: tool.description, inputSchema: sortKeys(z.toJSONSchema(tool.input, { io: 'input' })) as JsonSchema };
+  const schema = tool.inputSchemaOverride ?? (z.toJSONSchema(tool.input, { io: 'input' }) as JsonSchema);
+  return { name: tool.id, description: tool.description, inputSchema: sortKeys(schema) as JsonSchema };
 }
 
 function sortKeys(value: unknown): unknown {
