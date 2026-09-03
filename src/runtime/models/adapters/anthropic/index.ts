@@ -10,10 +10,6 @@ import { providerOptionsFor } from '../shared/aisdk.js';
 
 export const ANTHROPIC_ADAPTER_ID = 'anthropic';
 
-/** Extended thinking needs a budget below the output cap; this leaves room for the answer itself. */
-const THINKING_BUDGET_FRACTION = 0.5;
-const MIN_THINKING_BUDGET = 1024;
-
 export class AnthropicAdapter extends AiSdkAdapter {
   readonly id = ANTHROPIC_ADAPTER_ID;
 
@@ -31,8 +27,10 @@ export class AnthropicAdapter extends AiSdkAdapter {
   protected providerOptions(model: CatalogEntry, req: ModelRequest): NonNullable<Parameters<typeof generateText>[0]['providerOptions']> {
     const defaults: Record<string, unknown> = {};
     if (model.capabilities.reasoning !== 'none') {
-      const cap = req.maxOutputTokens ?? model.capabilities.maxOutputTokens ?? 8192;
-      defaults['thinking'] = { type: 'enabled', budgetTokens: Math.max(MIN_THINKING_BUDGET, Math.floor(cap * THINKING_BUDGET_FRACTION)) };
+      // Adaptive thinking is the only mode current Claude models accept: a fixed `budgetTokens` is rejected
+      // outright. `summarized` is what puts the reasoning in the trace; the default returns it empty.
+      // A model old enough to need the fixed-budget form can say so with providerOptions.anthropic.thinking.
+      defaults['thinking'] = { type: 'adaptive', display: 'summarized' };
     }
     return providerOptionsFor('anthropic', defaults, req);
   }

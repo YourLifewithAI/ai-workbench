@@ -63,7 +63,7 @@ test('Welcome runs the example and reaches its trace; Settings is read-only and 
   await expect(page.getByTestId('event-type')).toHaveCount(6);
   await page.getByRole('link', { name: 'Settings', exact: true }).click();
   await expect(page.getByText('Network mode')).toBeVisible();
-  await expect(page.getByText('allowlist')).toBeVisible();
+  await expect(page.locator('dd', { hasText: 'allowlist' }).first()).toBeVisible();
   await expectNoA11yViolations(page, 'Settings');
 });
 
@@ -80,7 +80,7 @@ test('keyboard-only navigation reaches every route; both themes and reduced moti
   expect([...seen].sort()).toEqual([...names].sort());
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
-  for (const route of ['/dashboard', '/library', '/workflows', '/review', '/models', '/memory', '/tools', '/evaluate']) {
+  for (const route of ['/dashboard', '/library', '/workflows', '/review', '/memory', '/tools', '/evaluate']) {
     await page.goto(base() + route + '#token=' + token());
     await expect(page.getByText(/Arrives in RUN-/)).toBeVisible();
   }

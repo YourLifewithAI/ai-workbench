@@ -120,6 +120,90 @@
       "dataPolicy": {
         "trainsOnContent": "no"
       }
+    },
+    {
+      "id": "anthropic/claude-opus-5",
+      "adapter": "anthropic",
+      "enabled": true,
+      "locality": "cloud",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "audioInput": false,
+        "toolCalling": "parallel",
+        "structuredOutput": "schema",
+        "streaming": true,
+        "reasoning": "opaque",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 64000
+      },
+      "pricing": [
+        {
+          "effectiveFrom": "2026-01-01",
+          "inputPerM": 5.0,
+          "outputPerM": 25.0
+        }
+      ],
+      "dataPolicy": {
+        "trainsOnContent": "no",
+        "policyUrl": "https://www.anthropic.com/legal/commercial-terms"
+      }
+    },
+    {
+      "id": "anthropic/claude-sonnet-5",
+      "adapter": "anthropic",
+      "enabled": true,
+      "locality": "cloud",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "audioInput": false,
+        "toolCalling": "parallel",
+        "structuredOutput": "schema",
+        "streaming": true,
+        "reasoning": "opaque",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 64000
+      },
+      "pricing": [
+        {
+          "effectiveFrom": "2026-01-01",
+          "inputPerM": 2.0,
+          "outputPerM": 10.0
+        }
+      ],
+      "dataPolicy": {
+        "trainsOnContent": "no",
+        "policyUrl": "https://www.anthropic.com/legal/commercial-terms"
+      }
+    },
+    {
+      "id": "anthropic/claude-haiku-4-5",
+      "adapter": "anthropic",
+      "enabled": false,
+      "locality": "cloud",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "audioInput": false,
+        "toolCalling": "parallel",
+        "structuredOutput": "schema",
+        "streaming": true,
+        "reasoning": "opaque",
+        "contextTokens": 200000,
+        "maxOutputTokens": 64000
+      },
+      "pricing": [
+        {
+          "effectiveFrom": "2026-01-01",
+          "inputPerM": 1.0,
+          "outputPerM": 5.0
+        }
+      ],
+      "dataPolicy": {
+        "trainsOnContent": "no",
+        "policyUrl": "https://www.anthropic.com/legal/commercial-terms"
+      }
     }
   ]
 }

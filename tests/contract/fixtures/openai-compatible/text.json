@@ -1,0 +1,13 @@
+[
+  {
+    "method": "POST",
+    "url": "http://127.0.0.1:11434/v1/chat/completions",
+    "requestHash": "authored",
+    "status": 200,
+    "statusText": "OK",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": "{\"id\": \"chatcmpl-contract\", \"object\": \"chat.completion\", \"created\": 1767225600, \"model\": \"qwen3:14b\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"Hello to the contract suite.\"}, \"finish_reason\": \"stop\"}], \"usage\": {\"prompt_tokens\": 18, \"completion_tokens\": 7, \"total_tokens\": 25}}"
+  }
+]

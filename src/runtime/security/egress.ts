@@ -76,11 +76,25 @@ export function isLocalAddress(host: string): boolean {
     if (v6 === '::' || v6 === '::1') return true;
     if (/^f[cd][0-9a-f]{2}:/.test(v6)) return true;       // unique local fc00::/7
     if (/^fe[89ab][0-9a-f]:/.test(v6)) return true;        // link local fe80::/10
-    const mapped = /^::ffff:([0-9.]+)$/.exec(v6);          // IPv4-mapped forms
-    if (mapped?.[1] && net.isIPv4(mapped[1])) return isLocalAddress(mapped[1]);
+    const mapped = mappedIpv4(v6);                         // IPv4-mapped forms, dotted or hex
+    if (mapped) return isLocalAddress(mapped);
     return false;
   }
   return false;
+}
+
+/**
+ * `::ffff:127.0.0.1` and `::ffff:7f00:1` are the same address; URL parsing normalises the first into the second,
+ * so both forms have to decode or a mapped loopback slips through.
+ */
+function mappedIpv4(v6: string): string | null {
+  const dotted = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(v6);
+  if (dotted?.[1] && net.isIPv4(dotted[1])) return dotted[1];
+  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(v6);
+  if (!hex) return null;
+  const high = parseInt(hex[1]!, 16);
+  const low = parseInt(hex[2]!, 16);
+  return `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`;
 }
 
 export function isLoopback(host: string): boolean {

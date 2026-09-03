@@ -7,7 +7,7 @@ import { createEgressFetch, type EgressAttempt, type EgressDecision } from '../s
 import { computeCost } from '../models/catalog.js';
 import { dropForeignReasoning, selectCandidates } from './selection.js';
 import { directFetch } from '../models/fetch.js';
-import { ModelError, ModelUnavailableError, modelError } from '../models/errors.js';
+import { ModelError, ModelUnavailableError, NetworkPolicyError, modelError } from '../models/errors.js';
 import type { Credentials } from '../security/credentials.js';
 import type { Redactor } from '../security/redaction.js';
 import type { Logger } from '../log/index.js';
@@ -182,8 +182,12 @@ export class Engine {
 
     if (!candidates.length) {
       const why = rejected.map((r) => `${r.id}: ${r.reason}`).join('; ');
-      const err = new ModelUnavailableError(`No usable model for "${agent.definition.id}". ${why || 'The agent names no models.'}`);
-      return this.fail(runId, stepId, 'model_unavailable', err.toShape(), spent, startedMs);
+      // The network mode is a policy decision, not a missing model: name it, so the fix is obvious.
+      const blockedByMode = rejected.length > 0 && rejected.every((r) => r.reason.startsWith('network mode is'));
+      const err = blockedByMode
+        ? new NetworkPolicyError(`No model for "${agent.definition.id}" is reachable in ${ws.config.network.mode} mode. ${why}. Switch the mode in Settings, or give this agent a local model.`)
+        : new ModelUnavailableError(`No usable model for "${agent.definition.id}". ${why || 'The agent names no models.'}`);
+      return this.fail(runId, stepId, blockedByMode ? 'network_policy' : 'model_unavailable', err.toShape(), spent, startedMs);
     }
 
     const task = typeof input.inputs['input'] === 'string' ? (input.inputs['input'] as string) : JSON.stringify(input.inputs);

@@ -20,6 +20,7 @@ jobs:
       - run: npm run e2e
       - run: npm run dod -- 00
       - run: npm run dod -- 01
+      - run: npm run dod -- 02
   docker:
     runs-on: ubuntu-latest
     steps:

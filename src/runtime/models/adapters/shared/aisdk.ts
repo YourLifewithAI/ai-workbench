@@ -128,6 +128,9 @@ interface ApiCallErrorish { name?: string; statusCode?: number; responseBody?: s
 /** HTTP status and provider message → the canonical code set, so the engine's retry and fallback rules apply (D-05). */
 export function translateError(e: unknown, signal?: AbortSignal): ModelError {
   if (e instanceof ModelError) return e;
+  // The egress checker refuses before a socket opens; SDKs wrap that as a transport failure, so unwrap it first.
+  const denial = findEgressDenial(e);
+  if (denial) return modelError('NetworkPolicy', denial, { action: 'abort', retryable: false });
   const err = e as ApiCallErrorish;
   const message = err?.message ?? String(e);
   if (signal?.aborted || err?.name === 'AbortError' || /aborted/i.test(message)) {
@@ -167,6 +170,16 @@ function providerMessage(body: string | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+/** An SDK may wrap the checker's refusal several causes deep; the decision message is what the user needs. */
+function findEgressDenial(e: unknown): string | null {
+  for (let cause: unknown = e, depth = 0; cause && depth < 5; depth++) {
+    const named = cause as { name?: string; message?: string; cause?: unknown };
+    if (named.name === 'EgressDeniedError') return named.message ?? 'The egress checker refused this request.';
+    cause = named.cause;
+  }
+  return null;
 }
 
 function textOf(b: ContentBlock): string {

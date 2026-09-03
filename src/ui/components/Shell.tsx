@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { cn } from '../lib/cn.js';
 import { readTheme, saveTheme, type Theme } from '../lib/theme.js';
+import { NetworkBanner } from './NetworkBanner.js';
 
 export const SCREENS: { path: string; label: string; shipsIn: string; summary: string }[] = [
   { path: '/welcome', label: 'Welcome', shipsIn: 'RUN-00', summary: 'The first-run path.' },
@@ -52,9 +53,12 @@ export function Shell() {
           </ul>
         </nav>
       </header>
-      <main id="main" tabIndex={-1} className="flex-1 p-6">
-        <Outlet />
-      </main>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <NetworkBanner />
+        <main id="main" tabIndex={-1} className="flex-1 p-6">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }

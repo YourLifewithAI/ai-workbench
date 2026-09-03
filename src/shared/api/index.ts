@@ -80,6 +80,51 @@ export type AgentDetail = z.infer<typeof AgentDetail>;
 export const ReloadAgentsResponse = z.object({ loaded: z.number().int(), errors: z.array(AgentLoadError) });
 export type ReloadAgentsResponse = z.infer<typeof ReloadAgentsResponse>;
 
+export const ModelStatus = z.object({
+  id: z.string(),
+  adapter: z.string(),
+  locality: z.string(),
+  enabled: z.boolean(),
+  availability: z.enum(['ready', 'no-credential', 'blocked-by-mode', 'unreachable', 'disabled', 'no-adapter']),
+  reason: z.string().nullable(),
+  capabilities: z.record(z.string(), z.unknown()),
+  pricing: z.array(z.record(z.string(), z.unknown())),
+  dataPolicy: z.record(z.string(), z.unknown()),
+  baseUrl: z.string().optional(),
+});
+export type ModelStatus = z.infer<typeof ModelStatus>;
+
+export const ModelListResponse = z.object({ models: z.array(ModelStatus), networkMode: z.string(), pulled: z.record(z.string(), z.array(z.string())) });
+export type ModelListResponse = z.infer<typeof ModelListResponse>;
+
+/** One row of the Privacy Inspector: where a run's data went, what kind it was, and what came of the attempt. */
+export const EgressRecord = z.object({
+  id: z.string(),
+  stepId: z.string().nullable(),
+  purpose: z.string(),
+  host: z.string(),
+  method: z.string(),
+  categories: z.array(z.string()),
+  bytes: z.number().int(),
+  bodyRedacted: z.string().nullable(),
+  decision: z.enum(['allowed', 'denied']),
+  reason: z.string().nullable(),
+  ts: z.string(),
+});
+export type EgressRecord = z.infer<typeof EgressRecord>;
+
+export const PrivacyResponse = z.object({
+  runId: z.string(),
+  networkMode: z.string(),
+  egress: z.array(EgressRecord),
+  /** The data policy of every model this run actually called, so "who has my text" is answerable. */
+  destinations: z.array(z.object({ modelId: z.string(), host: z.string().nullable(), dataPolicy: z.record(z.string(), z.unknown()).nullable(), calls: z.number().int() })),
+});
+export type PrivacyResponse = z.infer<typeof PrivacyResponse>;
+
+export const SetNetworkModeRequest = z.object({ mode: z.enum(['offline', 'local-only', 'allowlist', 'unrestricted']) });
+export type SetNetworkModeRequest = z.infer<typeof SetNetworkModeRequest>;
+
 export const HealthResponse = z.object({ version: z.string(), bind: z.string(), port: z.number().int(), startedAt: z.string() });
 export type HealthResponse = z.infer<typeof HealthResponse>;
 

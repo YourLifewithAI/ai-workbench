@@ -122,6 +122,10 @@ Native, no SDK. It serves any catalog id (so `--provider mock` keeps per-step mo
                "error": "RateLimit", "finishReason": "stop", "latencyMs": 50, "usage": { "input": 10, "output": 5 } } }
 ```
 
+> Amendment (RUN-02, 2026-09-03): `respond.failAfterChars` streams that many characters and then raises `error`, which
+> is the mid-stream failure a fallback has to recover from — the case the engine handles by aborting the step and
+> rerunning it from the start on the next candidate.
+
 > Amendment (RUN-01, 2026-09-03): `respond.chunkDelayMs` paces the streamed chunks, so the example workspace can
 > demonstrate streaming — and an e2e case can assert it — with no provider key. `latencyMs` still delays the
 > whole call.
