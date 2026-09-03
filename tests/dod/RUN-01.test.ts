@@ -99,14 +99,18 @@ describe('RUN-01 surface: agents API and the streamed trace', () => {
     const rt = await startRuntime(ws);
     try {
       const h = { Authorization: `Bearer ${rt.token}` };
+      // Derived from the example workspace, not hard-coded: later runs add agents and edit their instructions,
+      // and what RUN-01 promised is that every one of them loads and parses — not that there are exactly four.
+      const shipped = fs.readdirSync(path.join(ws, 'agents')).filter((d) => d !== 'broken').sort();
       const list = (await (await fetch(`${rt.baseUrl}/api/v1/agents`, { headers: h })).json()) as { agents: { id: string; version: string }[]; errors: { id: string; message: string }[] };
-      expect(list.agents.map((a) => a.id).sort()).toEqual(['architect', 'cutter', 'echo', 'weaver']);
+      expect(list.agents.map((a) => a.id).sort()).toEqual(shipped);
       expect(list.errors.map((e) => e.id)).toEqual(['broken']);
       expect(list.errors[0]!.message).toMatch(/name|description|instructions|modelPolicy/);
 
+      const headings = [...fs.readFileSync(path.join(ws, 'agents', 'architect', 'instructions.md'), 'utf8').matchAll(/^## (.+)$/gm)].map((m) => m[1]!.trim());
       const detail = (await (await fetch(`${rt.baseUrl}/api/v1/agents/architect`, { headers: h })).json()) as { sections: { name: string }[]; instructionsSource: string };
       expect(detail.instructionsSource).toBe('file');
-      expect(detail.sections.map((s) => s.name)).toEqual(['task', 'world']);
+      expect(detail.sections.map((s) => s.name)).toEqual(headings);
 
       // A fixed definition becomes loadable without a restart.
       fs.writeFileSync(path.join(ws, 'agents', 'broken', 'agent.json'), JSON.stringify({
@@ -114,7 +118,7 @@ describe('RUN-01 surface: agents API and the streamed trace', () => {
         instructions: [{ name: 'task', text: 'Reply.' }], modelPolicy: { primary: 'mock/echo' },
       }));
       const reloaded = (await (await fetch(`${rt.baseUrl}/api/v1/agents/reload`, { method: 'POST', headers: h })).json()) as { loaded: number; errors: unknown[] };
-      expect(reloaded).toEqual({ loaded: 5, errors: [] });
+      expect(reloaded).toEqual({ loaded: shipped.length + 1, errors: [] });
     } finally {
       await rt.stop();
     }

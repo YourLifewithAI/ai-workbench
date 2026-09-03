@@ -125,6 +125,52 @@ export type PrivacyResponse = z.infer<typeof PrivacyResponse>;
 export const SetNetworkModeRequest = z.object({ mode: z.enum(['offline', 'local-only', 'allowlist', 'unrestricted']) });
 export type SetNetworkModeRequest = z.infer<typeof SetNetworkModeRequest>;
 
+export const Project = z.object({ id: z.string(), slug: z.string(), name: z.string(), description: z.string().nullable(), createdAt: z.string(), documents: z.number().int() });
+export type Project = z.infer<typeof Project>;
+
+export const CreateProjectRequest = z.object({ slug: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'lowercase letters, digits and hyphens'), name: z.string().min(1), description: z.string().optional() });
+export type CreateProjectRequest = z.infer<typeof CreateProjectRequest>;
+
+export const DocumentVersionSummary = z.object({
+  id: z.string(),
+  parentId: z.string().nullable(),
+  hash: z.string(),
+  createdBy: z.enum(['run-step', 'human', 'import']),
+  runId: z.string().nullable(),
+  stepId: z.string().nullable(),
+  agentVersion: z.string().nullable(),
+  modelId: z.string().nullable(),
+  createdAt: z.string(),
+  bytes: z.number().int(),
+});
+export type DocumentVersionSummary = z.infer<typeof DocumentVersionSummary>;
+
+export const DocumentSummary = z.object({
+  id: z.string(),
+  projectSlug: z.string(),
+  path: z.string(),
+  type: z.string(),
+  latestVersionId: z.string().nullable(),
+  versions: z.number().int(),
+  updatedAt: z.string().nullable(),
+});
+export type DocumentSummary = z.infer<typeof DocumentSummary>;
+
+export const DocumentDetail = DocumentSummary.extend({
+  content: z.string(),
+  version: DocumentVersionSummary.nullable(),
+  history: z.array(DocumentVersionSummary),
+});
+export type DocumentDetail = z.infer<typeof DocumentDetail>;
+
+export const PutDocumentRequest = z.object({ content: z.string() });
+export type PutDocumentRequest = z.infer<typeof PutDocumentRequest>;
+
+/** One unified-diff-ish hunk line, computed server-side so the UI and the CLI show the same thing. */
+export const DiffLine = z.object({ kind: z.enum(['same', 'added', 'removed']), text: z.string(), leftNo: z.number().int().nullable(), rightNo: z.number().int().nullable() });
+export const DiffResponse = z.object({ from: z.string(), to: z.string(), lines: z.array(DiffLine), added: z.number().int(), removed: z.number().int() });
+export type DiffResponse = z.infer<typeof DiffResponse>;
+
 export const HealthResponse = z.object({ version: z.string(), bind: z.string(), port: z.number().int(), startedAt: z.string() });
 export type HealthResponse = z.infer<typeof HealthResponse>;
 

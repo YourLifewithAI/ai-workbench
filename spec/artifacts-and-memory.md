@@ -19,6 +19,11 @@ interface ArtifactVersion {
 
 During a step, `artifact.write` stages under `runs/<id>/scratch/out/`; when the step completes, staged writes are committed as versions in one transaction. A human edit in the Library creates a version with `createdBy: 'human'`; "re-run downstream" starts the dependent steps from that version. The bible of the story example is a project document injected as knowledge, not code.
 
+> Amendment (RUN-03, 2026-09-03): a project directory that exists on disk without a row is **adopted** on startup —
+> its markdown, text and JSON files become documents with `createdBy: 'import'`. That is how `init` can ship an
+> example project, and how a workspace copied between machines keeps working. Writing a body identical to the
+> current version is a no-op, so a re-run that changes nothing does not inflate history.
+
 Files have versions too (`file_versions`, `data-model.md`); export and import formats are in `data-model.md`.
 
 ## Memory (D-17)

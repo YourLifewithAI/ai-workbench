@@ -5,7 +5,9 @@ import path from 'node:path';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { CreateRunRequest, SetNetworkModeRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type EgressRecord, type HealthResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type SettingsResponse } from '../../shared/api/index.js';
+import { CreateProjectRequest, CreateRunRequest, PutDocumentRequest, SetNetworkModeRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type EgressRecord, type HealthResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type SettingsResponse } from '../../shared/api/index.js';
+import type { ArtifactStore } from '../artifacts/store.js';
+import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
 import { NotFoundError, ValidationError, type Engine } from '../engine/run.js';
 import { TERMINAL_EVENTS, type EventStore } from '../engine/events.js';
@@ -34,6 +36,7 @@ export interface AppDeps {
   models: (refresh: boolean) => Promise<ModelListResponse>;
   /** The one-click network switch (ui.md §UX rules): writes the mode to config and reloads it. */
   setNetworkMode: (mode: SetNetworkModeRequest['mode']) => void;
+  artifacts: ArtifactStore;
   db: Db;
   uiDist: string;
   /** Fires when the runtime stops; open SSE streams end on it. */
@@ -211,6 +214,70 @@ export function createApp(deps: AppDeps): Hono {
       documents: agent.definition.documents,
     };
     return json(c, body);
+  });
+
+  // ---- the Library (D-16) ---------------------------------------------------------------------
+  app.get('/api/v1/projects', (c) => json(c, { projects: deps.artifacts.listProjects() }));
+
+  app.post('/api/v1/projects', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = CreateProjectRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'A project needs a slug (lowercase letters, digits and hyphens) and a name.', 400, parsed.error.issues);
+    try {
+      return json(c, deps.artifacts.createProject(parsed.data.slug, parsed.data.name, parsed.data.description), 201);
+    } catch (e) {
+      if (e instanceof WorkspaceError) return fail(c, 'conflict', e.message, 409);
+      throw e;
+    }
+  });
+
+  app.get('/api/v1/projects/:slug/documents', (c) => {
+    try {
+      return json(c, { documents: deps.artifacts.listDocuments(c.req.param('slug')) });
+    } catch (e) {
+      if (e instanceof WorkspaceError) return fail(c, 'not_found', e.message, 404);
+      throw e;
+    }
+  });
+
+  app.get('/api/v1/documents/:id', (c) => {
+    const version = c.req.query('version');
+    const doc = deps.artifacts.getDocument(c.req.param('id'), version);
+    return doc ? json(c, doc) : fail(c, 'not_found', `No document with id "${c.req.param('id')}".`, 404);
+  });
+
+  app.get('/api/v1/documents/:id/versions', (c) => {
+    const doc = deps.artifacts.getDocument(c.req.param('id'));
+    return doc ? json(c, { versions: doc.history }) : fail(c, 'not_found', `No document with id "${c.req.param('id')}".`, 404);
+  });
+
+  app.get('/api/v1/documents/:id/diff', (c) => {
+    const from = c.req.query('from');
+    const to = c.req.query('to');
+    if (!from || !to) return fail(c, 'validation', 'A diff needs `from` and `to` version ids.', 400);
+    const diff = deps.artifacts.diff(c.req.param('id'), from, to);
+    return diff ? json(c, diff) : fail(c, 'not_found', 'One of those versions does not belong to this document.', 404);
+  });
+
+  // A human edit is a new version, never an overwrite: nothing in the Library is destructive (ui.md §UX rules).
+  app.put('/api/v1/documents/:id', async (c) => {
+    const existing = deps.artifacts.getDocument(c.req.param('id'));
+    if (!existing) return fail(c, 'not_found', `No document with id "${c.req.param('id')}".`, 404);
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = PutDocumentRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'Expected { content: string }.', 400, parsed.error.issues);
+    const version = deps.artifacts.writeDocument({ projectSlug: existing.projectSlug, path: existing.path, content: parsed.data.content, createdBy: 'human' });
+    return json(c, version);
   });
 
   app.get('/api/v1/models', async (c) => json(c, await deps.models(false)));

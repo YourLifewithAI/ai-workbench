@@ -6,6 +6,7 @@ import type { AdapterContext, AdapterRegistry, FetchLike, ModelAdapter } from '.
 import { createEgressFetch, type EgressAttempt, type EgressDecision } from '../security/egress.js';
 import { computeCost } from '../models/catalog.js';
 import { dropForeignReasoning, selectCandidates } from './selection.js';
+import type { ArtifactStore } from '../artifacts/store.js';
 import { directFetch } from '../models/fetch.js';
 import { ModelError, ModelUnavailableError, NetworkPolicyError, modelError } from '../models/errors.js';
 import type { Credentials } from '../security/credentials.js';
@@ -32,6 +33,8 @@ export interface EngineDeps {
   fetch?: FetchLike | undefined;
   /** The runtime's own port, refused as a destination in every mode. */
   runtimePort?: (() => number | null) | undefined;
+  /** The Library. Present from RUN-03; a run without a project still runs, it just has nowhere to file output. */
+  artifacts?: ArtifactStore | undefined;
 }
 
 /** Two retries after the first attempt, per model, when the error says `retry` (model-layer.md §Errors). */
@@ -192,7 +195,8 @@ export class Engine {
 
     const task = typeof input.inputs['input'] === 'string' ? (input.inputs['input'] as string) : JSON.stringify(input.inputs);
     const harness = harnessSection({ agentId: agent.definition.id, runId, tools: [], review: agent.definition.review });
-    const prompt = assemblePrompt(agent, task, harness);
+    const knowledge = this.knowledgeFor(agent, input.project);
+    const prompt = assemblePrompt(agent, task, harness, { knowledge });
     const controller = new AbortController();
 
     let lastShape: ModelErrorShape | null = null;
@@ -209,7 +213,7 @@ export class Engine {
         const t0 = Date.now();
         try {
           const response = await this.callModel(adapter, entry, compiled, controller.signal, runId, stepId);
-          this.completeStep(runId, stepId, agent, entry, adapterId, prompt.promptVersion, response, Date.now() - t0, spent, startedMs);
+          this.completeStep(runId, stepId, agent, input.project, entry, adapterId, prompt.promptVersion, response, Date.now() - t0, spent, startedMs);
           return;
         } catch (e) {
           const shape = toShape(e);
@@ -235,13 +239,52 @@ export class Engine {
     return this.fail(runId, stepId, 'model_error', lastShape ?? { code: 'Unknown', message: 'every candidate failed', retryable: false, action: 'abort' }, spent, startedMs);
   }
 
+  /**
+   * The documents an agent names are injected whole, as data, from the run's project. A named document that is
+   * missing is a load-time-ish problem the trace should show, not a silent omission.
+   */
+  private knowledgeFor(agent: LoadedAgent, project: string | undefined): { source: string; text: string }[] {
+    const wanted = agent.definition.documents;
+    if (!wanted.length || !this.deps.artifacts || !project) return [];
+    const out: { source: string; text: string }[] = [];
+    for (const docPath of wanted) {
+      const text = this.deps.artifacts.readDocument(project, docPath);
+      if (text === null) {
+        this.deps.log.warn({ agent: agent.definition.id, project, document: docPath }, 'agent names a project document that does not exist');
+        continue;
+      }
+      out.push({ source: `${project}/${docPath}`, text });
+    }
+    return out;
+  }
+
+  /**
+   * An agent whose output is a document files it in the run's project on step completion, with the provenance
+   * that produced it. `output.document` is a template; its default is `<agentId>/<runId>.md` (D-16).
+   */
+  private commitDocument(runId: string, stepId: string, agent: LoadedAgent, project: string | undefined, modelId: string, output: string): void {
+    if (agent.definition.output.kind !== 'document' || !this.deps.artifacts) return;
+    if (!project) {
+      this.deps.log.warn({ agent: agent.definition.id, runId }, 'agent writes documents but the run named no project');
+      return;
+    }
+    const template = agent.definition.output.document ?? `${agent.definition.id}/${runId}.md`;
+    const docPath = template.replace(/\{\{\s*runId\s*\}\}/g, runId).replace(/\{\{\s*agentId\s*\}\}/g, agent.definition.id);
+    const version = this.deps.artifacts.writeDocument({
+      projectSlug: project, path: docPath, content: output, createdBy: 'run-step',
+      runId, stepId, agentVersion: agent.version, modelId,
+    });
+    const doc = this.deps.artifacts.findDocumentByPath(project, docPath);
+    this.deps.events.append(runId, stepId, 'artifact-written', { documentId: doc?.id ?? null, versionId: version.id, path: `${project}/${docPath}` });
+  }
+
   private recordFailedCall(runId: string, stepId: string, entry: CatalogEntry, adapterId: string, promptVersion: string, agentVersion: string, shape: ModelErrorShape, latencyMs: number): void {
     this.deps.db.prepare(`INSERT INTO model_calls (id, run_id, step_id, model_id, adapter, prompt_version, agent_version, usage_json, cost_usd, latency_ms, finish_reason, error_json, ts)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'error', ?, ?)`)
       .run(ulid(), runId, stepId, entry.id, adapterId, promptVersion, agentVersion, this.persist({ input: 0, output: 0, raw: {} }), latencyMs, this.persist(shape), new Date().toISOString());
   }
 
-  private completeStep(runId: string, stepId: string, agent: LoadedAgent, entry: CatalogEntry, adapterId: string, promptVersion: string, response: ModelResponse, latencyMs: number, spent: Spent, startedMs: number): void {
+  private completeStep(runId: string, stepId: string, agent: LoadedAgent, project: string | undefined, entry: CatalogEntry, adapterId: string, promptVersion: string, response: ModelResponse, latencyMs: number, spent: Spent, startedMs: number): void {
     const at = new Date();
     const costUsd = computeCost(entry, response.usage, at);
     spent.modelCalls += 1;
@@ -255,6 +298,7 @@ export class Engine {
     const finishedAt = at.toISOString();
     spent.wallClockMs = Date.now() - startedMs;
     this.deps.db.prepare(`UPDATE run_steps SET state = 'completed', model_id = ?, output_json = ?, cost_usd = ?, finished_at = ? WHERE run_id = ? AND step_id = ?`).run(entry.id, this.persist(output), costUsd, finishedAt, runId, stepId);
+    this.commitDocument(runId, stepId, agent, project, entry.id, output);
     this.deps.events.append(runId, stepId, 'step-completed', { stepId, kind: 'agent', output });
     const outputs = { output };
     this.deps.db.prepare(`UPDATE runs SET state = 'completed', outputs_json = ?, spent_json = ?, finished_at = ? WHERE id = ?`).run(this.persist(outputs), this.persist(spent), finishedAt, runId);

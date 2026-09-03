@@ -21,6 +21,7 @@ jobs:
       - run: npm run dod -- 00
       - run: npm run dod -- 01
       - run: npm run dod -- 02
+      - run: npm run dod -- 03
   docker:
     runs-on: ubuntu-latest
     steps:

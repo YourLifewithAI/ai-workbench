@@ -78,8 +78,10 @@ export function Agents() {
 export function AgentDetail() {
   const { id = '' } = useParams();
   const q = useQuery({ queryKey: ['agent', id], queryFn: () => api.agent(id), enabled: id !== '' });
+  const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects, staleTime: 60_000 });
   const [input, setInput] = useState('');
   const [model, setModel] = useState('');
+  const [project, setProject] = useState('');
   const [useMock, setUseMock] = useState(true);
   const navigate = useNavigate();
   const client = useQueryClient();
@@ -89,6 +91,7 @@ export function AgentDetail() {
       kind: 'agent',
       id,
       inputs: { input },
+      ...(project ? { project } : {}),
       ...(useMock ? { provider: 'mock' as const } : {}),
       ...(model.trim() ? { overrides: { model: model.trim() } } : {}),
     }),
@@ -123,6 +126,13 @@ export function AgentDetail() {
                   <label htmlFor="model" className="block text-sm font-medium">Model override</label>
                   <input id="model" value={model} onChange={(e) => setModel(e.target.value)} placeholder={q.data.modelPolicy.primary} className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 font-mono text-xs dark:border-gray-700 dark:bg-gray-950" />
                 </div>
+                <div className="min-w-48">
+                  <label htmlFor="project" className="block text-sm font-medium">Target project</label>
+                  <select id="project" value={project} onChange={(e) => setProject(e.target.value)} className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950">
+                    <option value="">none — output stays in the run</option>
+                    {projects.data?.map((p) => <option key={p.slug} value={p.slug}>{p.slug}</option>)}
+                  </select>
+                </div>
                 <label className="flex items-center gap-2 py-2 text-sm">
                   <input type="checkbox" checked={useMock} onChange={(e) => setUseMock(e.target.checked)} className="h-4 w-4" />
                   Use the mock provider (free, no key)
@@ -144,6 +154,7 @@ export function AgentDetail() {
                 <Row k="Tools" v={q.data.tools.join(', ') || 'none'} />
                 <Row k="Output" v={q.data.outputKind} />
                 <Row k="Review" v={q.data.review} />
+                <Row k="Injects documents" v={q.data.documents.join(', ') || 'none'} />
               </dl>
             </Card>
             <Card>

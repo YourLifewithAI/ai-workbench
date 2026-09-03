@@ -1,5 +1,5 @@
 // Every call carries the bearer token; SSE is fetch-based (never EventSource) so it can too.
-import type { AgentDetail, AgentListResponse, CreateRunRequest, ModelListResponse, PrivacyResponse, ReloadAgentsResponse, RunDetail, RunSummary, SettingsResponse } from '../../shared/api/index.js';
+import type { AgentDetail, AgentListResponse, CreateProjectRequest, CreateRunRequest, DiffResponse, DocumentDetail, DocumentSummary, ModelListResponse, PrivacyResponse, Project, ReloadAgentsResponse, RunDetail, RunSummary, SettingsResponse } from '../../shared/api/index.js';
 import type { EventRecord } from '../../shared/events.js';
 import { getToken, markUnauthorized } from './auth.js';
 
@@ -45,6 +45,17 @@ export const api = {
   privacy: (id: string): Promise<PrivacyResponse> => apiFetch(`/runs/${encodeURIComponent(id)}/privacy`).then((r) => r.json() as Promise<PrivacyResponse>),
   setNetworkMode: (mode: string): Promise<{ networkMode: string }> =>
     apiFetch('/settings/network', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) }).then((r) => r.json() as Promise<{ networkMode: string }>),
+  projects: (): Promise<Project[]> => apiFetch('/projects').then((r) => r.json() as Promise<{ projects: Project[] }>).then((b) => b.projects),
+  createProject: (body: CreateProjectRequest): Promise<Project> =>
+    apiFetch('/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<Project>),
+  documents: (slug: string): Promise<DocumentSummary[]> =>
+    apiFetch(`/projects/${encodeURIComponent(slug)}/documents`).then((r) => r.json() as Promise<{ documents: DocumentSummary[] }>).then((b) => b.documents),
+  document: (id: string, version?: string): Promise<DocumentDetail> =>
+    apiFetch(`/documents/${encodeURIComponent(id)}${version ? `?version=${encodeURIComponent(version)}` : ''}`).then((r) => r.json() as Promise<DocumentDetail>),
+  saveDocument: (id: string, content: string): Promise<DocumentDetail['history'][number]> =>
+    apiFetch(`/documents/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) }).then((r) => r.json() as Promise<DocumentDetail['history'][number]>),
+  diff: (id: string, from: string, to: string): Promise<DiffResponse> =>
+    apiFetch(`/documents/${encodeURIComponent(id)}/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).then((r) => r.json() as Promise<DiffResponse>),
   trace: (id: string): Promise<string> => apiFetch(`/runs/${encodeURIComponent(id)}/trace.jsonl`).then((r) => r.text()),
   createRun: (body: CreateRunRequest): Promise<{ runId: string }> =>
     apiFetch('/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<{ runId: string }>),
