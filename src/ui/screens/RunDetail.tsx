@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import type { EventRecord } from '../../shared/events.js';
 import type { RunDetail as RunDetailShape, StepSummary } from '../../shared/api/index.js';
 import { money, seconds, summarizeRun, summarizeStep } from '../../shared/summary.js';
 import { api, parseEvent, subscribeSse } from '../lib/api.js';
 import { Badge, Card } from '../components/ui/card.js';
+import { Button } from '../components/ui/button.js';
 import { SummaryCard } from '../components/SummaryCard.js';
 import { PrivacyInspector } from '../components/PrivacyInspector.js';
-import { stateTone } from './Runs.js';
+import { BudgetBar } from '../components/BudgetBar.js';
+import { RunGraph } from '../components/RunGraph.js';
+import { CANCELLABLE, stateTone } from './Runs.js';
 
 const TERMINAL = new Set(['run-completed', 'run-failed', 'run-cancelled', 'run-interrupted']);
 
@@ -51,6 +54,17 @@ export function RunDetail() {
     return () => controller.abort();
   }, [id, client]);
 
+  const workflow = useQuery({
+    queryKey: ['workflow', run.data?.workflowId ?? ''],
+    queryFn: () => api.workflow(run.data!.workflowId!),
+    enabled: Boolean(run.data?.workflowId),
+    staleTime: 60_000,
+  });
+  const cancel = useMutation({
+    mutationFn: () => api.cancelRun(id),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['run', id] }),
+  });
+
   const agentName = agents.data?.agents.find((a) => a.id === run.data?.agentId)?.name;
   const summary = useMemo(() => (run.data ? summarizeRun(run.data, events, agentName) : null), [run.data, events, agentName]);
 
@@ -69,7 +83,22 @@ export function RunDetail() {
             <span>{run.data.kind} · {run.data.agentId ?? run.data.workflowId}</span>
             <span>{money(run.data.spent.costUsd)} stored</span>
             <span>{seconds(run.data.spent.wallClockMs)}</span>
+            {CANCELLABLE.has(run.data.state) ? (
+              <Button variant="secondary" size="sm" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
+                {cancel.isPending ? 'Cancelling…' : 'Cancel run'}
+              </Button>
+            ) : null}
           </div>
+          {cancel.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{cancel.error.message}</p> : null}
+
+          <Card className="mt-4"><BudgetBar run={run.data} /></Card>
+
+          {workflow.data ? (
+            <>
+              <h2 className="mt-6 text-lg font-medium">Graph</h2>
+              <Card className="mt-2"><RunGraph workflow={workflow.data} states={run.data.steps} /></Card>
+            </>
+          ) : null}
 
           <div className="mt-6 flex gap-1 border-b border-gray-200 dark:border-gray-800" role="tablist" aria-label="Run views">
             {(['trace', 'privacy'] as const).map((t) => (

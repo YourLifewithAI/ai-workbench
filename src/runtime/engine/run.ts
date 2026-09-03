@@ -128,6 +128,7 @@ export class Engine {
         runId, stepId: 'main', agent, task,
         ...(input.project ? { project: input.project } : {}),
         ...(input.provider ?? this.deps.providerOverride ? { provider: (input.provider ?? this.deps.providerOverride) as 'mock' } : {}),
+        ...(input.modelOverride ? { modelOverride: input.modelOverride } : {}),
         budget, signal,
       });
       return { output: outcome.output };

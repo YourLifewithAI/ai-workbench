@@ -439,6 +439,9 @@ function safeHost(url: string): string | null {
 
 function workflowSummary(workflow: LoadedWorkflow): WorkflowSummary {
   const d = workflow.definition;
+  // The effective edges, not just the declared ones: a template reference implies a dependency, and a graph
+  // drawn from `dependsOn` alone would show three independent steps where there is a pipeline.
+  const { edges } = validateWorkflow(d);
   return {
     id: d.id,
     name: d.name,
@@ -447,7 +450,7 @@ function workflowSummary(workflow: LoadedWorkflow): WorkflowSummary {
     file: path.basename(workflow.file),
     defaultProject: d.defaultProject ?? null,
     inputs: d.inputs,
-    steps: d.steps.map((s) => ({ id: s.id, kind: s.kind, agent: s.kind === 'agent' ? s.agent : null, dependsOn: s.dependsOn })),
+    steps: d.steps.map((s) => ({ id: s.id, kind: s.kind, agent: s.kind === 'agent' ? s.agent : null, dependsOn: [...(edges.get(s.id) ?? [])] })),
     hasSchedule: d.schedule !== undefined,
   };
 }

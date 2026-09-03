@@ -69,11 +69,31 @@ function headlineFor(run: RunDetail, who: string): string {
 function whatHappened(run: RunDetail, who: string, models: string[], events: EventRecord[]): string {
   const failure = events.find((e) => e.type === 'run-failed');
   if (failure) return errorSentence((failure.payload['error'] ?? failure.payload['reason']));
-  const output = run.outputs?.['output'];
   const on = models.length ? ` on ${models.join(' then ')}` : '';
-  if (typeof output === 'string') return `${who} produced ${words(output)} ${words(output) === 1 ? 'word' : 'words'}${on}.`;
+  const outputs = run.outputs ?? {};
+  // An agent run's output is `output`; a workflow names its own, so summarise whatever it produced by name.
+  const named = Object.entries(outputs).filter(([, value]) => value !== null && value !== undefined);
+  const text = typeof outputs['output'] === 'string' ? (outputs['output'] as string) : null;
+  if (text !== null) return `${who} produced ${words(text)} ${words(text) === 1 ? 'word' : 'words'}${on}.`;
+  if (named.length) {
+    const parts = named.map(([name, value]) => `${name} (${describeOutput(value)})`);
+    return `${who} produced ${sentenceList(parts)}${on}.`;
+  }
   if (run.state === 'running') return `${who} is working${on}.`;
   return `${who} produced no text output${on}.`;
+}
+
+/** What one named workflow output is, in the fewest words that still tell you whether to go and read it. */
+function describeOutput(value: unknown): string {
+  if (typeof value === 'string') return `${words(value)} ${words(value) === 1 ? 'word' : 'words'}`;
+  if (Array.isArray(value)) return `${value.length} item${value.length === 1 ? '' : 's'}`;
+  if (value && typeof value === 'object') return `${Object.keys(value).length} field${Object.keys(value).length === 1 ? '' : 's'}`;
+  return String(value);
+}
+
+function sentenceList(parts: string[]): string {
+  if (parts.length <= 1) return parts[0] ?? '';
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]!}`;
 }
 
 function whatItCost(run: RunDetail, calls: ModelCallFacts[]): string {

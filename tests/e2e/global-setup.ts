@@ -21,6 +21,13 @@ export default async function globalSetup(): Promise<void> {
   const init = spawnSync(process.execPath, [cli, 'init', ws, '--name', 'e2e'], { env, encoding: 'utf8' });
   if (init.status !== 0) throw new Error(`init failed: ${init.stderr}`);
 
+  // A scripted call slow enough to still be running when a test goes looking for its Cancel button. It sorts
+  // first so it wins over the per-agent fixtures, and it only matches a premise no other test would write.
+  fs.writeFileSync(path.join(ws, 'fixtures', 'aaa-e2e-cancel-me.json'), JSON.stringify({
+    match: { lastUserIncludes: 'CANCEL-ME' },
+    respond: { text: 'Working on it, one slow chunk at a time, for as long as anyone cares to watch.', chunkDelayMs: 1500 },
+  }, null, 2));
+
   // A stand-in for Ollama's management API, so the Models screen can be seen polling a local endpoint that
   // really answers — without requiring Ollama to be installed on the machine running the tests.
   const ollama = http.createServer((req, res) => {

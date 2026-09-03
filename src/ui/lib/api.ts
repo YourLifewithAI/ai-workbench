@@ -1,5 +1,5 @@
 // Every call carries the bearer token; SSE is fetch-based (never EventSource) so it can too.
-import type { AgentDetail, AgentListResponse, CreateProjectRequest, CreateRunRequest, DiffResponse, DocumentDetail, DocumentSummary, ModelListResponse, PrivacyResponse, Project, ReloadAgentsResponse, RunDetail, RunSummary, SettingsResponse } from '../../shared/api/index.js';
+import type { AgentDetail, AgentListResponse, CreateProjectRequest, CreateRunRequest, DiffResponse, DocumentDetail, DocumentSummary, ModelListResponse, PrivacyResponse, Project, ReloadAgentsResponse, RunDetail, RunSummary, SettingsResponse, WorkflowDetail, WorkflowListResponse } from '../../shared/api/index.js';
 import type { EventRecord } from '../../shared/events.js';
 import { getToken, markUnauthorized } from './auth.js';
 
@@ -59,6 +59,10 @@ export const api = {
   trace: (id: string): Promise<string> => apiFetch(`/runs/${encodeURIComponent(id)}/trace.jsonl`).then((r) => r.text()),
   createRun: (body: CreateRunRequest): Promise<{ runId: string }> =>
     apiFetch('/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<{ runId: string }>),
+  cancelRun: (id: string): Promise<{ cancelled: boolean }> =>
+    apiFetch(`/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }).then((r) => r.json() as Promise<{ cancelled: boolean }>),
+  workflows: (): Promise<WorkflowListResponse> => apiFetch('/workflows').then((r) => r.json() as Promise<WorkflowListResponse>),
+  workflow: (id: string): Promise<WorkflowDetail> => apiFetch(`/workflows/${encodeURIComponent(id)}`).then((r) => r.json() as Promise<WorkflowDetail>),
 };
 
 export interface SseMessage { id?: string; event?: string; data: string }
