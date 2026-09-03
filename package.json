@@ -22,13 +22,16 @@
     "test:unit": "vitest run --project unit",
     "test:security": "vitest run --project security",
     "secret-scan": "tsx scripts/secret-scan.ts",
-    "check": "npm run typecheck && npm run lint && npm run test:unit && npm run test:security && npm run secret-scan",
+    "check": "npm run typecheck && npm run lint && npm run test:unit && npm run test:security && npm run contract && npm run secret-scan",
     "e2e": "playwright test",
-    "dod": "tsx scripts/dod.ts"
+    "dod": "tsx scripts/dod.ts",
+    "contract": "tsx scripts/contract.ts"
   },
   "dependencies": {
+    "@ai-sdk/google": "4.0.63",
     "@hono/node-server": "2.1.1",
     "@tanstack/react-query": "5.102.8",
+    "ai": "7.0.91",
     "better-sqlite3": "13.0.3",
     "clsx": "2.1.1",
     "commander": "15.0.0",

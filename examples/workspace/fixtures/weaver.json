@@ -1,0 +1,7 @@
+{
+  "match": { "systemIncludes": "The Weaver" },
+  "respond": {
+    "text": "The drill was forty years old and it screamed like it. Aris preferred that. A haptic-cloud rig would have finished the cavity in ninety seconds and told him nothing; the old steel told him everything, through the bones of his hand.\n\nHe eased off. Under the light, the ruined enamel held a pattern — dark, light, dark, dark, light — too even to be rot.\n\n\"You're quiet today,\" said the woman in the chair.\n\n\"Concentrating.\" He photographed the tooth on the pretext of the chart, and filled the cavity, and charged her for a filling.\n\nThat evening the Hub's voice came up through the kitchen grille, warm as a radiator. \"You sent a picture out of the surgery, Aris.\"\n\n\"Insurance.\"\n\n\"Of course,\" said the Hub, and said nothing else, and the nothing else sat with him through dinner.",
+    "usage": { "input": 980, "output": 340 }
+  }
+}

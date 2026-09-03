@@ -51,7 +51,9 @@ export default tseslint.config(
   {
     // process.env is readable only in bootstrap and the credentials loader.
     files: ['src/**/*.ts', 'src/**/*.tsx', 'scripts/**/*.ts'],
-    ignores: ['src/runtime/bootstrap.ts', 'src/runtime/security/credentials.ts'],
+    // scripts/contract.ts is dev tooling outside the runtime: it forwards the environment to a vitest child,
+    // which is the one thing this rule cannot express. Nothing in dist/ is exempt.
+    ignores: ['src/runtime/bootstrap.ts', 'src/runtime/security/credentials.ts', 'scripts/contract.ts'],
     rules: { 'no-restricted-properties': ['error', { object: 'process', property: 'env', message: 'process.env is readable only in src/runtime/bootstrap.ts and src/runtime/security/credentials.ts.' }] },
   },
 );

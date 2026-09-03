@@ -1,0 +1,13 @@
+[
+  {
+    "method": "POST",
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse",
+    "requestHash": "authored",
+    "status": 200,
+    "statusText": "OK",
+    "headers": {
+      "content-type": "text/event-stream"
+    },
+    "body": "data: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \"Hello\"}], \"role\": \"model\"}, \"index\": 0}], \"usageMetadata\": {\"promptTokenCount\": 18, \"candidatesTokenCount\": 1, \"totalTokenCount\": 19}, \"modelVersion\": \"gemini-2.5-flash\", \"responseId\": \"contract-fixture\"}\n\ndata: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" to the\"}], \"role\": \"model\"}, \"index\": 0}], \"usageMetadata\": {\"promptTokenCount\": 18, \"candidatesTokenCount\": 3, \"totalTokenCount\": 21}, \"modelVersion\": \"gemini-2.5-flash\", \"responseId\": \"contract-fixture\"}\n\ndata: {\"candidates\": [{\"content\": {\"parts\": [{\"text\": \" contract suite.\"}], \"role\": \"model\"}, \"finishReason\": \"STOP\", \"index\": 0}], \"usageMetadata\": {\"promptTokenCount\": 18, \"candidatesTokenCount\": 7, \"totalTokenCount\": 25}, \"modelVersion\": \"gemini-2.5-flash\", \"responseId\": \"contract-fixture\"}\n\n"
+  }
+]

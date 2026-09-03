@@ -5,6 +5,9 @@ import type { Redactor } from '../security/redaction.js';
 import type { EventRecord, EventType } from '../../shared/events.js';
 
 export const EVENT_SCHEMA_V = 1;
+
+/** Transient: a token as it arrives. Never persisted (see `emitDelta`). */
+export interface Delta { runId: string; stepId: string; modelId: string; kind: 'text' | 'reasoning'; text: string }
 export const TERMINAL_EVENTS: ReadonlySet<EventType> = new Set(['run-completed', 'run-failed', 'run-cancelled', 'run-interrupted']);
 
 export class EventStore {
@@ -35,6 +38,20 @@ export class EventStore {
   subscribe(listener: (e: EventRecord) => void): () => void {
     this.bus.on('event', listener);
     return () => this.bus.off('event', listener);
+  }
+
+  /**
+   * Streamed tokens are shown, not stored: one row per delta would bloat the trace without adding anything the
+   * `model-completed` payload does not already hold. Deltas ride the live bus only and never reach `events`,
+   * so `list()`, `trace.jsonl`, and `after=<seq>` resume are unaffected.
+   */
+  emitDelta(delta: Delta): void {
+    this.bus.emit('delta', delta);
+  }
+
+  subscribeDeltas(listener: (d: Delta) => void): () => void {
+    this.bus.on('delta', listener);
+    return () => this.bus.off('delta', listener);
   }
 
   get database(): Db { return this.db; }

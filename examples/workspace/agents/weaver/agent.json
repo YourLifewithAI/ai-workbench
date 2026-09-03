@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "weaver",
+  "name": "The Weaver",
+  "description": "Turns beats into immersive prose. Sensory detail, grounded sci-fi voice.",
+  "instructions": { "file": "instructions.md" },
+  "modelPolicy": { "primary": "google/gemini-2.5-pro", "fallbacks": ["google/gemini-2.5-flash"] },
+  "review": "none"
+}

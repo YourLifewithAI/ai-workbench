@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "cutter",
+  "name": "The Cutter",
+  "description": "A ruthless line editor. Cuts roughly a tenth of the words and kills passive voice.",
+  "instructions": { "file": "instructions.md" },
+  "modelPolicy": { "primary": "google/gemini-2.5-flash", "fallbacks": ["google/gemini-2.5-pro"] },
+  "review": "none"
+}
