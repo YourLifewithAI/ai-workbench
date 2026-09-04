@@ -16,28 +16,23 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
-      # better-sqlite3 is a native module with no bundled prebuild, so every platform compiles it. Linux and
-      # macOS have a compiler on PATH; Windows has Visual Studio but node-gyp 11.5 cannot identify version 18 —
-      # its PowerShell probe overflows its own stdio buffer, then reads the version as "undefined". Setting
-      # VCINSTALLDIR skips the probe, which is node-gyp's documented escape hatch. Found rather than hardcoded,
-      # so a runner image that moves or renames Visual Studio does not silently break the build again.
-      - name: Point node-gyp at the runner's Visual Studio
+      # better-sqlite3 ships a win32-x64 prebuild in its tarball, but it also ships a binding.gyp with no
+      # install script, so npm injects `node-gyp rebuild` and compiles it anyway — on every platform. Linux and
+      # macOS have a compiler and nobody noticed; Windows does not, and node-gyp 11.5 cannot identify the
+      # runner's Visual Studio 18 (its PowerShell probe overflows its own stdio buffer, then reads the version
+      # as "undefined"). Running the install inside a developer command prompt sidesteps the detection entirely:
+      # vcvars has already put the compiler, INCLUDE and LIB in the environment, so there is nothing to find.
+      - name: Install inside a Visual Studio developer prompt
         if: runner.os == 'Windows'
-        shell: pwsh
+        shell: cmd
         run: |
-          $root = "C:\Program Files\Microsoft Visual Studio"
-          $vc = $null
-          foreach ($ver in (Get-ChildItem $root -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending)) {
-            foreach ($edition in @("Enterprise", "Professional", "Community", "BuildTools")) {
-              $candidate = Join-Path $ver.FullName "$edition\VC"
-              if (Test-Path $candidate) { $vc = $candidate; break }
-            }
-            if ($vc) { break }
-          }
-          if (-not $vc) { Write-Error "No Visual Studio VC directory found under $root"; exit 1 }
-          Write-Host "VCINSTALLDIR=$vc"
-          "VCINSTALLDIR=$vc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - run: npm ci
+          for /f "delims=" %%i in ('dir /b /s /a:-d "C:\Program Files\Microsoft Visual Studio\*\vcvars64.bat" 2^>nul') do set "VCVARS=%%i"
+          if not defined VCVARS ( echo No vcvars64.bat found under Program Files & exit /b 1 )
+          echo Using %VCVARS%
+          call "%VCVARS%" && npm ci
+      - name: Install
+        if: runner.os != 'Windows'
+        run: npm ci
       - run: npm run check
       - run: npm run build
       - run: npx playwright install --with-deps chromium

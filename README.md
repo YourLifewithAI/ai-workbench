@@ -13,9 +13,10 @@ every capability it has is denied until you grant it.
 
 Requires Node 22. Deno is optional and unlocks the code-execution tools; the workbench says so if it is missing.
 
-**On Windows**, `npm ci` compiles `better-sqlite3`, so you also need a C++ toolchain: tick *Tools for Native
-Modules* when installing Node, or install Visual Studio Build Tools with the *Desktop development with C++*
-workload. Linux and macOS already have one. Your provider keys are protected there by a file ACL rather than
+**On Windows**, `npm ci` needs a C++ toolchain: tick *Tools for Native Modules* when installing Node, or
+install Visual Studio Build Tools with the *Desktop development with C++* workload. Linux and macOS already
+have one. (`better-sqlite3` ships a Windows prebuild, but it also ships a `binding.gyp` with no install
+script, so npm compiles it anyway on every platform.) Your provider keys are protected there by a file ACL rather than
 by `chmod` — the workbench applies it on save and refuses to start if another account can read the file.
 
 ```sh
