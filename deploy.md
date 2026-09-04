@@ -155,3 +155,40 @@ On a Mac, the same thing is a launchd agent in `~/Library/LaunchAgents/com.examp
 `ProgramArguments` of `/usr/local/bin/node`, `dist/cli.js`, `start`, and `RunAtLoad` true. Either way, put the
 sandbox on the service's `PATH` — without Deno the execute tier is switched off, and `workbench doctor` will
 tell you so.
+
+## On Windows: at logon, with Task Scheduler
+
+The workbench runs natively on Windows — no WSL2, no Visual Studio (see the install note in the README) — and
+the way to keep it running is a scheduled task that starts at logon. A Windows *service* is the wrong shape
+here: a service runs as `SYSTEM` or a service account, and the workspace, the credentials file and its ACL all
+belong to **you**. A logon task runs as you, which is what the file protection is written against.
+
+```powershell
+# From the repository, once. Adjust the paths.
+$node = (Get-Command node).Source
+$repo = "C:\Users\you\ai-workbench"
+$ws   = "C:\Users\you\wb"
+
+schtasks /create /tn "AI Workbench" /sc onlogon /rl limited `
+  /tr "`"$node`" `"$repo\dist\cli.js`" start --workspace `"$ws`"" /f
+```
+
+`/rl limited` is deliberate: nothing here wants elevation, and a task running elevated would create workspace
+files owned by the administrators group rather than by you.
+
+- **The token.** `start` prints the tokened URL on stdout, and a scheduled task has nowhere to print. Read it
+  from the workspace instead — `data/runtime.token` holds it, and the address is in `data/runtime.json`:
+  ```powershell
+  $rt = Get-Content "$ws\data\runtime.json" | ConvertFrom-Json
+  "http://127.0.0.1:$($rt.port)/#token=$(Get-Content "$ws\data\runtime.token")"
+  ```
+  Both files are restricted to your account; `workbench doctor` says so, and says how to fix it if they are not.
+- **No firewall prompt.** The runtime binds `127.0.0.1`, so Windows never asks to allow it through the
+  firewall. If you see that dialog, something is binding a public address — check `--bind`.
+- **Stopping it.** `schtasks /end /tn "AI Workbench"`, or Ctrl-C if you started it in a terminal. Ctrl-C and
+  Ctrl-Break both shut it down cleanly. An outside kill does not — Windows has no SIGTERM, so no handler runs —
+  and what it leaves behind is a stale `data/runtime.json`, which the next command notices and removes.
+- **Reaching it from the phone** works exactly as above: join the machine to your tailnet, `tailscale serve`,
+  and pass the tailnet hostname to `--expose`. The runtime is never exposed directly on Windows either.
+- **The sandbox.** Deno is a devDependency, so a clone that ran `npm ci` already has it; a global install works
+  too. Without it the execute tier is switched off by name, and `workbench doctor` tells you which tools.
