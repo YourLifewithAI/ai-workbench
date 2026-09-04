@@ -16,7 +16,20 @@ import { startRuntime, tempWorkspace } from '../helpers/workspace.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixtures = path.join(here, '..', 'contract', 'fixtures', 'google');
 const catalog = ModelsFile.parse(readJsonFile(path.join(packagePaths().defaults, 'models.json')));
-const model = findModel(catalog, 'google/gemini-2.5-flash')!;
+// The Google fixtures under tests/contract/fixtures are genuine recordings made against gemini-2.5-flash,
+// and the adapter builds its URL from the model id, so the two have to agree. Rather than rewrite a recording
+// to claim it was made against a model it never touched, this suite re-enables the legacy entry in its own
+// workspace: what it asserts is about the credential header, not about which model is current.
+const LEGACY = 'google/gemini-2.5-flash';
+const model = findModel(catalog, LEGACY)!;
+
+/** Turn the retired catalog entry back on, for this workspace only. */
+function enableLegacyModel(ws: string): void {
+  const file = path.join(ws, 'config', 'models.json');
+  const models = JSON.parse(fs.readFileSync(file, 'utf8')) as { models: { id: string; enabled: boolean }[] };
+  for (const m of models.models) if (m.id === LEGACY) m.enabled = true;
+  fs.writeFileSync(file, JSON.stringify(models, null, 2));
+}
 
 describe('SEC-20 the model-call path stores no credential header (and SEC-06 through the real adapter)', () => {
   it('a run through the real adapter leaves the key nowhere in the trace, the rows, or the log', async () => {
@@ -24,9 +37,10 @@ describe('SEC-20 the model-call path stores no credential header (and SEC-06 thr
     const KEY = `AIzaFake${randomBytes(16).toString('hex')}`;
     fs.writeFileSync(path.join(ws, 'config', 'credentials.json'), JSON.stringify({ google: { apiKey: KEY } }), { mode: 0o600 });
     // The echo agent is repointed at Gemini so the run goes through the Google adapter, replaying recorded HTTP.
+    enableLegacyModel(ws);
     const agent = path.join(ws, 'agents', 'echo', 'agent.json');
     const definition = JSON.parse(fs.readFileSync(agent, 'utf8')) as { modelPolicy: { primary: string } };
-    definition.modelPolicy.primary = 'google/gemini-2.5-flash';
+    definition.modelPolicy.primary = LEGACY;
     fs.writeFileSync(agent, JSON.stringify(definition));
 
     const rt = await startRuntime(ws, { fetch: replayFetch(fixtures, 'stream') });

@@ -21,7 +21,7 @@ test('@run-01 the Agents screen lists the workspace agents with their policy and
   for (const name of ['The Architect', 'The Weaver', 'The Cutter', 'Echo']) {
     await expect(page.getByRole('link', { name, exact: true })).toBeVisible();
   }
-  await expect(page.getByText('google/gemini-2.5-pro').first()).toBeVisible();
+  await expect(page.getByText('google/gemini-3.8-flash').first()).toBeVisible();
   await expectNoA11yViolations(page, 'Agents');
 
   await page.getByRole('link', { name: 'The Architect', exact: true }).click();
@@ -30,6 +30,22 @@ test('@run-01 the Agents screen lists the workspace agents with their policy and
   await expect(page.getByText('bible.md'), 'the world is a project document it injects, not a copy it carries').toBeVisible();
   await expectNoA11yViolations(page, 'AgentDetail');
 });
+
+/**
+ * The displayed cost, computed from the shipped catalog rather than pasted in. A hardcoded figure here was
+ * derived from gemini-2.5-pro's price and silently became wrong when that model was retired; it would have
+ * gone wrong again on 2027-01-01 when Flash's introductory pricing lapses. The token counts come from the
+ * fixture and are stable, so this stays an exact assertion without being a magic number.
+ */
+function expectedCost(modelId: string, input: number, output: number): string {
+  const catalog = JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), 'defaults', 'models.json'), 'utf8'),
+  ) as { models: { id: string; pricing: { effectiveFrom: string; inputPerM: number; outputPerM: number }[] }[] };
+  const entry = catalog.models.find((m) => m.id === modelId)!;
+  const now = new Date().toISOString();
+  const price = entry.pricing.filter((r) => r.effectiveFrom <= now).sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? 1 : -1))[0]!;
+  return `$${((input * price.inputPerM + output * price.outputPerM) / 1_000_000).toFixed(4)}`;
+}
 
 test('@run-01 running an agent streams its text, then the run reads as a summary over a compiled prompt', async ({ page }) => {
   await page.goto(base() + '/agents/echo#token=' + token());
@@ -49,9 +65,10 @@ test('@run-01 running an agent streams its text, then the run reads as a summary
   await expect(summary).toContainText('The Architect finished.', { timeout: 20_000 });
   await expect(summary.locator('li')).toHaveCount(2);
   await expect(summary).toContainText('1 model call');
-  await expect(summary).toContainText('$0.0031');
+  // 420 in / 260 out come from the fixture; the price comes from the catalog.
+  await expect(summary).toContainText(expectedCost('google/gemini-3.8-flash', 420, 260));
 
-  await page.locator('details summary').filter({ hasText: 'google/gemini-2.5-pro' }).first().click();
+  await page.locator('details summary').filter({ hasText: 'google/gemini-3.8-flash' }).first().click();
   await expect(page.getByRole('heading', { name: 'Compiled prompt' })).toBeVisible();
   await expect(page.getByText('## identity').first()).toBeVisible();
   await expect(page.getByText('Turn the premise into scene beats').first(), 'the instructions reached the prompt').toBeVisible();

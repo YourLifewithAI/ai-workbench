@@ -22,14 +22,14 @@ describe('DoD 1: compare one step across two models, and the pick persists on bo
   it('two traces from one view, and a rating on every pane sharing a compare id', async () => {
     const ws = tempWorkspace('dod10-1');
     // Each "model" answers differently, which is the whole point of looking at them side by side.
-    fixture(ws, 'aaa-pro.json', { match: { modelId: '*pro', systemIncludes: 'The Weaver' }, respond: { text: 'Rain on the third ring, and the drains held.' } });
-    fixture(ws, 'aab-flash.json', { match: { modelId: '*flash', systemIncludes: 'The Weaver' }, respond: { text: 'It rained.' } });
+    fixture(ws, 'aaa-pro.json', { match: { modelId: '*3.8-flash', systemIncludes: 'The Weaver' }, respond: { text: 'Rain on the third ring, and the drains held.' } });
+    fixture(ws, 'aab-flash.json', { match: { modelId: '*3.6-flash', systemIncludes: 'The Weaver' }, respond: { text: 'It rained.' } });
 
     const rt = await startRuntime(ws, { providerOverride: 'mock', noScheduler: true });
     try {
       const response = await fetch(`${rt.baseUrl}/api/v1/compare`, {
         method: 'POST', headers: headers(rt),
-        body: JSON.stringify({ agentId: 'weaver', input: 'Write one line about the rain.', models: ['google/gemini-2.5-pro', 'google/gemini-2.5-flash'], project: 'anthology' }),
+        body: JSON.stringify({ agentId: 'weaver', input: 'Write one line about the rain.', models: ['google/gemini-3.8-flash', 'google/gemini-3.6-flash'], project: 'anthology' }),
       });
       expect(response.status).toBe(200);
       const comparison = (await response.json()) as CompareResponse;
@@ -44,7 +44,7 @@ describe('DoD 1: compare one step across two models, and the pick persists on bo
       }
       const outputs = comparison.panes.map((p) => p.output);
       expect(new Set(outputs).size, 'two models, two answers').toBe(2);
-      expect(comparison.panes.find((p) => p.modelId.endsWith('pro'))!.output).toContain('the drains held');
+      expect(comparison.panes.find((p) => p.modelId.endsWith('3.8-flash'))!.output).toContain('the drains held');
 
       // The pick is stored on both runs, so the choice keeps both sides of itself (D-50).
       const winner = comparison.panes[0]!;
@@ -80,10 +80,10 @@ describe('DoD 2: an experiment reports pass^k beside the mean, and stops at its 
     // One model answers every case correctly; the other gets two of the five wrong, every time. The mock is
     // deterministic per run and a trial is a run, so within-cell variance is not something it can produce —
     // `passAtK` is unit-tested for that below, and here pass^k is asserted per cell, which is where it lives.
-    fixture(ws, 'aaa-good.json', { match: { modelId: '*pro', systemIncludes: 'The Weaver' }, respond: { text: 'yes' } });
-    fixture(ws, 'aab-wrong-3.json', { match: { modelId: '*flash', systemIncludes: 'The Weaver', lastUserIncludes: '(3)' }, respond: { text: 'no' } });
-    fixture(ws, 'aac-wrong-4.json', { match: { modelId: '*flash', systemIncludes: 'The Weaver', lastUserIncludes: '(4)' }, respond: { text: 'no' } });
-    fixture(ws, 'aad-flash.json', { match: { modelId: '*flash', systemIncludes: 'The Weaver' }, respond: { text: 'yes' } });
+    fixture(ws, 'aaa-good.json', { match: { modelId: '*3.8-flash', systemIncludes: 'The Weaver' }, respond: { text: 'yes' } });
+    fixture(ws, 'aab-wrong-3.json', { match: { modelId: '*3.6-flash', systemIncludes: 'The Weaver', lastUserIncludes: '(3)' }, respond: { text: 'no' } });
+    fixture(ws, 'aac-wrong-4.json', { match: { modelId: '*3.6-flash', systemIncludes: 'The Weaver', lastUserIncludes: '(4)' }, respond: { text: 'no' } });
+    fixture(ws, 'aad-flash.json', { match: { modelId: '*3.6-flash', systemIncludes: 'The Weaver' }, respond: { text: 'yes' } });
 
     const rt = await startRuntime(ws, { providerOverride: 'mock', noScheduler: true });
     try {
@@ -103,7 +103,7 @@ describe('DoD 2: an experiment reports pass^k beside the mean, and stops at its 
           name: 'yes across two models',
           datasetId: dataset.id,
           target: { kind: 'agent', id: 'weaver' },
-          models: ['google/gemini-2.5-pro', 'google/gemini-2.5-flash'],
+          models: ['google/gemini-3.8-flash', 'google/gemini-3.6-flash'],
           trials: 3,
           evaluators: [{ kind: 'exact' }],
           project: 'anthology',
@@ -122,18 +122,21 @@ describe('DoD 2: an experiment reports pass^k beside the mean, and stops at its 
       expect(results.cells, '5 cases × 2 models').toHaveLength(10);
       for (const cell of results.cells) expect(cell.trials, 'k = 3').toBe(3);
 
-      const pro = results.totals.find((t) => t.modelId.endsWith('pro'))!;
-      const flash = results.totals.find((t) => t.modelId.endsWith('flash'))!;
-      expect(pro.metrics['exact']!.mean).toBe(1);
-      expect(pro.metrics['exact']!.passK, 'every trial of every case').toBe(1);
-      expect(pro.metrics['exact']!.estimate, 'exact is not an estimate').toBe(false);
+      // Both candidates are Flash now — Google's lineup has no GA Pro — so these are named for what the
+      // fixtures make them do, which is what the assertions are actually about.
+      const good = results.totals.find((t) => t.modelId.endsWith('3.8-flash'))!;
+      const weaker = results.totals.find((t) => t.modelId.endsWith('3.6-flash'))!;
+      expect(good.metrics['exact']!.mean).toBe(1);
+      expect(good.metrics['exact']!.passK, 'every trial of every case').toBe(1);
+      expect(good.metrics['exact']!.estimate, 'exact is not an estimate').toBe(false);
       // The other one got two of the five wrong: three fifths of the cases, every trial.
-      expect(flash.metrics['exact']!.mean).toBeCloseTo(0.6, 5);
-      expect(flash.metrics['exact']!.passK).toBeCloseTo(0.6, 5);
+      expect(weaker.metrics['exact']!.mean).toBeCloseTo(0.6, 5);
+      expect(weaker.metrics['exact']!.passK).toBeCloseTo(0.6, 5);
 
       // pass^k is a per-cell fact: a case it failed passed on no trial, and a case it answered passed on all three.
-      const failed = results.cells.filter((c) => c.modelId.endsWith('flash') && c.metrics['exact']!.passK === 0);
-      const passed = results.cells.filter((c) => c.modelId.endsWith('flash') && c.metrics['exact']!.passK === 1);
+      // Both models end in "flash", so the filter has to name the version — this is the weaker one's cells.
+      const failed = results.cells.filter((c) => c.modelId.endsWith('3.6-flash') && c.metrics['exact']!.passK === 0);
+      const passed = results.cells.filter((c) => c.modelId.endsWith('3.6-flash') && c.metrics['exact']!.passK === 1);
       expect(failed).toHaveLength(2);
       expect(passed).toHaveLength(3);
       for (const cell of failed) expect(cell.metrics['exact']!.mean, 'wrong on every trial').toBe(0);
@@ -151,7 +154,7 @@ describe('DoD 2: an experiment reports pass^k beside the mean, and stops at its 
           name: 'stopped by its budget',
           datasetId: dataset.id,
           target: { kind: 'agent', id: 'weaver' },
-          models: ['google/gemini-2.5-pro'],
+          models: ['google/gemini-3.8-flash'],
           trials: 3,
           evaluators: [{ kind: 'exact' }],
           budgets: { maxCostUsd: 0.0000001 },
@@ -201,8 +204,8 @@ describe('DoD 3: a judge is an estimate and exact is not', () => {
         method: 'POST', headers: headers(rt),
         body: JSON.stringify({
           name: 'judged', datasetId: dataset.id, target: { kind: 'agent', id: 'weaver' },
-          models: ['google/gemini-2.5-pro'], trials: 1,
-          evaluators: [{ kind: 'exact' }, { kind: 'model-judge', model: 'google/gemini-2.5-flash', rubric: 'Is it one line about rain?' }],
+          models: ['google/gemini-3.8-flash'], trials: 1,
+          evaluators: [{ kind: 'exact' }, { kind: 'model-judge', model: 'google/gemini-3.6-flash', rubric: 'Is it one line about rain?' }],
           project: 'anthology',
         }),
       })).json()) as ExperimentSummary;

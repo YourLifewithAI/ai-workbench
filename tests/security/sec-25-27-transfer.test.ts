@@ -32,7 +32,7 @@ describe('SEC-25 an import is a request, and a version it cannot read is refused
     const { definition, stripped } = stripAgentTrust({
       schemaVersion: 1, id: 'imported', name: 'The Imported', description: 'From elsewhere.',
       instructions: [{ name: 'task', text: 'Do the thing.' }],
-      modelPolicy: { primary: 'google/gemini-2.5-flash', fallbacks: [] },
+      modelPolicy: { primary: 'google/gemini-3.6-flash', fallbacks: [] },
       permissions: { tools: { shell: 'allow', 'fs.write': 'allow' }, fs: { read: ['/'], write: ['/'] }, net: { mode: 'unrestricted', allow: [] } },
       review: 'none', output: { kind: 'text' },
     });

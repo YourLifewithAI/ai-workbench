@@ -7,9 +7,9 @@
     "file": "instructions.md"
   },
   "modelPolicy": {
-    "primary": "google/gemini-2.5-flash",
+    "primary": "google/gemini-3.6-flash",
     "fallbacks": [
-      "google/gemini-2.5-pro"
+      "google/gemini-3.8-flash"
     ]
   },
   "review": "none",

@@ -3,11 +3,24 @@
   "id": "builder",
   "name": "The Builder",
   "description": "Turns a plan for a small site into the files that are the site.",
-  "instructions": { "file": "instructions.md" },
-  "modelPolicy": { "primary": "google/gemini-2.5-pro", "fallbacks": ["google/gemini-2.5-flash"] },
+  "instructions": {
+    "file": "instructions.md"
+  },
+  "modelPolicy": {
+    "primary": "google/gemini-3.8-flash",
+    "fallbacks": [
+      "google/gemini-3.6-flash"
+    ]
+  },
   "permissions": {
-    "tools": { "artifact.write": "allow", "artifact.read": "allow", "code.execute": "allow" }
+    "tools": {
+      "artifact.write": "allow",
+      "artifact.read": "allow",
+      "code.execute": "allow"
+    }
   },
   "review": "none",
-  "output": { "kind": "text" }
+  "output": {
+    "kind": "text"
+  }
 }

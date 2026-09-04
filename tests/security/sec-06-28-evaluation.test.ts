@@ -65,7 +65,7 @@ describe('SEC-28c an experiment is bounded like anything else that spends money'
         method: 'POST', headers: headers(rt),
         body: JSON.stringify({
           name: 'capped', datasetId: dataset.id, target: { kind: 'agent', id: 'weaver' },
-          models: ['google/gemini-2.5-pro', 'google/gemini-2.5-flash'], trials: 3,
+          models: ['google/gemini-3.8-flash', 'google/gemini-3.6-flash'], trials: 3,
           budgets: { maxCostUsd: 0.0005 }, project: 'anthology',
         }),
       })).json()) as ExperimentSummary;

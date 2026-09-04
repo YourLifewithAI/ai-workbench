@@ -33,7 +33,7 @@ describe('DoD 1: a run files its output in a project, with provenance', () => {
         createdBy: 'run-step',
         runId,
         stepId: 'main',
-        modelId: 'google/gemini-2.5-pro',
+        modelId: 'google/gemini-3.8-flash',
       });
       expect(detail.version!.agentVersion).toMatch(/^sha256:[0-9a-f]{64}$/);
     } finally {
