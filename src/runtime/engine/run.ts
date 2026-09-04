@@ -562,6 +562,36 @@ export class Engine {
     }, input.parent !== undefined);
   }
 
+  /**
+   * Run the same thing again. Not `resume`, which continues a run that stopped part-way and keeps its trace —
+   * this starts a fresh run from the original's inputs, so the two sit side by side and can be compared. The
+   * model may be swapped, which is the reason most people reach for it: the same work, a different substrate.
+   */
+  rerun(runId: string, opts: { model?: string | undefined; provider?: 'mock' | undefined } = {}): { runId: string; done: Promise<void> } {
+    const row = this.deps.db.prepare('SELECT kind, agent_id, workflow_id, project_id, inputs_json FROM runs WHERE id = ?').get(runId) as
+      { kind: string; agent_id: string | null; workflow_id: string | null; project_id: string | null; inputs_json: string } | undefined;
+    if (!row) throw new NotFoundError(`Run "${runId}" does not exist.`);
+
+    const inputs = JSON.parse(row.inputs_json) as Record<string, unknown>;
+    const project = row.project_id ?? undefined;
+    if (row.kind === 'workflow') {
+      if (opts.model) {
+        // A workflow's steps each name their own model, so one id could only mean "all of them", which is a
+        // different and much blunter thing than the caller asked for. Better to refuse than to guess.
+        throw new ValidationError('A workflow run cannot be re-run against a single model: its steps choose their own. Re-run one step from Evaluate instead.');
+      }
+      if (!row.workflow_id) throw new ValidationError(`Run "${runId}" has no workflow to re-run.`);
+      return this.startWorkflowRun({ workflowId: row.workflow_id, inputs, ...(project ? { project } : {}), ...(opts.provider ? { provider: opts.provider } : {}) });
+    }
+    if (!row.agent_id) throw new ValidationError(`Run "${runId}" has no agent to re-run.`);
+    return this.startAgentRun({
+      agentId: row.agent_id, inputs,
+      ...(project ? { project } : {}),
+      ...(opts.provider ? { provider: opts.provider } : {}),
+      ...(opts.model ? { modelOverride: opts.model } : {}),
+    });
+  }
+
   startWorkflowRun(input: StartWorkflowRunInput): { runId: string; done: Promise<void> } {
     const ws = this.deps.workspace();
     const workflow = ws.workflows.get(input.workflowId);

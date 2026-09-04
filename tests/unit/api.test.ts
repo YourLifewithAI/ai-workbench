@@ -48,3 +48,34 @@ describe('HTTP API (spec/api-and-cli.md)', () => {
     expect(((await health.json()) as { startedAt: string }).startedAt).toBe(rt.runtime.startedAt);
   });
 });
+
+describe('POST /runs/:id/rerun', () => {
+  const post = (path: string, body: unknown) =>
+    get(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+  it('starts a new run from the original inputs, and leaves the original alone', async () => {
+    const first = (await (await post('/runs', { kind: 'agent', id: 'echo', inputs: { input: 'say it twice' }, provider: 'mock' })).json()) as { runId: string };
+    await rt.runtime.engine.waitFor(first.runId);
+
+    const res = await post(`/runs/${first.runId}/rerun`, { provider: 'mock' });
+    expect(res.status).toBe(202);
+    const again = (await res.json()) as { runId: string };
+    expect(again.runId, 'a re-run is a new run, not the old one continued').not.toBe(first.runId);
+    await rt.runtime.engine.waitFor(again.runId);
+
+    const copy = (await (await get(`/runs/${again.runId}`)).json()) as { state: string; outputs: { output: string } };
+    expect(copy.state).toBe('completed');
+    expect(copy.outputs.output, 'the same inputs produce the same work').toBe('say it twice');
+
+    // The original keeps its own trace: this is not `resume`, which would have extended it.
+    const original = (await (await get(`/runs/${first.runId}`)).json()) as { state: string };
+    expect(original.state).toBe('completed');
+  });
+
+  it('names a run that does not exist, and validates the body', async () => {
+    expect((await post('/runs/01NOPE/rerun', {})).status).toBe(404);
+    const bad = await post(`/runs/01NOPE/rerun`, { provider: 'google' });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: { code: string } }).error.code).toBe('validation');
+  });
+});

@@ -626,6 +626,13 @@ export const CreateExperimentRequest = z.object({
 });
 export type CreateExperimentRequest = z.infer<typeof CreateExperimentRequest>;
 
+/** Re-run a finished run as a new one. `model` swaps the substrate; a workflow refuses it (its steps choose). */
+export const RerunRequest = z.object({
+  model: z.string().min(1).optional(),
+  provider: z.literal('mock').optional(),
+});
+export type RerunRequest = z.infer<typeof RerunRequest>;
+
 /** One step, N models, side by side. The cheapest eval there is, and the one most owners actually use. */
 export const CompareRequest = z.object({
   agentId: z.string(),

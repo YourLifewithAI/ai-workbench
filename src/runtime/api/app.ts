@@ -5,7 +5,8 @@ import path from 'node:path';
 import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { ApprovalDecisionRequest, CompareRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
+import {
+  RerunRequest, ApprovalDecisionRequest, CompareRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
@@ -261,6 +262,21 @@ export function createApp(deps: AppDeps): Hono {
       documents: agent.definition.documents,
     };
     return json(c, body);
+  });
+
+  // Run the same thing again as a new run, optionally on another model. `resume` continues a stopped run;
+  // this starts a fresh one from the original's inputs so the two can be read side by side.
+  app.post('/api/v1/runs/:id/rerun', async (c) => {
+    let body: unknown = {};
+    try { body = await c.req.json(); } catch { body = {}; }
+    const parsed = RerunRequest.safeParse(body ?? {});
+    if (!parsed.success) return fail(c, 'validation', 'Expected { model?, provider?: "mock" }.', 400, parsed.error.issues);
+    try {
+      const { runId } = deps.engine.rerun(c.req.param('id'), parsed.data);
+      return json(c, { runId }, 202);
+    } catch (e) {
+      return mapError(c, e);
+    }
   });
 
   app.post('/api/v1/runs/:id/resume', (c) => {
@@ -529,6 +545,12 @@ export function createApp(deps: AppDeps): Hono {
 
   // ---- the Library (D-16) ---------------------------------------------------------------------
   app.get('/api/v1/projects', (c) => json(c, { projects: deps.artifacts.listProjects() }));
+
+  app.get('/api/v1/projects/:slug', (c) => {
+    const project = deps.artifacts.findProject(c.req.param('slug'));
+    if (!project) return fail(c, 'not_found', `Project "${c.req.param('slug')}" does not exist.`, 404);
+    return json(c, { project });
+  });
 
   app.post('/api/v1/projects', async (c) => {
     let body: unknown;
