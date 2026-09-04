@@ -3,6 +3,15 @@ on:
   push:
     branches: [main]
   pull_request:
+
+# One run per branch. Pushing a fix while the previous round is still going used to leave both competing for
+# the same scarce windows-latest runner, so four rounds in flight meant every one of them waited on the others
+# — and only the newest could tell you anything anyway. `main` is exempt: a push there is a merged commit, and
+# cancelling its build would leave the branch with no result at all.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     strategy:
