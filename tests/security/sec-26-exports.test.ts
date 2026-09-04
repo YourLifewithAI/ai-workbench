@@ -90,6 +90,38 @@ describe('SEC-26 exports carry no credential material and name their redactions'
     }
   }, 60_000);
 
+  it('an exported nested file is recorded with a portable path, and comes back nested', async () => {
+    const ws = tempWorkspace('sec26-paths');
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sec26-paths-out-'));
+    const opened = await openWorkspaceStore(ws);
+    try {
+      // A file two directories deep, which is where the separator shows up.
+      const nested = path.join(opened.store.projectDir('anthology'), 'files', 'site', 'assets', 'style.css');
+      fs.mkdirSync(path.dirname(nested), { recursive: true });
+      fs.writeFileSync(nested, 'body { color: #111; }');
+
+      const manifest = exportProject(opened.store, 'anthology', outDir);
+      const recorded = manifest.files.map((f) => f.path);
+      expect(recorded, 'the manifest is what another machine reads').toContain('site/assets/style.css');
+      // `path.join` on Windows would have written `site\\assets\\style.css`, which on Linux is not a
+      // directory at all — it is one file whose name contains backslashes.
+      for (const p of recorded) expect(p, 'no platform separator reaches the manifest').not.toContain('\\');
+      expect(fs.existsSync(path.join(outDir, 'files', 'site', 'assets', 'style.css')), 'and the export is really nested').toBe(true);
+    } finally {
+      await opened.close();
+    }
+
+    const fresh = tempWorkspace('sec26-paths-import');
+    const importer = await openWorkspaceStore(fresh);
+    try {
+      importProject(importer.store, outDir, 'imported');
+      const landed = path.join(importer.store.projectDir('imported'), 'files', 'site', 'assets', 'style.css');
+      expect(fs.existsSync(landed), 'the nesting survives the round trip').toBe(true);
+    } finally {
+      await importer.close();
+    }
+  }, 60_000);
+
   it('redactionsIn reports every distinct marker, and nothing when there are none', () => {
     expect(redactionsIn('plain text')).toEqual([]);
     expect(redactionsIn('a [REDACTED:credential:google] b [REDACTED:credential:anthropic] c [REDACTED:credential:google]'))
