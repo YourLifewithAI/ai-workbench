@@ -93,5 +93,5 @@ test('@run-01 a broken definition is reported on the screen, and reload picks up
   await page.getByRole('button', { name: 'Reload from disk' }).click();
   await expect(page.getByText('broken-e2e did not load.')).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Fixed By The Test', exact: true })).toBeVisible();
-  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });

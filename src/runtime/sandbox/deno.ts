@@ -205,13 +205,30 @@ export function findDeno(pathVar: string | undefined, configured?: string | unde
  */
 function vendoredDeno(): string | null {
   const exe = process.platform === 'win32' ? 'deno.exe' : 'deno';
-  try {
-    const manifest = createRequire(import.meta.url).resolve('deno/package.json');
-    const candidate = path.join(path.dirname(manifest), exe);
-    return fs.existsSync(candidate) ? candidate : null;
-  } catch {
-    return null; // not installed, which is a normal state: the tier is simply unavailable.
+  const require_ = createRequire(import.meta.url);
+  // Two places, because deno's own installer uses two. It normally hard-links the binary from the
+  // platform package into its own directory; when that copy fails — a read-only or full disk — it keeps
+  // running from the platform package instead. Looking in only the first would report "no sandbox" on a
+  // machine that has one, which is the failure this function exists to prevent.
+  const packages = ['deno', ...platformPackages()];
+  for (const pkg of packages) {
+    try {
+      const candidate = path.join(path.dirname(require_.resolve(`${pkg}/package.json`)), exe);
+      if (fs.existsSync(candidate)) return candidate;
+    } catch {
+      // not installed, which is a normal state: the tier is simply unavailable.
+    }
   }
+  return null;
+}
+
+/** The `@deno/<target>` package for this machine, named the way deno's installer names them. */
+function platformPackages(): string[] {
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+  if (process.platform === 'win32') return [`@deno/win32-${arch}`];
+  if (process.platform === 'darwin') return [`@deno/darwin-${arch}`];
+  if (process.platform === 'linux') return [`@deno/linux-${arch}-glibc`, `@deno/linux-${arch}-musl`];
+  return [];
 }
 
 function unique(paths: string[]): string[] {

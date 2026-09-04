@@ -74,5 +74,5 @@ test('@run-03 the exported folder is one a human can read', async () => {
   expect(manifest.documents.some((d) => d.path === 'bible.md')).toBe(true);
   expect(manifest.excluded).toContain('credentials');
   expect(fs.readFileSync(path.join(out, 'documents', 'bible.md'), 'utf8')).toContain('overbearing grandmother');
-  fs.rmSync(out, { recursive: true, force: true });
+  fs.rmSync(out, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });

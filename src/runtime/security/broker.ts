@@ -176,7 +176,7 @@ export class Broker {
       const decision = checkPath(child, this.roots('read'), this.policy, 'read');
       if (!decision.allowed) continue;
       const stat = await fsp.stat(child).catch(() => null);
-      out.push({ path: path.relative(this.policy.workspaceDir, child), kind: entry.isDirectory() ? 'directory' : 'file', bytes: stat?.size ?? 0 });
+      out.push({ path: workspaceRelative(this.policy.workspaceDir, child), kind: entry.isDirectory() ? 'directory' : 'file', bytes: stat?.size ?? 0 });
     }
     return out.sort((a, b) => a.path.localeCompare(b.path));
   }
@@ -218,4 +218,15 @@ function hintFor(reason: string): string | undefined {
   if (reason.includes('never readable')) return 'This is the hard deny-list. No grant can open it, and that is deliberate.';
   if (reason.includes('no ') && reason.includes('permission')) return 'A human grants paths per agent in the Tools screen.';
   return undefined;
+}
+
+/**
+ * The path a tool result, a prompt, or the UI shows — always with forward slashes, on every platform. An
+ * agent that lists `projects\\anthology\\draft.md` and a workflow that writes `projects/{runId}/draft.md`
+ * are naming the same file, and a model asked to reconcile the two will sometimes decide they are not.
+ * Windows accepts forward slashes everywhere, so the round trip back through `read` or `write` is unaffected.
+ */
+export function workspaceRelative(workspaceDir: string, target: string): string {
+  const relative = path.relative(workspaceDir, target);
+  return process.platform === 'win32' ? relative.split(path.sep).join('/') : relative;
 }
