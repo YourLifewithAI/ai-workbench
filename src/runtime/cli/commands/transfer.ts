@@ -173,7 +173,9 @@ export function registerCredentials(program: Command, bootstrap: Bootstrap): voi
           });
           if (wantsJson(cmd)) return outJson(result);
           out(`configured: ${result.providersConfigured.join(', ') || 'none'}`);
-          out('Restart the runtime for it to be used.');
+          // RUN-11 made the credential live on write — and, more to the point, redacted on write.
+          // Telling the owner to restart implied the opposite of the property that fix bought.
+          out(apiKey === null ? 'Removed. No restart needed.' : 'Live now — no restart needed. It is redacted from traces from this moment on.');
         } finally {
           await handle.close();
         }
