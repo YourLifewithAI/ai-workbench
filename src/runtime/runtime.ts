@@ -11,6 +11,7 @@ import { packagePaths, type PackagePaths } from './paths.js';
 import type { Bootstrap } from './bootstrap.js';
 import { loadAgents, loadWorkflows, loadWorkspace, type BrokenAgent, type Workspace } from './workspace/loader.js';
 import { Redactor } from './security/redaction.js';
+import { writeSecretFile } from './security/secretFile.js';
 import { loadCredentials, type Credentials } from './security/credentials.js';
 import { generateToken, writeTokenFile, acceptedHosts } from './security/auth.js';
 import { createLogger, type Logger, type LogHandle } from './log/index.js';
@@ -336,8 +337,16 @@ export class Runtime {
     const current = fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, { apiKey: string }>) : {};
     if (apiKey === null) delete current[name];
     else current[name] = { apiKey };
-    fs.writeFileSync(file, JSON.stringify(current, null, 2) + '\n', { mode: 0o600 });
-    fs.chmodSync(file, 0o600);
+    const written = writeSecretFile(file, JSON.stringify(current, null, 2) + '\n');
+    if (!written.protected) {
+      throw new Error(`The credential was written but could not be restricted to your account (${written.detail}).` +
+        `${written.fix ? ` Run: ${written.fix}` : ''}`);
+    }
+    if (!written.verified) {
+      // Applied but not readable back. Refusing would strand an owner over a locale; saying nothing would let
+      // "the workbench protected it" stand on a claim it did not check.
+      this.log.warn({ file }, `${file}: the protection was applied but could not be confirmed (${written.detail}).`);
+    }
     // Immediately, not on the next start: until this runs the runtime does not know the key exists and does not
     // redact it, so a key saved mid-session could land in the next trace in full.
     this.credentials.reload();
@@ -448,7 +457,21 @@ export class Runtime {
     await this.startMockUpstream();
     this.hosts = acceptedHosts(this.port, this.bind, this.opts.expose ?? []);
     if (!this.ephemeral) {
-      writeTokenFile(this.workspace.paths.runtimeToken, this.token);
+      // The token is what a browser or the CLI presents instead of a password. Starting anyway when it cannot
+      // be locked down is the right trade — a workbench nobody can reach is not safer — but it is said out
+      // loud, in the log and on stderr, because the owner is the only one who can fix it.
+      const token = writeTokenFile(this.workspace.paths.runtimeToken, this.token);
+      if (token.protected && !token.verified) {
+        this.log.warn({ file: this.workspace.paths.runtimeToken },
+          `${this.workspace.paths.runtimeToken}: the protection was applied but could not be confirmed (${token.detail}).`);
+      }
+      if (!token.protected) {
+        const message = `${this.workspace.paths.runtimeToken} could not be restricted to your account (${token.detail}). ` +
+          `Anyone who can read it can use this runtime.${token.fix ? ` Run: ${token.fix}` : ''}`;
+        this.log.warn({ file: this.workspace.paths.runtimeToken }, message);
+        process.stderr.write(`workbench: ${message}\n`);
+      }
+      // Not a secret — port, pid and start time — but it says where the runtime is, so it gets the same 0600.
       const file: RuntimeFile = { port: this.port, pid: process.pid, startedAt: this.startedAt };
       fs.writeFileSync(this.workspace.paths.runtimeJson, JSON.stringify(file, null, 2) + '\n', { mode: 0o600 });
     }

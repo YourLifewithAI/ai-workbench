@@ -52,3 +52,12 @@ Everything an agent needs is in at most ten bounded files. Done is a command, no
 > Amendment (owner review, 2026-09-04): RUN-15 (the catalog learns what exists) is planned, not
 > scheduled. It came from the first live run failing on a retired model. Like RUN-13 and RUN-14 it blocks
 > nothing already built.
+
+> Amendment (RUN-19, 2026-09-04): not every branch is a numbered run. Once the brief list was exhausted,
+> work continued as maintenance branches with no brief of their own — `run/16-cred-message` through
+> `run/21-rerun` — each one a defect found by using the thing or by a platform that had never run the suite.
+> They keep the branch naming and the gates (`npm run check`, the DoD suites, `npm run e2e`, one PR each) and
+> drop only what a brief provides: a *Reads* list, a *Do not* list, and a definition of done written in
+> advance. Their record is the commit message and the PR, not a `runlog/` handoff, because there is no brief
+> for a handoff to answer. A maintenance branch that turns out to need a brief — a real feature, a decision
+> nobody has made — stops and becomes one (that is how RUN-13, RUN-14 and RUN-15 were written).

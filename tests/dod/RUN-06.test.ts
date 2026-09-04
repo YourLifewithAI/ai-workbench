@@ -279,14 +279,21 @@ describe('DoD 4: agent.delegate nests a child run it cannot escape', () => {
   it('depth 4 is refused by name', async () => {
     const ws = tempWorkspace('dod06-4b');
     grant(ws, 'delegator', { tools: { 'agent.delegate': 'allow' } });
-    // Every call delegates to itself, so the chain would be infinite if the depth limit were not real.
-    fixture(ws, 'aaa-loop.json', { match: { systemIncludes: 'The Editor' }, respond: { text: 'Passing it down.', toolCalls: [{ name: 'agent.delegate', input: { agent: 'delegator', input: 'Keep going.' } }] } });
+    // Each level delegates to itself once — `callIndex: 1` — and then says it is done, so the chain would be
+    // infinite if the depth limit were not real. The `callIndex` is what keeps it a *chain*: without it every
+    // call at every level delegates again, and each level spends its whole inherited budget doing so, so what
+    // the depth limit bounds is a tree hundreds of runs wide rather than four runs deep. That took 22 seconds
+    // here and timed out at 180 on a Windows runner, and none of the extra runs told us anything.
+    fixture(ws, 'aaa-loop.json', { match: { systemIncludes: 'The Editor', callIndex: 1 }, respond: { text: 'Passing it down.', toolCalls: [{ name: 'agent.delegate', input: { agent: 'delegator', input: 'Keep going.' } }] } });
+    fixture(ws, 'aab-done.json', { match: { systemIncludes: 'The Editor' }, respond: { text: 'That is as far as it goes.' } });
 
     const rt = await startRuntime(ws, { providerOverride: 'mock' });
     try {
       const runId = await startAgent(rt, 'delegator', 'Start the chain.');
       await waitFor(async () => (await detailOf(rt, runId)).state !== 'running', 60_000);
 
+      const runCount = (rt.runtime.db.prepare('SELECT COUNT(*) AS n FROM runs').get() as { n: number }).n;
+      expect(runCount, 'one run per level and no more: the chain is a chain').toBe(4);
       const depths = rt.runtime.db.prepare('SELECT MAX(depth) AS deepest FROM runs').get() as { deepest: number };
       expect(depths.deepest, 'three levels of delegation, and no fourth').toBe(3);
 

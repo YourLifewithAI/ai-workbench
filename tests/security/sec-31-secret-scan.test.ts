@@ -4,7 +4,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { describe, it, expect } from 'vitest';
 import { scanDirectory, scanText } from '../../src/runtime/security/secretScan.js';
-import { REPO, TSX, tempDir } from '../helpers/workspace.js';
+import { REPO, TSX, TSX_ENTRY, tempDir } from '../helpers/workspace.js';
 
 const assembled = (): string => ['AI', 'za'].join('') + 'Sy' + 'Q'.repeat(33);
 
@@ -20,12 +20,12 @@ describe('SEC-31 secret scan', () => {
     fs.mkdirSync(path.join(dirty, 'src'));
     fs.writeFileSync(path.join(dirty, 'src', 'oops.ts'), `export const key = '${assembled()}';\n`);
     expect(scanDirectory(dirty)).toHaveLength(1);
-    const bad = spawnSync(TSX, [path.join(REPO, 'scripts', 'secret-scan.ts'), dirty], { cwd: REPO, encoding: 'utf8' });
+    const bad = spawnSync(TSX, [TSX_ENTRY, path.join(REPO, 'scripts', 'secret-scan.ts'), dirty], { cwd: REPO, encoding: 'utf8' });
     expect(bad.status).toBe(1);
     expect(bad.stdout).toContain('oops.ts:1');
     const clean = tempDir('sec31-clean');
     fs.writeFileSync(path.join(clean, 'fine.ts'), 'export const nothing = 1;\n');
-    const ok = spawnSync(TSX, [path.join(REPO, 'scripts', 'secret-scan.ts'), clean], { cwd: REPO, encoding: 'utf8' });
+    const ok = spawnSync(TSX, [TSX_ENTRY, path.join(REPO, 'scripts', 'secret-scan.ts'), clean], { cwd: REPO, encoding: 'utf8' });
     expect(ok.status).toBe(0);
   }, 60_000);
 });

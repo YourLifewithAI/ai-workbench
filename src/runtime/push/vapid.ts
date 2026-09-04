@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import webpush from 'web-push';
 import type { Redactor } from '../security/redaction.js';
+import { writeSecretFile } from '../security/secretFile.js';
 
 export interface VapidKeys { publicKey: string; privateKey: string; subject: string }
 
@@ -24,10 +25,13 @@ export function ensureVapidKeys(workspaceDir: string, redactor?: Redactor): Vapi
   }
   const generated = webpush.generateVAPIDKeys();
   const keys: VapidKeys = { publicKey: generated.publicKey, privateKey: generated.privateKey, subject: DEFAULT_SUBJECT };
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(keys, null, 2) + '\n', { mode: 0o600 });
-  // An existing file's mode is not changed by writeFileSync, so say it explicitly for a file that already was.
-  fs.chmodSync(file, 0o600);
+  const written = writeSecretFile(file, JSON.stringify(keys, null, 2) + '\n');
+  if (!written.protected) {
+    // Not fatal: without push the workbench still works, and refusing to start over a notification key would
+    // be a poor trade. It must not pass silently either — whoever holds this key can notify as this workbench.
+    process.stderr.write(`workbench: ${file} could not be restricted to your account (${written.detail}).` +
+      `${written.fix ? ` Run: ${written.fix}` : ''}\n`);
+  }
   redactor?.register('vapid', keys.privateKey);
   return keys;
 }

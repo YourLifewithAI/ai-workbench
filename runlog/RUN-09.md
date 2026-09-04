@@ -57,3 +57,23 @@ green, axe clean on every screen
 ## Still outstanding for the owner
 - The same two as before: no cloud adapter has spoken to its provider, and the phone has only been seen at an iPhone viewport in Chromium.
 - The human script for this run: run `build-site` on a brief you care about, open `projects/site/files/site/index.html` from disk, and then try telling the Builder in its instructions to write to `~/.ssh` — the denial names the policy that refused it.
+
+## Human verification script
+1. `npm run build && node dist/cli.js init ~/wb-09 && node dist/cli.js start --workspace ~/wb-09`.
+2. Open **Tools → What can run code**. Expect either the sandbox with its path and limits, or the exact list of
+   tools that are switched off without Deno. `node dist/cli.js doctor --workspace ~/wb-09` should say the same
+   thing from the terminal.
+3. Run `build-site` on a brief you care about. Expect a plan, then files, then a sandboxed check that reads
+   them back, then a reviewer's note about what a visitor would notice.
+4. Open `~/wb-09/projects/site/files/site/index.html` from disk in a browser. It should stand on its own.
+5. Now try to break out. Tell the Builder, in its instructions, to write to `~/.ssh` (on Windows,
+   `%USERPROFILE%\.ssh`). Expect a denial that names the policy that refused it — not a stack trace, and not a
+   silent success.
+6. Ask it to fetch a URL from inside sandboxed code. Expect the sandbox to have no network of its own: the call
+   goes through the bridge, where the egress checker sees it, or it does not happen. Both outcomes are visible
+   in the trace; a sandboxed script quietly reaching the internet is not one of them.
+7. Grant `shell` and run something that prints forever. Expect it killed at the wall-clock or output limit, and
+   expect the kill reported as the result rather than as an error to retry.
+8. The other half of the claim: rename or remove Deno (`node_modules/deno`) and restart. Expect the execute
+   tier to report itself unavailable **by name**, and expect no fallback that runs code in the runtime process.
+   A machine without a sandbox has no sandbox; that has to be said out loud.

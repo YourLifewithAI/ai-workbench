@@ -7,7 +7,8 @@ import { packagePaths, workspacePaths } from '../../src/runtime/paths.js';
 import { openDatabase, DatabaseNewerError } from '../../src/runtime/db/index.js';
 import { readBootstrap } from '../../src/runtime/bootstrap.js';
 import { Runtime } from '../../src/runtime/runtime.js';
-import { CLI_DIST, collectSse, runCli, startCli, tempDir, tempWorkspace, waitFor } from '../helpers/workspace.js';
+import { CAN_SIGNAL_CHILD, CLI_DIST, GRACEFUL_EXIT, collectSse, runCli, startCli, tempDir, tempWorkspace, waitFor } from '../helpers/workspace.js';
+import { findLiveRuntime } from '../../src/runtime/cli/client.js';
 
 beforeAll(() => {
   if (!fs.existsSync(CLI_DIST)) throw new Error('dist/cli.js is missing: run `npm run build` (or `npm run dod -- 00`, which builds first).');
@@ -20,7 +21,7 @@ const refused = (host: string, port: number): Promise<boolean> => new Promise((r
 });
 
 describe('DoD 2: workbench init + start --port 0', () => {
-  it('prints exactly one stdout line with #token=, binds 127.0.0.1 only, and cleans up on SIGTERM', async () => {
+  it('prints exactly one stdout line with #token=, binds 127.0.0.1 only, and leaves nothing misleading behind', async () => {
     const ws = tempDir('dod2');
     const init = await runCli(['init', ws], { dist: true });
     expect(init.code, init.stderr).toBe(0);
@@ -32,11 +33,21 @@ describe('DoD 2: workbench init + start --port 0', () => {
     expect(await refused('::1', started.port)).toBe(true);
     expect(await refused('127.0.0.1', started.port)).toBe(false);
     const code = await started.stop();
-    expect(code).toBe(0);
+    expect(code).toBe(GRACEFUL_EXIT);
     expect(started.stdout().split('\n').filter(Boolean)).toHaveLength(1);
-    expect(fs.existsSync(paths.runtimeJson)).toBe(false);
-    expect(fs.existsSync(paths.runtimeToken)).toBe(false);
-    expect(fs.existsSync(`${paths.db}-wal`), 'WAL checkpointed: database closed cleanly').toBe(false);
+
+    if (CAN_SIGNAL_CHILD) {
+      expect(fs.existsSync(paths.runtimeJson)).toBe(false);
+      expect(fs.existsSync(paths.runtimeToken)).toBe(false);
+      expect(fs.existsSync(`${paths.db}-wal`), 'WAL checkpointed: database closed cleanly').toBe(false);
+    } else {
+      // Windows cannot be asked; the process was terminated outright, so there was no handler to clean up
+      // after it. What has to hold instead is that the leftovers never mislead anyone: the next command sees
+      // a runtime that does not answer and removes them. That is the property the cleanup was for.
+      expect(await findLiveRuntime(paths), 'a dead runtime is not reported as live').toBe(null);
+      expect(fs.existsSync(paths.runtimeJson), 'and the stale file is gone').toBe(false);
+      expect(fs.existsSync(paths.runtimeToken), 'along with the token it named').toBe(false);
+    }
   }, 60_000);
 });
 
@@ -81,7 +92,7 @@ describe('DoD 4: with a runtime running, run goes through HTTP and shows up on t
       expect(detach.code, detach.stderr).toBe(0);
       expect(JSON.parse(detach.stdout)).toHaveProperty('runId');
     } finally {
-      expect(await started.stop()).toBe(0);
+      expect(await started.stop()).toBe(GRACEFUL_EXIT);
     }
   }, 60_000);
 });

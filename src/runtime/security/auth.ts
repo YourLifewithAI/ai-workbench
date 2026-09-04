@@ -1,21 +1,21 @@
 // The security floor's HTTP half (spec/tools-and-security.md §Security floor).
 import { randomBytes } from 'node:crypto';
-import fs from 'node:fs';
 import type { MiddlewareHandler } from 'hono';
+import { writeSecretFile, type SecretFileResult } from './secretFile.js';
 
 export function generateToken(): string {
   return randomBytes(32).toString('base64url');
 }
 
-export function writeTokenFile(file: string, token: string): void {
-  fs.mkdirSync(require_dirname(file), { recursive: true });
-  fs.writeFileSync(file, token, { mode: 0o600 });
-  fs.chmodSync(file, 0o600);
-}
-
-function require_dirname(file: string): string {
-  const i = file.lastIndexOf('/');
-  return i === -1 ? '.' : file.slice(0, i);
+/**
+ * The token is a bearer credential: whoever reads this file has the whole API. It gets the same protection as
+ * the credentials file, and reports whether it got it — the caller decides how loudly to say so.
+ *
+ * (The directory used to come from a hand-rolled dirname that split on `/` alone, which on Windows returned
+ * "." for every absolute path and so created nothing.)
+ */
+export function writeTokenFile(file: string, token: string): SecretFileResult {
+  return writeSecretFile(file, token);
 }
 
 export const CSP = "default-src 'self'; connect-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";

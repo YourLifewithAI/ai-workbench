@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect, beforeAll } from 'vitest';
 import { CLI_DIST, runCli, startRuntime, tempWorkspace, type Started } from '../helpers/workspace.js';
+import { expectRestricted } from '../helpers/secretFile.js';
 import { PLUGIN_WARNING } from '../../src/runtime/plugins/loader.js';
 import type { ImportResult, SettingsResponse, ToolsResponse } from '../../src/shared/api/index.js';
 
@@ -237,7 +238,8 @@ describe('the settings editor writes what it says it writes', () => {
 
       const file = path.join(ws, 'config', 'credentials.json');
       expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ google: { apiKey: secret } });
-      if (process.platform !== 'win32') expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+      // Windows was skipped here, which meant the platform with the weaker default was the one never checked.
+      expectRestricted(file);
 
       // Nothing the API serves can show it, including the settings route itself.
       const settings = await (await fetch(`${rt.baseUrl}/api/v1/settings`, { headers: headers(rt) })).text();

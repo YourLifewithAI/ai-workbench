@@ -3,17 +3,47 @@ on:
   push:
     branches: [main]
   pull_request:
+
+# One run per branch. Pushing a fix while the previous round is still going used to leave both competing for
+# the same scarce windows-latest runner, so four rounds in flight meant every one of them waited on the others
+# — and only the newest could tell you anything anyway. `main` is exempt: a push there is a merged commit, and
+# cancelling its build would leave the branch with no result at all.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     strategy:
+      # One platform failing must not cancel the others: the whole point of a matrix is learning which
+      # platforms differ, and fail-fast turns three answers into one.
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
-      - run: npm ci
+      # better-sqlite3 ships prebuilt binaries for every platform in its own tarball, and its loader tries
+      # `prebuilds/<platform>-<arch>.node` before `build/Release` — the compile produces a binary it already
+      # has. It happens anyway because the package carries a binding.gyp with no install script, which makes
+      # npm inject `node-gyp rebuild`. Linux and macOS have a compiler so nobody noticed; on Windows node-gyp
+      # 11.5 cannot parse Visual Studio 18's version even from inside a developer prompt, where it correctly
+      # identifies the install and then reads the version as "undefined". That is a node-gyp limitation, not an
+      # environment one, so the fix is to stop compiling rather than to keep coaxing the detection.
+      #
+      # deno and esbuild are the only other packages with install hooks, and theirs fetch real platform
+      # binaries, so they are re-run by name. Naming them means a new native dependency fails loudly here
+      # rather than silently going uninstalled.
+      - name: Install
+        if: runner.os == 'Windows'
+        run: |
+          npm ci --ignore-scripts
+          npm rebuild deno esbuild
+      - name: Install
+        if: runner.os != 'Windows'
+        run: npm ci
       - run: npm run check
       - run: npm run build
       - run: npx playwright install --with-deps chromium
@@ -21,9 +51,20 @@ jobs:
       # Every definition-of-done suite, in order. `npm ci` installs Deno as a devDependency, so the sandbox
       # exists here and the execute-tier cases actually run rather than skipping.
       - run: npx deno --version
-      - run: |
-          for n in 00 01 02 03 04 05 06 07 08 09 12; do
-            npm run dod -- $n || exit 1
+      # The list comes from the directory rather than from a literal, because a literal drifts: RUN-12 was
+      # built before RUN-10 and RUN-11, and when those landed nobody appended them — their DoD suites had
+      # never run in CI on any platform. Globbing means a new run's suite is covered the day the file exists.
+      #
+      # windows-latest defaults to pwsh, where this loop is a syntax error rather than a test failure.
+      # Git Bash ships on the Windows runners, so one shell covers all three platforms.
+      - shell: bash
+        run: |
+          shopt -s nullglob
+          suites=(tests/dod/RUN-*.test.ts)
+          if [ ${#suites[@]} -eq 0 ]; then echo "no DoD suites found — the glob is wrong"; exit 1; fi
+          for f in "${suites[@]}"; do
+            n=${f#tests/dod/RUN-}
+            npm run dod -- "${n%.test.ts}" || exit 1
           done
   # The other half of SEC-23: a machine with no Deno on it. The execute tier must be unavailable by name, and
   # nothing may fall back to running code in this process.

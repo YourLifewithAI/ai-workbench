@@ -1,0 +1,18 @@
+# One byte sequence for a newline, on every checkout.
+#
+# Git for Windows installs with core.autocrlf=true, so without this a Windows clone gets every text file with
+# CRLF line endings. That is not cosmetic here: the shipped example workspace is copied verbatim into a new
+# workspace and its bytes are what tests compare and what documents hash to; a shell script checked out with
+# CRLF fails inside a container with `\r: command not found`; and every diff between a Windows clone and a
+# Linux one becomes the whole file. LF everywhere means the repository is the same repository on all three
+# platforms in CI.
+* text=auto eol=lf
+
+# And these are bytes, not text — Git must never look for a newline in them.
+*.png binary
+*.jpg binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.sqlite binary

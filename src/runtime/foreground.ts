@@ -1,4 +1,4 @@
-// `workbench start` and the Docker entry share this: run until SIGTERM/SIGINT, then close cleanly (RUN-00 DoD 2).
+// `workbench start` and the Docker entry share this: run until a stop signal, then close cleanly (RUN-00 DoD 2).
 import { spawn } from 'node:child_process';
 import { Runtime, type RuntimeOptions } from './runtime.js';
 import { childEnv } from './security/childEnv.js';
@@ -26,6 +26,12 @@ export async function runForeground(opts: ForegroundOptions): Promise<void> {
     };
     process.once('SIGTERM', onSignal);
     process.once('SIGINT', onSignal);
+    // Windows has no SIGTERM: another process calling `kill` there is TerminateProcess, and no handler runs.
+    // What it does deliver is Ctrl-C as SIGINT and Ctrl-Break as SIGBREAK, so the second one is listened for
+    // too — those are the two ways an owner actually stops a foreground runtime on that platform. A hard
+    // termination leaves `runtime.json` and `runtime.token` behind; the next command notices the runtime is
+    // not answering and removes them (`findLiveRuntime`), which is why a missed handler is untidy, not unsafe.
+    if (process.platform === 'win32') process.once('SIGBREAK', onSignal);
   });
 }
 

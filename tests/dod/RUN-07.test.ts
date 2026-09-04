@@ -135,7 +135,12 @@ describe('DoD 1: the briefing runs end to end on the mock, citing what it actual
       expect(results.map((r) => r.url)).toContain('https://allowed.test/local-first');
 
       // The fetch really went over a socket, and came back with the article rather than the navigation.
-      const fetched = trace.find((e) => e.type === 'tool-completed' && e.payload['tool'] === 'http.fetch')!;
+      // Selected by the URL it fetched, not by being first: the briefing fetches two pages concurrently, and
+      // which one finishes first is the scheduler's business. Taking `find`'s first match passed on Linux and
+      // macOS by luck and failed on Windows with the sync-engines page in hand.
+      const fetched = trace.find((e) => e.type === 'tool-completed' && e.payload['tool'] === 'http.fetch'
+        && (e.payload['output'] as { finalUrl?: string } | undefined)?.finalUrl === 'https://allowed.test/local-first')!;
+      expect(fetched, 'the local-first page was fetched').toBeDefined();
       const page = fetched.payload['output'] as { title: string; text: string; links: { url: string }[]; status: number };
       expect(page.status).toBe(200);
       expect(page.title).toBe('Local-first software');

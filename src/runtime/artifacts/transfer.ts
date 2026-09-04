@@ -135,9 +135,15 @@ export function importProject(store: ArtifactStore, inDir: string, slugOverride?
   return { slug, documents, files };
 }
 
+/**
+ * Relative paths, always with forward slashes. An export is meant to be readable somewhere else — the manifest
+ * is the part a human reads and another workbench imports — and `path.join` on Windows would write
+ * `site\\style.css` into it. Importing that on Linux does not make a directory; it makes one file whose name
+ * contains a backslash. Windows accepts forward slashes for reading, so joining them back is unaffected.
+ */
 function walk(dir: string, prefix = ''): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const relative = prefix ? path.join(prefix, entry.name) : entry.name;
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
     return entry.isDirectory() ? walk(path.join(dir, entry.name), relative) : [relative];
   });
 }

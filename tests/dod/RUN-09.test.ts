@@ -113,14 +113,20 @@ describe('DoD 1: the site workflow writes files, and the check step really runs 
   }, 240_000);
 
   it('the flags come from the policy, and never include net or run', () => {
-    const flags = sandboxFlags({ scratchDir: '/w/runs/r1', read: ['/w/projects'], write: ['/w/projects/site'] }, DEFAULT_LIMITS);
+    const scratch = path.resolve('/w/runs/r1');
+    const projects = path.resolve('/w/projects');
+    const site = path.resolve('/w/projects/site');
+    const flags = sandboxFlags({ scratchDir: scratch, read: [projects], write: [site] }, DEFAULT_LIMITS);
     expect(flags[0]).toBe('run');
     expect(flags).toContain('--no-prompt');
     expect(flags).toContain('--deny-net');
     expect(flags).toContain('--deny-run');
     expect(flags).toContain('--deny-ffi');
-    expect(flags.find((f) => f.startsWith('--allow-read='))).toBe('--allow-read=/w/runs/r1,/w/projects');
-    expect(flags.find((f) => f.startsWith('--allow-write='))).toBe('--allow-write=/w/runs/r1,/w/projects/site');
+    // Built from the same roots rather than written out, because the flag carries whatever `path.resolve`
+    // makes of them — on Windows that is a drive letter and backslashes, and a POSIX literal here would be
+    // asserting the platform instead of the policy.
+    expect(flags.find((f) => f.startsWith('--allow-read='))).toBe(`--allow-read=${scratch},${projects}`);
+    expect(flags.find((f) => f.startsWith('--allow-write='))).toBe(`--allow-write=${scratch},${site}`);
     expect(flags.some((f) => f.startsWith('--allow-net'))).toBe(false);
     expect(flags.some((f) => f.startsWith('--allow-run'))).toBe(false);
     expect(flags.some((f) => f === '--allow-all' || f === '-A')).toBe(false);

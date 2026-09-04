@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { CredentialsFile } from '../../shared/workspace.js';
 import type { Redactor } from './redaction.js';
 import { WorkspaceError, formatZodError } from '../util/errors.js';
+import { icaclsFix, inspect } from './windowsAcl.js';
 
 export interface Credentials {
   get(name: string): string | undefined;
@@ -39,12 +40,17 @@ export function loadCredentials(credentialsPath: string, redactor: Redactor): Cr
     notes.length = 0;
     if (fs.existsSync(credentialsPath)) {
       if (process.platform === 'win32') {
-        notes.push(
-          `${credentialsPath} holds your provider keys in plain text, and Windows has no POSIX mode bits for ` +
-          'the runtime to enforce, so the file carries whatever permissions it inherited. Restrict it yourself: ' +
-          `icacls "${credentialsPath}" /inheritance:r /grant:r "%USERNAME%:F"  — or keep keys in ` +
-          'WORKBENCH_CRED_<NAME> instead. On Linux and macOS the runtime refuses to start unless the file is 0600.',
-        );
+        // Windows has no mode bits, so the ACL is the protection and this is where it is checked. A file another
+        // principal can read is refused exactly as an 0644 file is on Linux — the promise is the same promise.
+        const acl = inspect(credentialsPath);
+        if (acl.restricted === false) {
+          throw new WorkspaceError(credentialsPath, `must be readable only by you; it is ${acl.detail}. Fix: ${icaclsFix(credentialsPath)}`);
+        }
+        if (acl.restricted === null) {
+          // Unknown is not safe, but it is also not proof of exposure, and refusing to start over an unreadable
+          // ACL would strand an owner whose only fault is an unfamiliar locale. Say so instead, loudly.
+          notes.push(`${acl.detail}. The runtime cannot confirm ${credentialsPath} is restricted to you. Run: ${icaclsFix(credentialsPath)}`);
+        }
       } else {
         const mode = fs.statSync(credentialsPath).mode & 0o777;
         if (mode & 0o077) {

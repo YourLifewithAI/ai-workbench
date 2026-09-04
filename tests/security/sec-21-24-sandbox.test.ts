@@ -187,16 +187,24 @@ describe('SEC-22 what a sandboxed script can and cannot do', () => {
   }, 60_000);
 
   it.skipIf(!DENO)('cannot start a subprocess, which is how it cannot escape', async () => {
+    // A program that certainly exists on this platform. `echo` is a cmd builtin rather than a binary on
+    // Windows, so naming it there produced NotFound — a refusal for the wrong reason, which would have passed
+    // this assertion even with --allow-run granted. Only a program Deno could really have started proves the
+    // permission is what stopped it.
+    const WIN = process.platform === 'win32';
+    const program = WIN ? 'C:\\Windows\\System32\\cmd.exe' : '/bin/sh';
+    // Arguments that exit immediately, so a granted permission fails the assertion instead of hanging the suite.
+    const args = WIN ? ['/c', 'exit'] : ['-c', 'exit 0'];
     const result = await runScript(`
       try {
-        const command = new Deno.Command('echo', { args: ['out'] });
+        const command = new Deno.Command(${JSON.stringify(program)}, { args: ${JSON.stringify(args)} });
         await command.output();
         console.log('ran');
       } catch (e) {
         console.log('run refused', e.name);
       }
     `);
-    expect(result.stdout).toContain('run refused NotCapable');
+    expect(result.stdout, `refusing ${program}`).toContain('run refused NotCapable');
     expect(result.stdout).not.toContain('ran');
   }, 60_000);
 });
@@ -292,8 +300,16 @@ describe('SEC-24 an MCP server is a subprocess like any other', () => {
 
   it('childEnv refuses to hand a credential to any child, MCP servers included', () => {
     expect(() => childEnv({ PATH: '/usr/bin' }, { WORKBENCH_CRED_GOOGLE: 'AIzaSomething' })).toThrow(/refusing to pass credential/);
-    const env = childEnv({ PATH: '/usr/bin', HOME: '/home/x', SECRET_TOKEN: 'nope' }, { NODE_ENV: 'test' });
-    expect(Object.keys(env).sort()).toEqual(['HOME', 'NODE_ENV', 'PATH']);
+
+    // The allowlist is per-platform because the variables are: HOME and TMPDIR do not exist on Windows, and a
+    // child there cannot start without SystemRoot. What does not vary is the part this case is about — an
+    // unlisted name is dropped whatever it is called, and PATH survives so the child can find anything at all.
+    const env = childEnv({ PATH: '/usr/bin', HOME: '/home/x', SystemRoot: 'C:\\Windows', SECRET_TOKEN: 'nope' }, { NODE_ENV: 'test' });
+    expect(Object.keys(env), 'an unlisted variable is never passed through').not.toContain('SECRET_TOKEN');
+    expect(Object.keys(env)).toContain('PATH');
+    expect(Object.keys(env), 'extras are added after the allowlist, not filtered by it').toContain('NODE_ENV');
+    expect(Object.keys(env)).toContain(process.platform === 'win32' ? 'SystemRoot' : 'HOME');
+    expect(Object.keys(env), 'the other platform\'s variables are not carried along').not.toContain(process.platform === 'win32' ? 'HOME' : 'SystemRoot');
   });
 });
 

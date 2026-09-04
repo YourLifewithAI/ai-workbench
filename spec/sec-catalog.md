@@ -38,3 +38,20 @@ Every run reads this file for the ids its brief lists (D-38). Each entry is a te
 | SEC-30 | CSP is strict on HTML and API responses; `dist/` loads nothing from another origin — no `<script src>`, `<link href>`, `fetch`, `XMLHttpRequest`, `EventSource`, `WebSocket`, or `import()` to a non-self origin (XML namespaces and documentation URL strings are not loads) | 00 |
 | SEC-31 | Secret scan in the check gate catches a planted key | 00 |
 | SEC-32 | Push notification payloads carry ids and kinds only, never prompt, output, or document content | 12 |
+
+> Amendment (RUN-19, 2026-09-04): SEC-05 and SEC-07 are written in POSIX terms, and Windows CI showed both
+> asserting the platform rather than the promise.
+>
+> **SEC-05** is "readable only by this account", not "mode 0600". Windows has no mode bits: `chmod` there
+> toggles the read-only attribute, `stat` reports 0666 for any writable file, and 0600 can never be observed.
+> The protection there is the ACL — `icacls /inheritance:r /grant:r <you>:F` — and the check is reading it
+> back. SYSTEM, Administrators and TrustedInstaller do not count as foreign readers: they sit on nearly every
+> file by inheritance, an administrator can take ownership of anything whatever the ACL says, and 0600 on
+> Linux does not exclude root either. The three secret files — `data/runtime.token`, `data/vapid.json`,
+> `config/credentials.json` — go through one writer that makes this promise, rather than three copies of
+> `writeFileSync({ mode })` of which only one had been taught about Windows.
+>
+> **SEC-07**'s allowlist is per-platform because the variables are: `HOME` and `TMPDIR` do not exist on
+> Windows, and a child there cannot start without `SystemRoot`. The refusals are not per-platform and are the
+> actual content of the row — no credential value, no arbitrary environment variable, no `NODE_OPTIONS`,
+> which is executable by another name.

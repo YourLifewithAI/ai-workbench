@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect, beforeAll } from 'vitest';
 import { CLI_DIST, startRuntime, tempWorkspace, waitFor, type Started } from '../helpers/workspace.js';
+import { expectRestricted } from '../helpers/secretFile.js';
 import { packagePaths } from '../../src/runtime/paths.js';
 import type { PushSubscription, PushSubscriptionsResponse, RunDetail } from '../../src/shared/api/index.js';
 
@@ -37,11 +38,12 @@ const SUBSCRIPTION = {
 };
 
 describe('DoD 3: the workspace has its own notification keys, and the routes are behind the token', () => {
-  it('init writes data/vapid.json at 0600 and the public key is served', async () => {
+  it('init writes data/vapid.json readable only by the owner, and serves the public key', async () => {
     const ws = tempWorkspace('dod12-vapid');
     const file = path.join(ws, 'data', 'vapid.json');
     expect(fs.existsSync(file), '`workbench init` generates the pair').toBe(true);
-    expect(fs.statSync(file).mode & 0o777, 'readable only by the owner, like the runtime token').toBe(0o600);
+    // Like the runtime token: a mode on POSIX, an ACL on Windows, one promise either way.
+    expectRestricted(file);
 
     const keys = JSON.parse(fs.readFileSync(file, 'utf8')) as { publicKey: string; privateKey: string };
     const rt = await startRuntime(ws);

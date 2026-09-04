@@ -22,6 +22,14 @@ The permission layer stays authoritative when the model is manipulated. That is 
 - Redaction: every loaded credential value is registered; persisted events, logs, and exports pass through the redactor. Headers named `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, `x-api-key`, `x-subscription-token`, and any `x-goog-*` are never stored. A secret scan runs in `npm run check`.
 - The runtime is never exposed to the public internet (D-60). Remote access is over a Tailscale tailnet: `--expose <tailnet-hostname>` adds that origin to the accepted `Host`/`Origin` sets and `tailscale serve` provides TLS; a Caddy reverse proxy on a private network is the documented alternative for owners without Tailscale. The bearer token is required either way.
 
+> Amendment (RUN-19, 2026-09-04): "0600" above names the POSIX implementation of a promise that is not
+> POSIX-specific. The promise is *readable only by the account that owns this workspace*, and it covers three
+> files: `data/runtime.token`, `config/credentials.json` and `data/vapid.json`. On Linux and macOS it is mode
+> 0600. Windows has no mode bits — `chmod` there toggles the read-only attribute and `stat` reports 0666 for
+> anything writable — so it is a file ACL, applied on write with `icacls /inheritance:r /grant:r <you>:F` and
+> read back to check. All three go through one writer (`security/secretFile.ts`) rather than each repeating
+> the mode, and `workbench doctor` reports any of them it cannot confirm.
+
 ## Tools (D-25)
 
 ```ts

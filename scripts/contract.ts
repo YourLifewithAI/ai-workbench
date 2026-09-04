@@ -1,6 +1,7 @@
 // `npm run contract [-- --live <adapter>[,<adapter>]]`. Without --live every real adapter replays its recorded
 // HTTP, so the suite is green in CI with no keys; with it, the same suite records fresh exchanges (model-layer.md).
 import { spawnSync } from 'node:child_process';
+import { binEntry } from './node-bin.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,8 +26,8 @@ if (adapters.length) {
   process.stdout.write(`contract: live against ${adapters.join(', ')} — recorded exchanges will be rewritten\n`);
 }
 
-const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-const result = spawnSync(npx, ['vitest', 'run', '--project', 'contract', ...rest], {
+
+const result = spawnSync(process.execPath, [binEntry('vitest'), 'run', '--project', 'contract', ...rest], {
   cwd: root,
   stdio: 'inherit',
   env: { ...process.env, ...(adapters.length ? { WB_LIVE_ADAPTERS: adapters.join(',') } : {}) },
