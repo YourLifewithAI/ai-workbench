@@ -26,10 +26,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: cmd
         run: |
-          for /f "delims=" %%i in ('dir /b /s /a:-d "C:\Program Files\Microsoft Visual Studio\*\vcvars64.bat" 2^>nul') do set "VCVARS=%%i"
-          if not defined VCVARS ( echo No vcvars64.bat found under Program Files & exit /b 1 )
-          echo Using %VCVARS%
-          call "%VCVARS%" && npm ci
+          set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+          if not exist "%VSWHERE%" ( echo vswhere.exe is not at its documented path & exit /b 1 )
+          for /f "usebackq delims=" %%i in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
+          if not defined VSPATH ( echo vswhere found no Visual Studio carrying the C++ tools & exit /b 1 )
+          echo Using %VSPATH%
+          call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat" && npm ci
       - name: Install
         if: runner.os != 'Windows'
         run: npm ci
