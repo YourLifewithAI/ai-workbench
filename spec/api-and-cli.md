@@ -129,7 +129,7 @@ One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` �
 > - The payload is `{ kind, id, runId, title, url }` — five keys, always. `title` comes from a fixed table of four strings in the runtime, and the service worker's body text is a constant, so a compromised push service cannot put words on a lock screen (SEC-32).
 > - `push.enabled` defaults to true, because it does nothing at all until a device subscribes.
 
-> Amendment (owner review, 2026-09-04): `POST /documents/:id/rerun-downstream` is removed from the table
+> Amendment (owner review, 2026-09-04): the rerun-downstream route on a document is removed from the table
 > rather than built. It needs a record of which runs *read* which document version, and no such record
 > exists — `document_versions.run_id` says who wrote a version, never who consumed one. Building it means
 > recording the read where the knowledge section is assembled, which is a change to the prompt path and
