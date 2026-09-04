@@ -5,14 +5,15 @@ import { spawnSync } from 'node:child_process';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { CSP } from '../../src/runtime/security/auth.js';
 import { REPO, startRuntime, tempWorkspace, type Started } from '../helpers/workspace.js';
+import { binEntry } from '../../scripts/node-bin.js';
 
 const uiDist = path.join(REPO, 'dist', 'ui');
 let rt: Started;
 
 beforeAll(async () => {
   if (!fs.existsSync(path.join(uiDist, 'index.html'))) {
-    const r = spawnSync(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['vite', 'build'], { cwd: REPO, stdio: 'pipe' });
-    if (r.status !== 0) throw new Error(`vite build failed: ${r.stderr.toString()}`);
+    const r = spawnSync(process.execPath, [binEntry('vite'), 'build'], { cwd: REPO, stdio: 'pipe' });
+    if (r.status !== 0) throw new Error(`vite build failed (status ${r.status}): ${r.stderr?.toString() ?? r.error?.message ?? 'no output'}`);
   }
   rt = await startRuntime(tempWorkspace('sec30'));
 }, 120_000);

@@ -3,9 +3,11 @@
 // the same effective policy the broker uses — read roots it may read, write roots it may write, and nothing else.
 // No `--allow-net` and no `--allow-run` are ever generated: a sandboxed script reaches the network through the
 // tool bridge, where the egress checker sees it, or it does not reach the network at all.
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { findExecutable } from '../util/exec.js';
+import { findExecutable, hasUnspawnableShim } from '../util/exec.js';
 
 export interface SandboxLimits {
   /** Wall clock. The process is killed at this, and the kill is the result, not an error to retry. */
@@ -189,7 +191,27 @@ export class Sandbox {
  */
 export function findDeno(pathVar: string | undefined, configured?: string | undefined): string | null {
   if (configured) return configured;
-  return findExecutable('deno', pathVar);
+  const onPath = findExecutable('deno', pathVar);
+  if (onPath) return onPath;
+  // Only when PATH offered a shim we cannot spawn. A machine with no Deno at all still has no sandbox, which
+  // is a state the execute tier is required to report honestly rather than quietly work around.
+  return hasUnspawnableShim('deno', pathVar) ? vendoredDeno() : null;
+}
+
+/**
+ * The `deno` npm package keeps its real binary inside its own directory and puts only a shim on PATH. On
+ * Windows that shim is a `.cmd`, which cannot be spawned directly, so PATH alone reports no sandbox on a
+ * machine that has one — and the execute tier would go quietly missing rather than loudly.
+ */
+function vendoredDeno(): string | null {
+  const exe = process.platform === 'win32' ? 'deno.exe' : 'deno';
+  try {
+    const manifest = createRequire(import.meta.url).resolve('deno/package.json');
+    const candidate = path.join(path.dirname(manifest), exe);
+    return fs.existsSync(candidate) ? candidate : null;
+  } catch {
+    return null; // not installed, which is a normal state: the tier is simply unavailable.
+  }
 }
 
 function unique(paths: string[]): string[] {

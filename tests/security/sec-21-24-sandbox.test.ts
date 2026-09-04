@@ -292,8 +292,16 @@ describe('SEC-24 an MCP server is a subprocess like any other', () => {
 
   it('childEnv refuses to hand a credential to any child, MCP servers included', () => {
     expect(() => childEnv({ PATH: '/usr/bin' }, { WORKBENCH_CRED_GOOGLE: 'AIzaSomething' })).toThrow(/refusing to pass credential/);
-    const env = childEnv({ PATH: '/usr/bin', HOME: '/home/x', SECRET_TOKEN: 'nope' }, { NODE_ENV: 'test' });
-    expect(Object.keys(env).sort()).toEqual(['HOME', 'NODE_ENV', 'PATH']);
+
+    // The allowlist is per-platform because the variables are: HOME and TMPDIR do not exist on Windows, and a
+    // child there cannot start without SystemRoot. What does not vary is the part this case is about — an
+    // unlisted name is dropped whatever it is called, and PATH survives so the child can find anything at all.
+    const env = childEnv({ PATH: '/usr/bin', HOME: '/home/x', SystemRoot: 'C:\\Windows', SECRET_TOKEN: 'nope' }, { NODE_ENV: 'test' });
+    expect(Object.keys(env), 'an unlisted variable is never passed through').not.toContain('SECRET_TOKEN');
+    expect(Object.keys(env)).toContain('PATH');
+    expect(Object.keys(env), 'extras are added after the allowlist, not filtered by it').toContain('NODE_ENV');
+    expect(Object.keys(env)).toContain(process.platform === 'win32' ? 'SystemRoot' : 'HOME');
+    expect(Object.keys(env), 'the other platform\'s variables are not carried along').not.toContain(process.platform === 'win32' ? 'HOME' : 'SystemRoot');
   });
 });
 
