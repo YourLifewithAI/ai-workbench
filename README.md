@@ -13,26 +13,34 @@ every capability it has is denied until you grant it.
 
 Requires Node 22. Deno is optional and unlocks the code-execution tools; the workbench says so if it is missing.
 
-**On Windows**, install without the build step:
+Install, then build:
 
 ```sh
-npm ci --ignore-scripts && npm rebuild deno esbuild
+npm ci            # on Windows: npm ci --ignore-scripts && npm rebuild deno esbuild
+npm run build
 ```
 
-`better-sqlite3` ships a prebuilt Windows binary and loads it in preference to a compiled one, but it also
-carries a `binding.gyp` with no install script, so npm compiles it anyway — and that needs Visual Studio.
-Skipping scripts and re-running the two that fetch real binaries avoids the toolchain entirely. Plain
-`npm ci` works too if you have the *Desktop development with C++* workload installed. Your provider keys are protected there by a file ACL rather than
-by `chmod` — the workbench applies it on save and refuses to start if another account can read the file.
+<details>
+<summary>Why Windows installs differently</summary>
+
+`better-sqlite3` ships a prebuilt Windows binary and loads it in preference to a compiled one — but it also
+carries a `binding.gyp` with no install script, so npm compiles it anyway, and that needs Visual Studio.
+Skipping install scripts and re-running the two that fetch real binaries (`deno`, `esbuild`) avoids the
+toolchain entirely. Plain `npm ci` works too if you have the *Desktop development with C++* workload.
+</details>
+
+Then start it:
 
 ```sh
-npm ci && npm run build
 node dist/cli.js init ~/my-workspace
 node dist/cli.js start --workspace ~/my-workspace
 ```
 
 `start` prints one line: a URL ending in `#token=…`. Open it. The Welcome path runs the example agent on the
 built-in mock provider — no key, no network — and shows you its trace.
+
+`~` works in every one of these commands on Windows too. Neither cmd.exe nor PowerShell expands it, so the
+workbench does: `~/my-workspace` is `C:\Users\you\my-workspace`, and `~\my-workspace` is the same place.
 
 Then, in the UI:
 
@@ -56,12 +64,22 @@ node dist/cli.js doctor --workspace ~/my-workspace
 
 ## Using a real model
 
+Settings → Credentials in the UI, or from a shell:
+
 ```sh
 echo "$YOUR_KEY" | node dist/cli.js settings set-credential google --workspace ~/my-workspace
 ```
 
-The key goes into `config/credentials.json` at mode 0600 and is never read back out — not by the UI, not by the
-API, not into a trace. `WORKBENCH_CRED_GOOGLE` works too, if you would rather it lived in your environment.
+```powershell
+# PowerShell
+$env:YOUR_KEY | node dist/cli.js settings set-credential google --workspace ~/my-workspace
+```
+
+The key goes into `config/credentials.json`, readable only by your account, and is never read back out — not by
+the UI, not by the API, not into a trace. On Linux and macOS that is mode 0600; Windows has no mode bits, so it
+is a file ACL instead, applied on save, and the workbench refuses to start if another account can read the file.
+`WORKBENCH_CRED_GOOGLE` works too, if you would rather it lived in your environment.
+
 Providers today: Google (Gemini), Anthropic, and anything OpenAI-compatible, including local endpoints like
 Ollama and LM Studio. Adding one is writing an adapter that passes the contract suite — see `CONTRIBUTING.md`.
 
@@ -81,9 +99,10 @@ Ollama and LM Studio. Adding one is writing an adapter that passes the contract 
 
 ## Security floor
 
-Bound to `127.0.0.1`; a bearer token per start (0600 file, printed once); Host and Origin checked before the
-token; strict CSP; credentials in a 0600 file and redacted from every trace, log and response; child processes
-get an explicitly constructed environment; a secret scanner in the check gate.
+Bound to `127.0.0.1`; a bearer token per start (printed once, stored readable only by you); Host and Origin
+checked before the token; strict CSP; credentials stored the same way and redacted from every trace, log and
+response; child processes get an explicitly constructed environment; a secret scanner in the check gate.
+"Readable only by you" is mode 0600 on Linux and macOS and a file ACL on Windows, which has no mode bits.
 
 Beyond that floor: every tool is denied until granted, and the grant matrix is the authority — what an agent
 asks for in its own file is a request. Code runs in a Deno sandbox with no network and no filesystem beyond what

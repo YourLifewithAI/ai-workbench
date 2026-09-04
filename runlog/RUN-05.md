@@ -60,3 +60,22 @@ $ npm run e2e
 
 ## Still outstanding for the owner
 No cloud adapter has yet spoken to its provider. `npm run contract -- --live google` verifies the adapters against the real APIs; `WB_LIVE=1 npm run dod -- 04` runs the story pipeline on Gemini. Both need a credential in the workspace or the environment.
+
+## Human verification script
+1. `npm run build && node dist/cli.js init ~/wb-05 && node dist/cli.js start --workspace ~/wb-05`.
+2. Open **Dashboard**. Expect *Needs you*, *Running*, and *Today* with spend against the daily cap.
+3. Run a workflow with a blocking gate. Expect the run to reach the gate and stop as `waiting_review`, the
+   graph to mark that step "waits for you", and a card to appear under *Needs you*.
+4. Open **Review**. Use only the keyboard: `j`/`k` to move, `1`–`5` to rate, `c` to continue, `r` to reject,
+   `Esc` to close. Reject the step with a sentence of feedback.
+5. Expect the step to re-run with your feedback in the *task*, not in the system prompt — open the trace and
+   read the compiled prompt to confirm which section it landed in, and that it says who wrote it.
+6. Confirm the same review row was reopened rather than duplicated: the queue should show one row for that step
+   with an attempt count, not two rows.
+7. Now the part that only a restart proves. With a run parked at a gate, press Ctrl-C in the runtime terminal
+   and start it again. Expect that run still `waiting_review` — *not* marked interrupted — and expect deciding
+   the review from the UI to resume it. A run that is waiting for you is not a run that crashed.
+8. Open **Workflows → schedule**. Add a schedule with a preset, then pause it. Expect *Today* on the Dashboard
+   to list the next runs, and **Pause all** to stop them without deleting anything.
+9. `node dist/cli.js schedules list --workspace ~/wb-05` and `review list`. The terminal should tell you the
+   same thing the screens do.

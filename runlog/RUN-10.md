@@ -58,3 +58,21 @@ green, axe clean on every screen
 ## Still outstanding for the owner
 - The same two: no cloud adapter has spoken to its provider, and the phone has only been seen at an iPhone viewport in Chromium.
 - The human script for this run: compare the Synthesizer step of yesterday's briefing across three models, pick the best, then run a five-case experiment and read the table.
+
+## Human verification script
+1. `npm run build && node dist/cli.js init ~/wb-10 && node dist/cli.js start --workspace ~/wb-10`.
+2. Open **Evaluate → Compare**. Take the Synthesizer step of yesterday's briefing and run it across three
+   models. Expect output, latency, tokens and cost side by side.
+3. Pick the best. Then check what the pick wrote: it should be a rating on *every* pane in that comparison,
+   each carrying its model id. One star on one pane is a star; a pick across all of them is preference data.
+4. Build a five-case dataset from work you have already done, and run an experiment over two models.
+5. Read the results table. Every mean should have a pass^k beside it — they are different claims — and every
+   number a model produced should be labelled *estimate*. If a column says a judge scored it and does not say
+   estimate, that is a bug worth reporting.
+6. Set a cost cap below what the grid would spend, and run it. Expect it to stop *before* a trial rather than
+   after: the cap is checked ahead of each trial, so it cannot be overshot by one run's worth.
+7. Change a case in the dataset, then reopen the finished experiment. Expect the old result still to name the
+   case list it actually ran on — a dataset version freezes when an experiment references it.
+8. `node dist/cli.js datasets export <id> --workspace ~/wb-10` and open the file. It is promptfoo-compatible.
+   Import someone else's suite and confirm an assertion type this workbench cannot run is kept in metadata
+   rather than dropped silently.

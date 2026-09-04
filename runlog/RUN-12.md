@@ -60,3 +60,36 @@ $ npm run e2e
 ## Still outstanding for the owner
 - **The phone script.** Everything here is verified at an iPhone viewport in Chromium; none of it has been on an actual iPhone, and Safari's push implementation only offers itself to an installed app. The human-verification steps in this brief are the ones that close that.
 - No cloud adapter has yet spoken to its provider. `npm run contract -- --live google`; `WB_LIVE=1 npm run dod -- 04`.
+
+## Human verification script
+
+The phone has only been seen at an iPhone viewport in Chromium. Safari delivers Web Push **only to a web app
+installed on the Home Screen**, so this script is what actually proves it — nothing in CI can.
+
+**Getting the workbench in front of the phone.** It binds to `127.0.0.1` and is never exposed to the internet.
+Either follow `deploy.md` §2–3 (Tailscale on the host, `tailscale serve`, and `--expose <hostname>`), or, on a
+trusted home network, start it with `--bind 0.0.0.0 --expose <your-machine-name>.local` and reach it from the
+phone on the same Wi-Fi. Push needs a secure context, so a plain `http://` LAN address will install but will
+**not** offer notifications; `tailscale serve` gives you the TLS the phone requires.
+
+1. Open the tokened URL in **Safari** on the iPhone. Expect the phone layout: a bottom tab bar, Runs as cards,
+   and touch targets you can hit without aiming.
+2. Share → **Add to Home Screen**. Open it from the Home Screen. Expect no Safari chrome, and expect it to
+   still be signed in — the token lives in that page, so if it asks again, that is the finding.
+3. In the installed app: **Settings → Notifications**. Expect per-kind toggles for the four moments. Turn on
+   *approval requested* and *needs review*. Expect iOS to ask for permission at that moment, not at load.
+4. From your laptop, start a run that parks for an approval. Expect a notification on the phone within a few
+   seconds.
+5. Tap it. Expect it to open the installed app **on the approval**, not on the Dashboard, and to reuse the
+   already-open window rather than starting a second one.
+6. Approve from the phone. Expect the run to continue, and expect the laptop's Dashboard to update without a
+   reload.
+7. Read the notification itself: it should name the run and what it wants, and carry **no prompt text, no model
+   output and no document content** (SEC-32). A push goes through a third party; it carries ids, not your work.
+8. Repeat for *run failed* and for a scheduled run completing. Then turn one kind off and confirm that kind
+   stops arriving while the others still do — the toggles are per device and per kind.
+9. Delete the app from the Home Screen and reinstall it. Expect the old subscription to stop being retried
+   rather than to keep erroring: the phone threw the subscription away, and a `404`/`410` is how it says so.
+10. Offline behaviour, deliberately limited: turn on Airplane Mode and open the app. Expect the shell to load
+    from cache and expect it to say it cannot reach the runtime. It must **not** show you stale runs — no
+    workspace data is cached, on purpose.

@@ -65,3 +65,22 @@ $ npm run e2e
 
 ## Still outstanding for the owner
 No cloud adapter has yet spoken to its provider. `npm run contract -- --live google` verifies the adapters against the real APIs; `WB_LIVE=1 npm run dod -- 04` runs the story pipeline on Gemini. Both need a credential in the workspace or the environment.
+
+## Human verification script
+1. `npm run build && node dist/cli.js init ~/wb-06 && node dist/cli.js start --workspace ~/wb-06`.
+2. Open **Tools**. Expect the catalogue and the grant matrix, with everything denied. Read what each tool says
+   it would be able to reach — that sentence is the point of the screen.
+3. Run the `delegator` example agent with nothing granted. Expect it to be refused by name, and expect the
+   refusal to appear in the tool's refusal history rather than only in the trace.
+4. Grant `calc` to one agent. Expect the grant to apply to that agent alone; run a different agent and confirm
+   it is still refused.
+5. Grant `shell` to an agent and run it. Expect the run to park, an approval card on the Dashboard with the
+   risk in plain words and the policy that fired, and three buttons with the narrowest *remember* first.
+6. Approve with the narrowest remember. Run it again: expect no second card. Then run it with a *different*
+   command and expect a new card — the remembered rule was narrow, as advertised.
+7. Deny one, and let another sit. A pending approval that nobody answers must become a denial on its own, not
+   wait forever; the run should end refused rather than hang.
+8. `node dist/cli.js approvals list --workspace ~/wb-06` and `tools grants`. Same facts, terminal side.
+9. The one that matters most: try to widen a grant from inside. Edit an agent's own `agent.json` to ask for
+   `fs.write` at `/`, and run it. What an agent asks for in its own file is a request; the matrix is the
+   authority. Expect the effective permission to be the intersection, and expect the trace to say so.

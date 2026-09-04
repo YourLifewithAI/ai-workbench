@@ -73,3 +73,23 @@ drafts[0..2] on three different model ids, concurrently; verdict validated again
 
 ## Still outstanding for the owner
 No cloud adapter has yet spoken to its provider. `npm run contract -- --live google` (and `--live anthropic`) will verify them against the real APIs, and `WB_LIVE=1 npm run dod -- 04` will run the story pipeline on Gemini — both need a credential in the workspace or in the environment.
+
+## Human verification script
+1. `npm run build && node dist/cli.js init ~/wb-04 && node dist/cli.js start --workspace ~/wb-04`.
+2. Open **Workflows**. Expect `story-pipeline` and `ensemble-draft`, each drawn as a graph. Tab through the
+   graph with the keyboard only: every step should be reachable and announced, because the picture has a text
+   alternative carrying the same facts rather than a caption.
+3. Run `story-pipeline`. The form is generated from the workflow's own `inputs` — you did not write it. Fill it
+   in and run. Expect the graph to fill in step by step, not all at the end.
+4. While it runs, watch the budget bar. Then press **Cancel**. Expect the run to stop, the graph to stop
+   advancing, and the run to end `cancelled` rather than `failed`.
+5. Run `ensemble-draft`. It is a `map`: expect several `<id>[n]` item steps side by side, up to the workflow's
+   own concurrency, and one downstream step that waits for all of them.
+6. Open a completed run's trace. Find a step whose agent named a different model, and confirm the trace names
+   that model rather than the run's default — the per-step override is real, not decoration.
+7. Break a workflow on purpose: open `~/wb-04/workflows/story-pipeline.workflow.json`, point one step's
+   reference at a step id that does not exist, and reload the Workflows screen. Expect the file listed as
+   broken with the reason, the *other* workflow still listed and runnable, and the runtime still up. One bad
+   file must not take the workspace down.
+8. Undo that, then introduce a cycle (two steps referencing each other). Expect the error to name the steps in
+   the cycle, not just "invalid workflow".
