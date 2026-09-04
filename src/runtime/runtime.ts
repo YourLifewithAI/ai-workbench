@@ -342,6 +342,11 @@ export class Runtime {
       throw new Error(`The credential was written but could not be restricted to your account (${written.detail}).` +
         `${written.fix ? ` Run: ${written.fix}` : ''}`);
     }
+    if (!written.verified) {
+      // Applied but not readable back. Refusing would strand an owner over a locale; saying nothing would let
+      // "the workbench protected it" stand on a claim it did not check.
+      this.log.warn({ file }, `${file}: the protection was applied but could not be confirmed (${written.detail}).`);
+    }
     // Immediately, not on the next start: until this runs the runtime does not know the key exists and does not
     // redact it, so a key saved mid-session could land in the next trace in full.
     this.credentials.reload();
@@ -456,6 +461,10 @@ export class Runtime {
       // be locked down is the right trade — a workbench nobody can reach is not safer — but it is said out
       // loud, in the log and on stderr, because the owner is the only one who can fix it.
       const token = writeTokenFile(this.workspace.paths.runtimeToken, this.token);
+      if (token.protected && !token.verified) {
+        this.log.warn({ file: this.workspace.paths.runtimeToken },
+          `${this.workspace.paths.runtimeToken}: the protection was applied but could not be confirmed (${token.detail}).`);
+      }
       if (!token.protected) {
         const message = `${this.workspace.paths.runtimeToken} could not be restricted to your account (${token.detail}). ` +
           `Anyone who can read it can use this runtime.${token.fix ? ` Run: ${token.fix}` : ''}`;

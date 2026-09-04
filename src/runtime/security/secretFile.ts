@@ -8,9 +8,15 @@ import path from 'node:path';
 import { icaclsFix, inspect, restrict } from './windowsAcl.js';
 
 export interface SecretFileResult {
-  /** True only when this process verified the file is readable by this account alone. */
+  /** Whether this account alone can read the file, as far as this process could establish. */
   protected: boolean;
-  /** What was verified, or why it could not be — safe to log and to show an owner. */
+  /**
+   * Whether that was *read back* rather than assumed. False when the protection was applied but the ACL could
+   * not be parsed afterwards — icacls is localised, and an unfamiliar locale is not proof of exposure, but it
+   * is not confirmation either. Always true on POSIX, where the mode can simply be stat'ed.
+   */
+  verified: boolean;
+  /** What was established, or why it could not be — safe to log and to show an owner. */
   detail: string;
   /** The command that fixes it, when there is one. */
   fix?: string;
@@ -30,20 +36,30 @@ export function protectSecretFile(file: string): SecretFileResult {
     fs.chmodSync(file, 0o600);
     const mode = fs.statSync(file).mode & 0o777;
     return mode & 0o077
-      ? { protected: false, detail: `mode is ${mode.toString(8)}, not 0600`, fix: `chmod 600 "${file}"` }
-      : { protected: true, detail: 'mode 0600' };
+      ? { protected: false, verified: true, detail: `mode is ${mode.toString(8)}, not 0600`, fix: `chmod 600 "${file}"` }
+      : { protected: true, verified: true, detail: 'mode 0600' };
   }
 
   // chmod on Windows toggles the read-only bit and nothing else: it grants nothing and protects nothing. The
   // ACL is the protection, and it is applied on write rather than left for the owner to remember.
   const applied = restrict(file);
-  if (applied.ok) return { protected: true, detail: applied.detail };
-
-  // icacls failing does not mean the file is exposed — a workspace under the user's profile is already
-  // restricted by inheritance. Ask before reporting, so the owner is told what is true rather than what failed.
+  // Then read it back, always — setting an ACL is the enforcement and reading it is the check, and this module
+  // is not allowed to claim more than it verified. A successful icacls is also not the whole story in the
+  // other direction: a workspace under the user's profile is already restricted by inheritance, so a *failed*
+  // icacls does not mean the file is exposed. Only the ACL itself answers either question.
   const acl = inspect(file);
-  if (acl.restricted === true) return { protected: true, detail: `${acl.detail} (inherited; icacls: ${applied.detail})` };
-  return { protected: false, detail: `${applied.detail}; ${acl.detail}`, fix: icaclsFix(file) };
+  if (acl.restricted === true) {
+    return { protected: true, verified: true, detail: applied.ok ? acl.detail : `${acl.detail} (inherited; icacls: ${applied.detail})` };
+  }
+  if (acl.restricted === false) {
+    return { protected: false, verified: true, detail: acl.detail, fix: icaclsFix(file) };
+  }
+  // The ACL could not be parsed. If icacls reported success the file is very probably fine, and refusing here
+  // would strand an owner whose only fault is an unfamiliar locale — so this is protected-but-unconfirmed, and
+  // the caller is told which.
+  return applied.ok
+    ? { protected: true, verified: false, detail: `${applied.detail}, but ${acl.detail}`, fix: icaclsFix(file) }
+    : { protected: false, verified: true, detail: `${applied.detail}; ${acl.detail}`, fix: icaclsFix(file) };
 }
 
 /**
@@ -51,15 +67,16 @@ export function protectSecretFile(file: string): SecretFileResult {
  * protection and is therefore the wrong thing to call from a read-only report.
  */
 export function checkSecretFile(file: string): SecretFileResult {
-  if (!fs.existsSync(file)) return { protected: true, detail: 'not present' };
+  if (!fs.existsSync(file)) return { protected: true, verified: true, detail: 'not present' };
   if (process.platform !== 'win32') {
     const mode = fs.statSync(file).mode & 0o777;
     return mode & 0o077
-      ? { protected: false, detail: `mode ${mode.toString(8)}`, fix: `chmod 600 "${file}"` }
-      : { protected: true, detail: 'mode 0600' };
+      ? { protected: false, verified: true, detail: `mode ${mode.toString(8)}`, fix: `chmod 600 "${file}"` }
+      : { protected: true, verified: true, detail: 'mode 0600' };
   }
   const acl = inspect(file);
-  if (acl.restricted === true) return { protected: true, detail: acl.detail };
-  // Unknown reads as unprotected here on purpose: `doctor` exists to tell you what it could not confirm.
-  return { protected: false, detail: acl.detail, fix: icaclsFix(file) };
+  if (acl.restricted === true) return { protected: true, verified: true, detail: acl.detail };
+  if (acl.restricted === false) return { protected: false, verified: true, detail: acl.detail, fix: icaclsFix(file) };
+  // Unparseable reads as a finding here on purpose: `doctor` exists to say what it could not confirm.
+  return { protected: false, verified: false, detail: acl.detail, fix: icaclsFix(file) };
 }
