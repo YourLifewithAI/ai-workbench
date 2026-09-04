@@ -66,6 +66,24 @@ export function registerRuns(program: Command, bootstrap: Bootstrap): void {
       }),
     );
   runs
+    .command('rerun <runId>')
+    .description('run the same thing again as a new run; --model swaps the substrate, the inputs stay the same')
+    .option('--model <id>', 'run it on this model instead of the agent\'s policy (agent runs only)')
+    .option('--provider <name>', '"mock" runs the copy against the scripted mock provider')
+    .action(async (runId: string, opts: { model?: string; provider?: string }, cmd: Command) =>
+      guarded(async () => {
+        const handle = await connect({ workspaceDir: resolveWorkspace(cmd, bootstrap), bootstrap, requireLive: true });
+        try {
+          const body = { ...(opts.model ? { model: opts.model } : {}), ...(opts.provider === 'mock' ? { provider: 'mock' as const } : {}) };
+          const result = await handle.request<{ runId: string }>('POST', `/runs/${runId}/rerun`, body);
+          if (wantsJson(cmd)) return outJson(result);
+          out(`${result.runId}  a new run from ${runId}'s inputs. Follow it with: workbench trace ${result.runId}`);
+        } finally {
+          await handle.close();
+        }
+      }),
+    );
+  runs
     .command('cancel <runId>')
     .description('stop a running run: in-flight model calls are aborted and nothing from them is committed')
     .action(async (runId: string, _opts: unknown, cmd: Command) =>

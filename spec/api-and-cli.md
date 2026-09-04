@@ -13,19 +13,20 @@ Order of checks: `Host`/`Origin` (403) before token (401). Requests without an `
 | runs | `POST /runs` `{ kind: 'agent'|'workflow', id, inputs, project?, overrides?, provider?: 'mock' }` → `{ runId }` · `GET /runs?state=&kind=&project=` · `GET /runs/:id` (summary, steps, spent) · `POST /runs/:id/cancel` · `POST /runs/:id/resume` · `GET /runs/:id/events?after=<seq>` (replays stored events after `seq`, then streams live ones; SSE `id` = seq, `event` = type, `data` = the JSONL line; the stream closes after a terminal event) · `GET /runs/events` (workspace-level SSE of `run-*` events for every run, feeding lists and the Dashboard) · `GET /runs/:id/trace.jsonl` · `GET /runs/:id/privacy` |
 | agents | `GET /agents` (incl. load errors) · `GET /agents/:id` · `POST /agents/reload` |
 | workflows | `GET /workflows` · `GET /workflows/:id` |
-| projects | `GET /projects` · `POST /projects` · `GET /projects/:slug` · `GET /projects/:slug/export` · `POST /import/project` |
-| documents | `GET /projects/:slug/documents` · `GET /documents/:id` · `GET /documents/:id/versions` · `PUT /documents/:id` (human edit → version) · `POST /documents/:id/rerun-downstream` · `POST /runs/:id/rerun` `{ model? }` |
-| review | `GET /review?state=unreviewed` · `POST /review/:id` (`rate | edit | reject | continue`) |
+| projects | `GET /projects` · `POST /projects` · `GET /projects/:slug` |
+| evaluation | `GET /datasets` · `POST /datasets` · `GET /datasets/:id/cases` · `GET /datasets/:id/export` · `POST /datasets/import` · `GET /experiments` · `POST /experiments` · `GET /experiments/:id/results` · `POST /experiments/:id/cancel` · `POST /compare` · `POST /compare/pick` |
+| documents | `GET /projects/:slug/documents` · `GET /documents/:id` · `GET /documents/:id/versions` · `PUT /documents/:id` (human edit → version) · `POST /runs/:id/rerun` `{ model? }` |
+| review | `GET /reviews?state=open` · `POST /reviews/:id` (`rate | edit | reject | continue`) |
 | approvals | `GET /approvals?state=pending` · `POST /approvals/:id` (`allow | deny`, `remember?`) |
 | models | `GET /models` (catalog + availability + data policy) · `POST /models/refresh` (Ollama listing) |
 | memory | `GET /memory?q=&scope=` · `POST /memory` · `DELETE /memory/:id?redactTraces=true` |
 | memory (RUN-08) | also `GET /memory/:id/traces` → `{ itemId, runIds }`, so the delete dialog can say how many traces quoted it before it offers to rewrite them |
 | knowledge (RUN-08) | `POST /projects/:slug/knowledge?filename=<name>` takes the file as the raw request body (`application/octet-stream`); the extension decides the format |
 | knowledge | `POST /projects/:slug/knowledge` (ingest) · `GET /knowledge/search?q=` |
-| schedules | `GET /schedules` · `PUT /schedules/:id` |
+| schedules | `GET /schedules` · `POST /schedules` (upsert; pass an id to replace) |
 | tools | `GET /tools` (built-ins, MCP, sandbox status, grant matrix) · `PUT /tools/grants` |
 | experiments | `GET/POST /datasets` · `GET /datasets/:id/export` · `POST /datasets/import` · `GET/POST /experiments` · `GET /experiments/:id/results` · `POST /compare` |
-| export / import | `GET /export/agent/:id` · `GET /export/workflow/:id` · `GET /export/memory?scope=` · `GET /export/runs?ids=` · `GET /export/workspace` · `POST /import/agent` · `POST /import/workflow` · `POST /import/memory` (project export/import are under projects) |
+| export / import | `GET /export/agent/:id` · `GET /export/workflow/:id` · `GET /export/memory?scope=` · `GET /export/runs?ids=` · `POST /import/agent` · `POST /import/workflow` · `POST /import/memory` (project export/import are under projects) |
 | settings | `GET /settings` → `{ workspacePath, networkMode, budgets, execution, retention, providersConfigured: string[], sandbox: { deno: boolean } }` · `PUT /settings` (rewrites `config/workbench.json`) · `PUT /settings/credentials` |
 | settings (RUN-11) | `PUT /settings` takes some of `{ budgets, retention, execution, mcp, push }` and merges each into the file — grants are **not** among them, because the matrix is the Tools screen. `PUT /settings/credentials` `{ name, apiKey }` writes the 0600 file (`apiKey: null` removes one) and answers with the configured *names*; the value is never read back out, and the runtime re-reads its credentials immediately so a key saved mid-session is redacted from the next trace. `POST /plugins/trust` `{ name, version }` records an acknowledgement (D-32). |
 | push | `GET /push/vapid-public-key` · `POST /push/subscribe` `{ endpoint, keys, deviceLabel, events }` · `DELETE /push/subscriptions/:id` (D-61) |
@@ -60,7 +61,7 @@ workbench dev                              start + Vite dev server with proxy (C
 workbench doctor                           workspace validity, FTS5, Deno, credentials present per provider, disabled tools — whichever checks exist at the current run; exit 1 on invalid workspace
 workbench run agent <id> --input <text> [--project slug] [--provider mock] [--model id] [--detach] [--json]
 workbench run workflow <id> --inputs-file f.json [--project slug] [--provider mock] [--detach] [--json]
-workbench runs list|show|cancel|resume <id>
+workbench runs list|show|cancel|resume|rerun <id>
 workbench trace <runId> [--json]           JSONL to stdout (a readable timeline without --json)
 workbench review list|rate|edit|reject|continue
 workbench projects list|create|show      workbench documents list|show|versions
@@ -127,3 +128,11 @@ One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` �
 > - `data/vapid.json` is written at `init` at 0600 and never rotated: rotating would silently deafen every device that had subscribed. The private half is registered with the redactor.
 > - The payload is `{ kind, id, runId, title, url }` — five keys, always. `title` comes from a fixed table of four strings in the runtime, and the service worker's body text is a constant, so a compromised push service cannot put words on a lock screen (SEC-32).
 > - `push.enabled` defaults to true, because it does nothing at all until a device subscribes.
+
+> Amendment (owner review, 2026-09-04): the rerun-downstream route on a document is removed from the table
+> rather than built. It needs a record of which runs *read* which document version, and no such record
+> exists — `document_versions.run_id` says who wrote a version, never who consumed one. Building it means
+> recording the read where the knowledge section is assembled, which is a change to the prompt path and
+> belongs in a run of its own. Project and workspace export/import are CLI operations, not routes: they
+> write directories, which is why they were never implemented as HTTP and should not have been listed.
+> `npm run route-drift` now fails the check gate whenever this table and `app.ts` disagree.
