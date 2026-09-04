@@ -8,7 +8,7 @@ const scope = {
   inputs: { premise: 'a dentist finds binary', count: 3, tags: ['sci-fi', 'noir'] },
   steps: { plan: { output: { questions: ['who', 'why'], ok: true } }, drafts: { output: ['one', 'two', 'three'] } },
   project: { documents: { 'bible.md': '# world' } },
-  item: 'google/gemini-2.5-flash',
+  item: 'google/gemini-3.6-flash',
 };
 const run = (source: string) => evaluate(parseExpr(source), scope);
 
@@ -18,7 +18,7 @@ describe('Expr', () => {
     expect(run('steps.plan.output.questions')).toEqual(['who', 'why']);
     expect(run('steps.drafts.output[0]')).toBe('one');
     expect(run('project.documents["bible.md"]')).toBe('# world');
-    expect(run('item')).toBe('google/gemini-2.5-flash');
+    expect(run('item')).toBe('google/gemini-3.6-flash');
   });
 
   it('reads literals, arrays, comparisons and boolean logic', () => {

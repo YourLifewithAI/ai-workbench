@@ -14,22 +14,38 @@ export interface Credentials {
    * trace. Everything holds this object rather than a snapshot of it, so a reload reaches all of them.
    */
   reload(): void;
+  /**
+   * What this platform cannot enforce. POSIX mode bits are the whole protection on the credentials file, and
+   * Windows has none, so on Windows a configured key sits in a file with whatever ACL it inherited. Silently
+   * skipping the check made the runtime claim a protection it was not providing; `doctor` reads this instead.
+   */
+  warnings(): string[];
 }
 
 export function loadCredentials(credentialsPath: string, redactor: Redactor): Credentials {
   const values = new Map<string, string>();
+  const notes: string[] = [];
   read();
 
   return {
     get: (name) => values.get(name.toLowerCase()),
     names: () => [...values.keys()].sort(),
     reload: () => read(),
+    warnings: () => [...notes],
   };
 
   function read(): void {
     values.clear();
+    notes.length = 0;
     if (fs.existsSync(credentialsPath)) {
-      if (process.platform !== 'win32') {
+      if (process.platform === 'win32') {
+        notes.push(
+          `${credentialsPath} holds your provider keys in plain text, and Windows has no POSIX mode bits for ` +
+          'the runtime to enforce, so the file carries whatever permissions it inherited. Restrict it yourself: ' +
+          `icacls "${credentialsPath}" /inheritance:r /grant:r "%USERNAME%:F"  — or keep keys in ` +
+          'WORKBENCH_CRED_<NAME> instead. On Linux and macOS the runtime refuses to start unless the file is 0600.',
+        );
+      } else {
         const mode = fs.statSync(credentialsPath).mode & 0o777;
         if (mode & 0o077) {
           throw new WorkspaceError(credentialsPath, `must be readable only by you (mode 0600); it is ${mode.toString(8)}. Fix: chmod 600 "${credentialsPath}"`);

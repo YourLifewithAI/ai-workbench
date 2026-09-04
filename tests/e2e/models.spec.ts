@@ -29,7 +29,7 @@ test('@run-02 the Models screen lists what the local endpoint reports, and says 
   await expect(ollama.getByText('ready')).toBeVisible({ timeout: 10_000 });
   await expect(ollama.getByText(/Pulled on this endpoint:.*llama3\.2:3b/)).toBeVisible();
 
-  const gemini = page.locator('li', { has: page.getByText('google/gemini-2.5-pro', { exact: true }) }).first();
+  const gemini = page.locator('li', { has: page.getByText('google/gemini-3.8-flash', { exact: true }) }).first();
   await expect(gemini.getByText('no key')).toBeVisible();
   await expect(gemini.getByText(/credential named "google"/)).toBeVisible();
   await expect(gemini.getByText('Trains on your content')).toBeVisible();
@@ -45,7 +45,7 @@ test('@run-02 going offline is one click, and it greys the cloud models', async 
   await expect(page.getByText('Network: Offline')).toBeVisible();
   await expect(page.getByText('Nothing leaves this machine. Local models still run.')).toBeVisible();
 
-  const gemini = page.locator('li', { has: page.getByText('google/gemini-2.5-pro', { exact: true }) }).first();
+  const gemini = page.locator('li', { has: page.getByText('google/gemini-3.8-flash', { exact: true }) }).first();
   await expect(gemini.getByText('blocked by network mode')).toBeVisible({ timeout: 10_000 });
 
   await page.getByRole('button', { name: 'Go back online (allowlist)' }).click();

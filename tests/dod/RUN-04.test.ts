@@ -53,7 +53,7 @@ describe('DoD 1: the story pipeline runs end to end, a different model per step'
       }
       expect([...byStep.keys()].sort()).toEqual(['beats', 'draft', 'final']);
       // The Cutter is pinned to a flash-class id by the workflow, so the trace is not one model three times.
-      expect(byStep.get('final')).toBe('google/gemini-2.5-flash');
+      expect(byStep.get('final')).toBe('google/gemini-3.6-flash');
       expect(new Set(byStep.values()).size).toBeGreaterThan(1);
     } finally {
       await opened.close();

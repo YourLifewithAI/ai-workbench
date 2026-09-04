@@ -37,7 +37,16 @@ export function registerDoctor(program: Command, bootstrap: Bootstrap): void {
           if (broken.length) checks.push({ name: 'agents', ok: false, detail: broken.join('; ') });
           checks.push({ name: 'network', ok: true, detail: `mode ${ws.config.network.mode}` });
           const creds = loadCredentials(ws.paths.credentialsJson, new Redactor());
-          checks.push({ name: 'credentials', ok: true, detail: creds.names().length ? `configured: ${creds.names().join(', ')}` : 'none configured (the mock provider needs none)' });
+          const credWarnings = creds.warnings();
+          // A warning only matters once there is a key to protect; an empty file on Windows is nothing to say.
+          const credRisk = credWarnings.length > 0 && creds.names().length > 0;
+          checks.push({
+            name: 'credentials',
+            ok: !credRisk,
+            detail: creds.names().length
+              ? `configured: ${creds.names().join(', ')}${credRisk ? `. ${credWarnings.join(' ')}` : ''}`
+              : 'none configured (the mock provider needs none)',
+          });
           const live = await findLiveRuntime(workspacePaths(workspaceDir));
           checks.push({ name: 'runtime', ok: true, detail: live ? `running on 127.0.0.1:${live.port} (pid ${live.pid})` : 'not running; commands will use an ephemeral runtime' });
           checks.push({ name: 'database', ok: true, detail: fs.existsSync(ws.paths.db) ? ws.paths.db : 'not created yet (created on first start)' });

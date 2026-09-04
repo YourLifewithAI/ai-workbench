@@ -18,7 +18,7 @@ const agentFor = (id: string): LoadedAgent => ({
   definition: {
     schemaVersion: 1, id, name: `The ${id}`, description: 'A test agent.',
     instructions: [{ name: 'task', text: 'Write one sentence about the arcology.' }],
-    modelPolicy: { primary: 'google/gemini-2.5-flash', fallbacks: [] },
+    modelPolicy: { primary: 'google/gemini-3.6-flash', fallbacks: [] },
     permissions: { fs: { read: [], write: [] }, net: { allow: [], allowLocalAddresses: false, approvalExempt: [] }, tools: {}, approvalRequired: [] },
     documents: [], review: 'none', output: { kind: 'text' },
   },

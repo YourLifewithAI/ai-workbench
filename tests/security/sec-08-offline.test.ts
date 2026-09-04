@@ -33,7 +33,7 @@ describe('SEC-08 offline mode blocks cloud egress before a socket opens', () => 
     fs.writeFileSync(config, JSON.stringify({ schemaVersion: 1, network: { mode: 'offline' } }));
     const agent = path.join(ws, 'agents', 'echo', 'agent.json');
     const definition = JSON.parse(fs.readFileSync(agent, 'utf8')) as { modelPolicy: { primary: string; fallbacks?: string[] } };
-    definition.modelPolicy = { primary: 'google/gemini-2.5-pro', fallbacks: ['anthropic/claude-opus-5'] };
+    definition.modelPolicy = { primary: 'google/gemini-3.8-flash', fallbacks: ['anthropic/claude-opus-5'] };
     fs.writeFileSync(agent, JSON.stringify(definition));
 
     const rt = await startRuntime(ws);

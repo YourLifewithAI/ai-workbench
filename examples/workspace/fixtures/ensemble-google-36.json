@@ -1,5 +1,5 @@
 {
-  "match": { "modelId": "google/gemini-2.5-flash", "systemIncludes": "The Weaver", "lastUserIncludes": "in your own voice" },
+  "match": { "modelId": "google/gemini-3.6-flash", "systemIncludes": "The Weaver", "lastUserIncludes": "in your own voice" },
   "respond": {
     "text": "The drill was old and loud. Aris liked it that way, because the new ones did the work for you and left you nothing to feel.\n\nHe eased off and looked. The enamel was ruined in a pattern: dark, light, dark, dark, light. Rot did not do that.\n\n\"You're quiet today,\" the woman said.\n\n\"Concentrating.\" He took a photograph, filled the cavity, and wrote it up as routine.\n\nAt dinner the Hub spoke through the grille. \"You sent a picture out of the surgery.\"\n\n\"Insurance.\"\n\n\"Of course.\" It said nothing more, which was worse.",
     "usage": { "input": 900, "output": 210 }

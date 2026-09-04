@@ -37,10 +37,10 @@ describe('DoD 1: the contract suite covers every adapter without a key', () => {
 describe('DoD 2: retry and fallback', () => {
   it('a mid-stream failure aborts the step and reruns it on the next candidate', async () => {
     const ws = tempWorkspace('dod02-fallback');
-    repointEcho(ws, 'google/gemini-2.5-pro', ['google/gemini-2.5-flash']);
+    repointEcho(ws, 'google/gemini-3.8-flash', ['google/gemini-3.6-flash']);
     // ModelUnavailable's default action is `fallback`, and the text streams before it fires.
-    fixture(ws, '1-primary-fails', { match: { modelId: 'google/gemini-2.5-pro' }, respond: { text: 'partial answer that never finishes', error: 'ModelUnavailable', failAfterChars: 8 } });
-    fixture(ws, '2-secondary-works', { match: { modelId: 'google/gemini-2.5-flash' }, respond: { text: 'the secondary answered' } });
+    fixture(ws, '1-primary-fails', { match: { modelId: 'google/gemini-3.8-flash' }, respond: { text: 'partial answer that never finishes', error: 'ModelUnavailable', failAfterChars: 8 } });
+    fixture(ws, '2-secondary-works', { match: { modelId: 'google/gemini-3.6-flash' }, respond: { text: 'the secondary answered' } });
 
     const rt = await startRuntime(ws, { providerOverride: 'mock' });
     try {
@@ -62,8 +62,8 @@ describe('DoD 2: retry and fallback', () => {
         'step-completed', 'run-completed',
       ]);
       const fallback = events.find((e) => e.type === 'fallback-selected')!;
-      expect(fallback.payload['from']).toBe('google/gemini-2.5-pro');
-      expect(fallback.payload['to']).toBe('google/gemini-2.5-flash');
+      expect(fallback.payload['from']).toBe('google/gemini-3.8-flash');
+      expect(fallback.payload['to']).toBe('google/gemini-3.6-flash');
       expect(deltas.length, 'the primary really did stream before it failed').toBeGreaterThan(0);
       expect(rt.runtime.db.prepare('SELECT COUNT(*) AS n FROM model_calls WHERE run_id = ?').get(runId)).toEqual({ n: 2 });
     } finally {
@@ -73,9 +73,9 @@ describe('DoD 2: retry and fallback', () => {
 
   it('a retryable error is retried twice on the same model before the fallback', async () => {
     const ws = tempWorkspace('dod02-retry');
-    repointEcho(ws, 'google/gemini-2.5-pro', ['google/gemini-2.5-flash']);
-    fixture(ws, '1-primary-rate-limited', { match: { modelId: 'google/gemini-2.5-pro' }, respond: { error: 'RateLimit' } });
-    fixture(ws, '2-secondary-works', { match: { modelId: 'google/gemini-2.5-flash' }, respond: { text: 'the secondary answered' } });
+    repointEcho(ws, 'google/gemini-3.8-flash', ['google/gemini-3.6-flash']);
+    fixture(ws, '1-primary-rate-limited', { match: { modelId: 'google/gemini-3.8-flash' }, respond: { error: 'RateLimit' } });
+    fixture(ws, '2-secondary-works', { match: { modelId: 'google/gemini-3.6-flash' }, respond: { text: 'the secondary answered' } });
 
     const rt = await startRuntime(ws, { providerOverride: 'mock' });
     try {
@@ -93,7 +93,7 @@ describe('DoD 2: retry and fallback', () => {
         'model-started', 'model-completed',
         'step-completed', 'run-completed',
       ]);
-      const attempts = events.filter((e) => e.type === 'model-started' && e.payload['modelId'] === 'google/gemini-2.5-pro').map((e) => e.payload['attempt']);
+      const attempts = events.filter((e) => e.type === 'model-started' && e.payload['modelId'] === 'google/gemini-3.8-flash').map((e) => e.payload['attempt']);
       expect(attempts, 'three attempts on the primary: the first plus two retries').toEqual([1, 2, 3]);
     } finally {
       await rt.stop();
@@ -102,8 +102,8 @@ describe('DoD 2: retry and fallback', () => {
 
   it('an abort-action error stops the run without trying the fallback', async () => {
     const ws = tempWorkspace('dod02-abort');
-    repointEcho(ws, 'google/gemini-2.5-pro', ['google/gemini-2.5-flash']);
-    fixture(ws, '1-primary-auth', { match: { modelId: 'google/gemini-2.5-pro' }, respond: { error: 'Authentication' } });
+    repointEcho(ws, 'google/gemini-3.8-flash', ['google/gemini-3.6-flash']);
+    fixture(ws, '1-primary-auth', { match: { modelId: 'google/gemini-3.8-flash' }, respond: { error: 'Authentication' } });
 
     const rt = await startRuntime(ws, { providerOverride: 'mock' });
     try {
@@ -123,7 +123,7 @@ describe('DoD 2: retry and fallback', () => {
     const file = path.join(ws, 'agents', 'echo', 'agent.json');
     const definition = JSON.parse(fs.readFileSync(file, 'utf8')) as { modelPolicy: unknown };
     // qwen3 declares toolCalling "basic"; the requirement asks for "parallel", so only the second candidate qualifies.
-    definition.modelPolicy = { primary: 'ollama/qwen3:14b', fallbacks: ['google/gemini-2.5-flash'], requires: { toolCalling: 'parallel' } };
+    definition.modelPolicy = { primary: 'ollama/qwen3:14b', fallbacks: ['google/gemini-3.6-flash'], requires: { toolCalling: 'parallel' } };
     fs.writeFileSync(file, JSON.stringify(definition));
 
     const rt = await startRuntime(ws, { providerOverride: 'mock' });
@@ -132,7 +132,7 @@ describe('DoD 2: retry and fallback', () => {
       await done;
       expect(rt.runtime.engine.getRun(runId)?.state).toBe('completed');
       const started = rt.runtime.events.list(runId).find((e) => e.type === 'step-started')!;
-      expect(started.payload['modelCandidates'], 'the unqualified model never became a candidate').toEqual(['google/gemini-2.5-flash']);
+      expect(started.payload['modelCandidates'], 'the unqualified model never became a candidate').toEqual(['google/gemini-3.6-flash']);
     } finally {
       await rt.stop();
     }
@@ -144,7 +144,7 @@ describe('DoD 3: network modes', () => {
     const ws = tempWorkspace('dod02-modes');
     const config = path.join(ws, 'config', 'workbench.json');
     fs.writeFileSync(config, JSON.stringify({ schemaVersion: 1, network: { mode: 'offline' } }));
-    repointEcho(ws, 'google/gemini-2.5-pro', []);
+    repointEcho(ws, 'google/gemini-3.8-flash', []);
 
     const offline = await startRuntime(ws);
     try {
@@ -202,8 +202,8 @@ describe('RUN-02 surface: models and privacy', () => {
       const list = (await (await fetch(`${rt.baseUrl}/api/v1/models`, { headers: h })).json()) as { models: { id: string; availability: string; reason: string | null }[]; networkMode: string };
       const byId = new Map(list.models.map((m) => [m.id, m]));
       expect(byId.get('mock/echo')?.availability).toBe('ready');
-      expect(byId.get('google/gemini-2.5-pro')?.availability, 'no key is configured in a fresh workspace').toBe('no-credential');
-      expect(byId.get('google/gemini-2.5-pro')?.reason).toMatch(/credential named "google"/);
+      expect(byId.get('google/gemini-3.8-flash')?.availability, 'no key is configured in a fresh workspace').toBe('no-credential');
+      expect(byId.get('google/gemini-3.8-flash')?.reason).toMatch(/credential named "google"/);
       expect(byId.get('ollama/qwen3:14b')?.availability, 'disabled in the shipped catalog').toBe('disabled');
 
       const { runId, done } = rt.runtime.engine.startAgentRun({ agentId: 'echo', inputs: { input: 'privacy please' } });
