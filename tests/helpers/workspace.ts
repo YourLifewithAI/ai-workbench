@@ -62,6 +62,18 @@ export function runCli(args: string[], opts: { dist?: boolean; env?: Record<stri
   });
 }
 
+/**
+ * What `stop()` can promise, per platform. On POSIX it sends SIGTERM, the runtime's handler runs, and the
+ * process chooses exit code 0. Windows has no SIGTERM at all: `child.kill()` there is TerminateProcess, so no
+ * handler runs, the process never chooses a code, and Node reports the exit as a signal with `code: null`.
+ * That is the platform, not a defect — but it means "cleans up on SIGTERM" is a POSIX claim, and a test that
+ * asserts it everywhere is asserting the platform instead of the promise.
+ */
+export const GRACEFUL_EXIT: number | null = process.platform === 'win32' ? null : 0;
+
+/** Whether this platform can ask a child to shut itself down at all. See `GRACEFUL_EXIT`. */
+export const CAN_SIGNAL_CHILD = process.platform !== 'win32';
+
 export interface StartedCli { child: ChildProcess; url: string; port: number; token: string; stdout(): string; stderr(): string; stop(): Promise<number | null> }
 
 /** Starts `workbench start` and resolves once it prints its URL line. */
