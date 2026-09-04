@@ -22,10 +22,11 @@
     "test:unit": "vitest run --project unit",
     "test:security": "vitest run --project security",
     "secret-scan": "tsx scripts/secret-scan.ts",
-    "check": "npm run typecheck && npm run lint && npm run test:unit && npm run test:security && npm run contract && npm run secret-scan",
+    "check": "npm run typecheck && npm run lint && npm run test:unit && npm run test:security && npm run contract && npm run route-drift && npm run secret-scan",
     "e2e": "playwright test",
     "dod": "tsx scripts/dod.ts",
-    "contract": "tsx scripts/contract.ts"
+    "contract": "tsx scripts/contract.ts",
+    "route-drift": "tsx scripts/route-drift.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.49",

@@ -447,11 +447,13 @@ export class Runtime {
     this.engine.markInterrupted();
     // A workflow file's `schedule` block seeds a row once; after that the row is the owner's to edit (D-15).
     this.scheduler.seedFromWorkflows(this.workspace.workflows.values());
-    if (!this.opts.noScheduler) {
-      this.scheduler.start();
-      // Silence is not consent: a pending approval nobody answers has to become a denial on its own (SEC-12).
-      this.engine.startApprovalExpiry();
-    }
+    if (!this.opts.noScheduler) this.scheduler.start();
+    // Silence is not consent: a pending approval nobody answers has to become a denial on its own (SEC-12).
+    // Deliberately outside the `noScheduler` guard. That flag means "do not fire scheduled workflow runs",
+    // which tests set for determinism — and while expiry lived inside it, 39 test workspaces were also
+    // switching off a security property, in the one configuration every test runs in. A safety net that
+    // disappears whenever the thing being tested is made deterministic is a safety net with no test.
+    this.engine.startApprovalExpiry();
     await this.startMockUpstream();
     this.hosts = acceptedHosts(this.port, this.bind, this.opts.expose ?? []);
     if (!this.ephemeral) {
