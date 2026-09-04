@@ -1,8 +1,8 @@
 # STATUS
 
-**Current run:** none — RUN-00 … RUN-12 are all merged · awaiting the owner's verification scripts
-**Last verified:** every run merged to `main` with CI green on Linux, macOS, Docker and a machine without a sandbox; the owner's scripts in each `runlog/` are still outstanding
-**Gates:** `npm run check` green · `npm run dod -- 00 … 11, 12` green (DoD 07-2 is live-only) · `npm run e2e` 30 passed · Docker smoke and a no-sandbox job: CI
+**Current run:** none — RUN-00 … RUN-12 are all merged, plus the maintenance branches through `run/19-windows-native` · awaiting the owner's verification scripts
+**Last verified:** every run merged to `main` with CI green on **Linux, macOS and Windows**, plus Docker and a machine without a sandbox; the owner's scripts in each `runlog/` are still outstanding
+**Gates:** `npm run check` green (unit 62 · security 125 · contract 47) · every `tests/dod/RUN-*.test.ts` suite green on all three platforms (DoD 07-2 is live-only) · `npm run e2e` 31 passed · Docker smoke and a no-sandbox job: CI
 
 Run agents update this file at the end of a run; the human updates it on acceptance.
 
@@ -14,3 +14,7 @@ Run agents update this file at the end of a run; the human updates it on accepta
   installed app, so the Add-to-Home-Screen script in `runlog/RUN-12.md` is what proves it.
 - The briefing has never reached the real web. Every fetch above went to a local socket that believes it is
   `allowed.test`. `WB_LIVE=1 npm run dod -- 07` with `WORKBENCH_CRED_BRAVE` and a model key is what proves it.
+- Windows is verified on `windows-latest` in CI, not on the owner's machine. What CI cannot check there is the
+  install on a machine with no Visual Studio (the README's `--ignore-scripts` path), `~` expansion in cmd.exe
+  and PowerShell, the credentials ACL on a profile that is not an administrator's, and a runtime kept alive by
+  the Task Scheduler recipe in `deploy.md`.
