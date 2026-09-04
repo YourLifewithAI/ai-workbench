@@ -44,3 +44,7 @@ Runs are sequential by default. A brief may name *Slices*: module boundaries saf
 ## Why this works across fresh sessions
 
 Everything an agent needs is in at most ten bounded files. Done is a command, not a judgment. The handoff's transcript lets the next session trust the baseline. The mock provider makes every result reproducible.
+
+> Amendment (owner review, 2026-09-04): RUN-13 (editing a workflow) and RUN-14 (the standing permissions
+> review) are planned, not scheduled. Both came out of the first human walk of the ten-minute path. Neither
+> blocks anything already built; take them in either order, or neither.
