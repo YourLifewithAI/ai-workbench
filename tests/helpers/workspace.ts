@@ -10,7 +10,14 @@ import { readBootstrap } from '../../src/runtime/bootstrap.js';
 import { Runtime, type RuntimeOptions } from '../../src/runtime/runtime.js';
 
 export const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-export const TSX = path.join(REPO, 'node_modules', '.bin', process.platform === 'win32' ? 'tsx.cmd' : 'tsx');
+/**
+ * tsx's own JS entry, not the `.bin` shim. Since CVE-2024-27980 Node refuses to spawn a `.cmd` or `.bat`
+ * without `shell: true`, and on Windows the shim *is* a `.cmd` — spawnSync returns `status: null` and the
+ * failure reads as "the assertion is wrong" rather than "the process never started". Running the entry with
+ * this Node avoids the shell, the quoting that comes with it, and the platform branch altogether.
+ */
+export const TSX_ENTRY = path.join(REPO, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+export const TSX = process.execPath;
 export const CLI_SRC = path.join(REPO, 'src', 'runtime', 'cli', 'main.ts');
 export const CLI_DIST = path.join(REPO, 'dist', 'cli.js');
 
@@ -43,8 +50,8 @@ export interface CliResult { code: number | null; stdout: string; stderr: string
 
 /** Runs the CLI from source (tsx) or from dist, to completion. */
 export function runCli(args: string[], opts: { dist?: boolean; env?: Record<string, string>; cwd?: string } = {}): Promise<CliResult> {
-  const cmd = opts.dist ? process.execPath : TSX;
-  const argv = opts.dist ? [CLI_DIST, ...args] : [CLI_SRC, ...args];
+  const cmd = process.execPath;
+  const argv = opts.dist ? [CLI_DIST, ...args] : [TSX_ENTRY, CLI_SRC, ...args];
   return new Promise((resolve) => {
     const child = spawn(cmd, argv, { cwd: opts.cwd ?? REPO, env: cleanEnv(opts.env), stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
@@ -59,8 +66,8 @@ export interface StartedCli { child: ChildProcess; url: string; port: number; to
 
 /** Starts `workbench start` and resolves once it prints its URL line. */
 export function startCli(args: string[], opts: { dist?: boolean; env?: Record<string, string> } = {}): Promise<StartedCli> {
-  const cmd = opts.dist ? process.execPath : TSX;
-  const argv = opts.dist ? [CLI_DIST, 'start', ...args] : [CLI_SRC, 'start', ...args];
+  const cmd = process.execPath;
+  const argv = opts.dist ? [CLI_DIST, 'start', ...args] : [TSX_ENTRY, CLI_SRC, 'start', ...args];
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, argv, { cwd: REPO, env: cleanEnv(opts.env), stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';

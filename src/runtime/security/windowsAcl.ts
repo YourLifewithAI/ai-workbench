@@ -59,11 +59,16 @@ export function inspect(file: string): AclCheck {
   }
 
   const me = os.userInfo().username.toLowerCase();
-  // A principal is ours if the account part after any DOMAIN\ or MACHINE\ prefix is this user.
-  const foreign = principals.filter((p) => (p.split('\\').pop() ?? p).trim().toLowerCase() !== me);
+  // SYSTEM and Administrators sit on nearly every file by inheritance, and an administrator can take ownership
+  // of any file on the machine whatever its ACL says — so excluding them costs real usability and buys nothing.
+  // They are this platform's root, and 0600 on Linux does not exclude root either. The promise both keep is
+  // the same one: no *other user* can read this.
+  const SUPERUSERS = new Set(['system', 'administrators', 'trustedinstaller']);
+  const account = (p: string): string => (p.split('\\').pop() ?? p).trim().toLowerCase();
+  const foreign = principals.filter((p) => account(p) !== me && !SUPERUSERS.has(account(p)));
   return {
     restricted: foreign.length === 0,
     principals,
-    detail: foreign.length === 0 ? 'this user only' : `also readable by ${foreign.join(', ')}`,
+    detail: foreign.length === 0 ? 'this user (and the machine superusers, as on any platform)' : `also readable by ${foreign.join(', ')}`,
   };
 }
