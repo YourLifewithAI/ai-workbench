@@ -44,6 +44,26 @@ test('@run-04 running a workflow fills the graph in step by step', async ({ page
   await expectNoA11yViolations(page, 'Run detail with a graph');
 });
 
+test('@run-14 a workflow can be run with no provider key, and the form says so', async ({ page }) => {
+  // The e2e runtime starts with --provider mock, which is exactly why this gap hid for thirteen runs: the
+  // harness forced the mock globally, so nobody noticed the form never offered it. Assert the control itself.
+  await page.goto(base() + '/workflows/story-pipeline#token=' + token());
+
+  const mock = page.getByLabel('Use the mock provider (free, no key)');
+  await expect(mock).toBeVisible();
+  // No credential is configured in the test workspace, so the tick defaults on: a real run could only fail.
+  await expect(mock).toBeChecked();
+
+  // Unticking it warns rather than letting the run fail at its first model call.
+  await mock.uncheck();
+  await expect(page.getByText('No provider key is configured')).toBeVisible();
+  await mock.check();
+
+  await page.getByLabel('Premise').fill('A lighthouse keeper finds the light is answering someone.');
+  await page.getByRole('button', { name: 'Start run' }).click();
+  await expect(page.getByText('story-pipeline finished.')).toBeVisible({ timeout: 30_000 });
+});
+
 test('@run-04 a running workflow can be cancelled from the Runs screen', async ({ page, request }) => {
   // A fixture that streams slowly, so there is a run in flight to cancel rather than a race.
   const slow = await request.post(`${base()}/api/v1/runs`, {

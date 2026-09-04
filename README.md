@@ -24,7 +24,9 @@ built-in mock provider — no key, no network — and shows you its trace.
 
 Then, in the UI:
 
-1. **Run something.** Workflows → `story-pipeline` → run it. Watch the graph fill in step by step.
+1. **Run something.** Workflows → `story-pipeline` → run it. Watch the graph fill in step by step. With no
+   provider key configured, *Use the mock provider* is already ticked, so the whole pipeline runs for free; the
+   tick clears itself once you add a key.
 2. **Read a trace.** Runs → the run you just made. Every model call, every tool call, every byte that tried to
    leave the machine, in order.
 3. **Grant a tool.** Tools → the matrix. Nothing is granted until you say so, and the screen says what each

@@ -82,9 +82,14 @@ export function AgentDetail() {
   const [input, setInput] = useState('');
   const [model, setModel] = useState('');
   const [project, setProject] = useState('');
-  const [useMock, setUseMock] = useState(true);
+  const [useMock, setUseMock] = useState<boolean | null>(null);
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings, staleTime: 60_000 });
   const navigate = useNavigate();
   const client = useQueryClient();
+
+  // Default to whichever the workspace can actually do: the mock while no key exists, the real policy once one does.
+  const hasKey = (settings.data?.providersConfigured.length ?? 0) > 0;
+  const mock = useMock ?? !hasKey;
 
   const start = useMutation({
     mutationFn: () => api.createRun({
@@ -92,7 +97,7 @@ export function AgentDetail() {
       id,
       inputs: { input },
       ...(project ? { project } : {}),
-      ...(useMock ? { provider: 'mock' as const } : {}),
+      ...(mock ? { provider: 'mock' as const } : {}),
       ...(model.trim() ? { overrides: { model: model.trim() } } : {}),
     }),
     onSuccess: ({ runId }) => {
@@ -134,7 +139,7 @@ export function AgentDetail() {
                   </select>
                 </div>
                 <label className="flex items-center gap-2 py-2 text-sm">
-                  <input type="checkbox" checked={useMock} onChange={(e) => setUseMock(e.target.checked)} className="h-4 w-4" />
+                  <input type="checkbox" checked={mock} onChange={(e) => setUseMock(e.target.checked)} className="h-6 w-6" />
                   Use the mock provider (free, no key)
                 </label>
                 <Button type="submit" disabled={!input.trim() || start.isPending}>{start.isPending ? 'Starting…' : 'Run'}</Button>

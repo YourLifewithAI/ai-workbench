@@ -131,7 +131,13 @@ function RunForm({ workflow }: { workflow: WorkflowDetailShape }) {
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(fields.map((f) => [f.name, f.initial])));
   const [project, setProject] = useState(workflow.defaultProject ?? '');
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects, staleTime: 60_000 });
+  const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings, staleTime: 60_000 });
   const navigate = useNavigate();
+  // Default to whichever the workspace can actually do. With no key, a real run can only fail, and the
+  // ten-minute path in the README goes through this form; with a key, a silently mocked run is a lie.
+  const hasKey = (settings.data?.providersConfigured.length ?? 0) > 0;
+  const [useMock, setUseMock] = useState<boolean | null>(null);
+  const mock = useMock ?? !hasKey;
 
   const start = useMutation({
     mutationFn: () => {
@@ -143,7 +149,7 @@ function RunForm({ workflow }: { workflow: WorkflowDetailShape }) {
         if (field.type === 'string') { inputs[field.name] = raw; continue; }
         try { inputs[field.name] = JSON.parse(raw); } catch { inputs[field.name] = raw; }
       }
-      return api.createRun({ kind: 'workflow', id: workflow.id, inputs, ...(project ? { project } : {}) });
+      return api.createRun({ kind: 'workflow', id: workflow.id, inputs, ...(project ? { project } : {}), ...(mock ? { provider: 'mock' as const } : {}) });
     },
     onSuccess: ({ runId }) => navigate(`/runs/${runId}`),
   });
@@ -187,6 +193,17 @@ function RunForm({ workflow }: { workflow: WorkflowDetailShape }) {
           {(projects.data ?? []).map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
         </select>
       </div>
+      <label className="flex items-center gap-2 text-sm">
+        {/* 24px is the smallest target WCAG 2.2 accepts. */}
+        <input type="checkbox" checked={mock} onChange={(e) => setUseMock(e.target.checked)} className="h-6 w-6" />
+        Use the mock provider (free, no key)
+      </label>
+      {!mock && !hasKey ? (
+        <p className="text-sm text-amber-700 dark:text-amber-300">
+          No provider key is configured, so a real run will fail at its first model call. Add one in{' '}
+          <Link to="/settings" className="underline underline-offset-4">Settings</Link>, or leave the mock ticked.
+        </p>
+      ) : null}
       {start.isError ? <p role="alert" className="text-sm text-red-700 dark:text-red-300">{start.error.message}</p> : null}
       <Button type="submit" disabled={start.isPending}>{start.isPending ? 'Starting…' : 'Start run'}</Button>
     </form>
