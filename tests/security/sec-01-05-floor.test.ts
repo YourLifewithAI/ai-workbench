@@ -7,6 +7,7 @@ import path from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { workspacePaths } from '../../src/runtime/paths.js';
 import { startRuntime, tempWorkspace, type Started } from '../helpers/workspace.js';
+import { expectRestricted } from '../helpers/secretFile.js';
 
 let ws: string;
 let rt: Started;
@@ -84,9 +85,9 @@ describe('SEC-04 listener bound to 127.0.0.1 only', () => {
 });
 
 describe('SEC-05 token file 0600; token only ever in the one URL line', () => {
-  it('writes runtime.token with mode 0600 and keeps the token out of runtime.json', () => {
+  it('writes runtime.token readable only by this account, and keeps the token out of runtime.json', () => {
     const paths = workspacePaths(ws);
-    expect(fs.statSync(paths.runtimeToken).mode & 0o777).toBe(0o600);
+    expectRestricted(paths.runtimeToken);
     expect(fs.readFileSync(paths.runtimeToken, 'utf8').trim()).toBe(rt.token);
     expect(fs.readFileSync(paths.runtimeJson, 'utf8')).not.toContain(rt.token);
   });

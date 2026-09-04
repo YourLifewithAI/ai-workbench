@@ -42,12 +42,20 @@ jobs:
       # Every definition-of-done suite, in order. `npm ci` installs Deno as a devDependency, so the sandbox
       # exists here and the execute-tier cases actually run rather than skipping.
       - run: npx deno --version
+      # The list comes from the directory rather than from a literal, because a literal drifts: RUN-12 was
+      # built before RUN-10 and RUN-11, and when those landed nobody appended them — their DoD suites had
+      # never run in CI on any platform. Globbing means a new run's suite is covered the day the file exists.
+      #
       # windows-latest defaults to pwsh, where this loop is a syntax error rather than a test failure.
       # Git Bash ships on the Windows runners, so one shell covers all three platforms.
       - shell: bash
         run: |
-          for n in 00 01 02 03 04 05 06 07 08 09 12; do
-            npm run dod -- $n || exit 1
+          shopt -s nullglob
+          suites=(tests/dod/RUN-*.test.ts)
+          if [ ${#suites[@]} -eq 0 ]; then echo "no DoD suites found — the glob is wrong"; exit 1; fi
+          for f in "${suites[@]}"; do
+            n=${f#tests/dod/RUN-}
+            npm run dod -- "${n%.test.ts}" || exit 1
           done
   # The other half of SEC-23: a machine with no Deno on it. The execute tier must be unavailable by name, and
   # nothing may fall back to running code in this process.
