@@ -11,6 +11,7 @@ import { packagePaths, type PackagePaths } from './paths.js';
 import type { Bootstrap } from './bootstrap.js';
 import { loadAgents, loadWorkflows, loadWorkspace, type BrokenAgent, type Workspace } from './workspace/loader.js';
 import { Redactor } from './security/redaction.js';
+import { icaclsFix, restrict } from './security/windowsAcl.js';
 import { loadCredentials, type Credentials } from './security/credentials.js';
 import { generateToken, writeTokenFile, acceptedHosts } from './security/auth.js';
 import { createLogger, type Logger, type LogHandle } from './log/index.js';
@@ -338,6 +339,14 @@ export class Runtime {
     else current[name] = { apiKey };
     fs.writeFileSync(file, JSON.stringify(current, null, 2) + '\n', { mode: 0o600 });
     fs.chmodSync(file, 0o600);
+    // chmod on Windows only toggles the read-only bit, so it grants nothing and protects nothing. The ACL is
+    // the protection there, and it is applied on write rather than left for the owner to remember.
+    if (process.platform === 'win32') {
+      const applied = restrict(file);
+      if (!applied.ok) {
+        throw new Error(`The credential was written but could not be restricted to your account (${applied.detail}). Run: ${icaclsFix(file)}`);
+      }
+    }
     // Immediately, not on the next start: until this runs the runtime does not know the key exists and does not
     // redact it, so a key saved mid-session could land in the next trace in full.
     this.credentials.reload();

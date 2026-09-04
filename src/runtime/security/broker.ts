@@ -24,6 +24,33 @@ const DENIED_FILES = ['runtime.token', 'runtime.json', 'credentials.json'] as co
 
 /** macOS and Windows compare paths case-insensitively; Linux does not. Getting this backwards is a bypass. */
 const CASE_INSENSITIVE = process.platform === 'darwin' || process.platform === 'win32';
+const WINDOWS = process.platform === 'win32';
+
+/**
+ * Device names Windows resolves anywhere in the tree, with or without an extension: `NUL.txt` is still NUL.
+ * A write to one is silently discarded and a read from `CON` blocks on console input, so neither is a thing a
+ * tool should be able to reach through a grant that only meant to cover a directory.
+ */
+const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
+
+/**
+ * Windows strips trailing dots and spaces before it opens a file, so `credentials.json.` and
+ * `credentials.json ` both open `credentials.json` — and a deny list that compares the string it was given
+ * would let both straight through. Comparison therefore happens on the name the filesystem will actually use.
+ */
+export function windowsName(segment: string): string {
+  return segment.replace(/[. ]+$/, '');
+}
+
+/**
+ * Segments Windows would reinterpret. A colon opens an alternate data stream (`notes.md::$DATA`) or names a
+ * drive, and either lets one file be addressed under a second name that no deny list is written against.
+ */
+export function windowsUnsafe(segment: string): string | null {
+  if (segment.includes(':')) return `"${segment}" names an alternate data stream or a drive; a tool path may not contain ":".`;
+  if (RESERVED.test(windowsName(segment))) return `"${segment}" is a reserved Windows device name, not a file.`;
+  return null;
+}
 
 export interface BrokerPolicy {
   /** The workspace root. Every root and candidate is resolved under it. */
@@ -45,6 +72,17 @@ export function checkPath(candidate: string, roots: string[], policy: BrokerPoli
   const workspace = realpathOf(policy.workspaceDir);
   const absolute = path.isAbsolute(candidate) ? candidate : path.resolve(policy.workspaceDir, candidate);
   const real = realpathOf(absolute);
+
+  // Refused before anything else, and before the path is resolved: these are names the filesystem reads
+  // differently from the way this checker would, and a checker that disagrees with the filesystem is a bypass
+  // rather than a policy. The drive letter is the one legitimate colon, and `path.parse` has already taken it.
+  if (WINDOWS) {
+    const { root, dir, base } = path.parse(real);
+    for (const segment of [...dir.slice(root.length).split(path.sep), base].filter((x) => x.length > 0)) {
+      const complaint = windowsUnsafe(segment);
+      if (complaint) return { allowed: false, reason: complaint, realPath: real };
+    }
+  }
 
   if (!contains(workspace, real)) {
     return { allowed: false, reason: `"${candidate}" is outside this workspace. Tools work inside the workspace only.`, realPath: real };
@@ -102,7 +140,13 @@ function contains(root: string, candidate: string): boolean {
 }
 
 function same(a: string, b: string): boolean {
-  return CASE_INSENSITIVE ? a.toLowerCase() === b.toLowerCase() : a === b;
+  // On Windows the name the filesystem opens is the name with trailing dots and spaces removed, so that is
+  // the name the deny list has to be compared against — not the string the caller happened to write.
+  const norm = (x: string): string => {
+    const trimmed = WINDOWS ? windowsName(x) : x;
+    return CASE_INSENSITIVE ? trimmed.toLowerCase() : trimmed;
+  };
+  return norm(a) === norm(b);
 }
 
 /** How big a single tool read may be before it is refused outright rather than truncated. */
