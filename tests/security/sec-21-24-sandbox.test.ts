@@ -187,16 +187,24 @@ describe('SEC-22 what a sandboxed script can and cannot do', () => {
   }, 60_000);
 
   it.skipIf(!DENO)('cannot start a subprocess, which is how it cannot escape', async () => {
+    // A program that certainly exists on this platform. `echo` is a cmd builtin rather than a binary on
+    // Windows, so naming it there produced NotFound — a refusal for the wrong reason, which would have passed
+    // this assertion even with --allow-run granted. Only a program Deno could really have started proves the
+    // permission is what stopped it.
+    const WIN = process.platform === 'win32';
+    const program = WIN ? 'C:\\Windows\\System32\\cmd.exe' : '/bin/sh';
+    // Arguments that exit immediately, so a granted permission fails the assertion instead of hanging the suite.
+    const args = WIN ? ['/c', 'exit'] : ['-c', 'exit 0'];
     const result = await runScript(`
       try {
-        const command = new Deno.Command('echo', { args: ['out'] });
+        const command = new Deno.Command(${JSON.stringify(program)}, { args: ${JSON.stringify(args)} });
         await command.output();
         console.log('ran');
       } catch (e) {
         console.log('run refused', e.name);
       }
     `);
-    expect(result.stdout).toContain('run refused NotCapable');
+    expect(result.stdout, `refusing ${program}`).toContain('run refused NotCapable');
     expect(result.stdout).not.toContain('ran');
   }, 60_000);
 });

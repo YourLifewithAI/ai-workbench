@@ -7,9 +7,22 @@ import { childEnv } from '../../src/runtime/security/childEnv.js';
 import { REPO } from '../helpers/workspace.js';
 
 describe('SEC-07 child environment', () => {
-  it('returns only PATH HOME TMPDIR LANG LC_* TZ', () => {
-    const env = childEnv({ PATH: '/bin', HOME: '/h', TMPDIR: '/t', LANG: 'C', LC_ALL: 'C', TZ: 'UTC', SECRET: 'x', WORKBENCH_CRED_GOOGLE: 'k', NODE_OPTIONS: '--inspect' });
-    expect(Object.keys(env).sort()).toEqual(['HOME', 'LANG', 'LC_ALL', 'PATH', 'TMPDIR', 'TZ']);
+  it('returns only the allowlist for this platform, and nothing else', () => {
+    const env = childEnv({
+      PATH: '/bin', HOME: '/h', TMPDIR: '/t', LANG: 'C', LC_ALL: 'C', TZ: 'UTC',
+      SystemRoot: 'C:\\Windows', PATHEXT: '.COM;.EXE', COMSPEC: 'C:\\Windows\\system32\\cmd.exe',
+      SECRET: 'x', WORKBENCH_CRED_GOOGLE: 'k', NODE_OPTIONS: '--inspect',
+    });
+    // The list is per-platform because the variables are: HOME and TMPDIR do not exist on Windows, and a child
+    // there cannot start without SystemRoot. The refusals are not per-platform, and they are the point.
+    const expected = process.platform === 'win32'
+      ? ['COMSPEC', 'LC_ALL', 'PATH', 'PATHEXT', 'SystemRoot']
+      : ['HOME', 'LANG', 'LC_ALL', 'PATH', 'TMPDIR', 'TZ'];
+    expect(Object.keys(env).sort()).toEqual(expected.sort());
+    expect(Object.keys(env), 'a credential never rides along').not.toContain('WORKBENCH_CRED_GOOGLE');
+    expect(Object.keys(env), 'nor an arbitrary secret').not.toContain('SECRET');
+    // NODE_OPTIONS would let a child be handed --require or --inspect, which is a way into the process.
+    expect(Object.keys(env), 'nor NODE_OPTIONS, which is executable by another name').not.toContain('NODE_OPTIONS');
   });
   it('refuses to pass a credential variable through extras', () => {
     expect(() => childEnv({ PATH: '/bin' }, { WORKBENCH_CRED_X: 'v' })).toThrow(/refusing/);
