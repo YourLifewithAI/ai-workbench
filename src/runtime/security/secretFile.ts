@@ -45,3 +45,21 @@ export function protectSecretFile(file: string): SecretFileResult {
   if (acl.restricted === true) return { protected: true, detail: `${acl.detail} (inherited; icacls: ${applied.detail})` };
   return { protected: false, detail: `${applied.detail}; ${acl.detail}`, fix: icaclsFix(file) };
 }
+
+/**
+ * The same question, asked without changing anything — what `doctor` needs. `protectSecretFile` applies the
+ * protection and is therefore the wrong thing to call from a read-only report.
+ */
+export function checkSecretFile(file: string): SecretFileResult {
+  if (!fs.existsSync(file)) return { protected: true, detail: 'not present' };
+  if (process.platform !== 'win32') {
+    const mode = fs.statSync(file).mode & 0o777;
+    return mode & 0o077
+      ? { protected: false, detail: `mode ${mode.toString(8)}`, fix: `chmod 600 "${file}"` }
+      : { protected: true, detail: 'mode 0600' };
+  }
+  const acl = inspect(file);
+  if (acl.restricted === true) return { protected: true, detail: acl.detail };
+  // Unknown reads as unprotected here on purpose: `doctor` exists to tell you what it could not confirm.
+  return { protected: false, detail: acl.detail, fix: icaclsFix(file) };
+}

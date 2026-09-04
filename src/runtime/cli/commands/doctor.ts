@@ -1,10 +1,12 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import Database from 'better-sqlite3';
 import type { Command } from 'commander';
 import type { Bootstrap } from '../../bootstrap.js';
 import { packagePaths, workspacePaths } from '../../paths.js';
 import { loadWorkspace } from '../../workspace/loader.js';
 import { loadCredentials } from '../../security/credentials.js';
+import { checkSecretFile } from '../../security/secretFile.js';
 import { Redactor } from '../../security/redaction.js';
 import { defaultAssertFts5 } from '../../db/index.js';
 import { findDeno } from '../../sandbox/deno.js';
@@ -47,7 +49,27 @@ export function registerDoctor(program: Command, bootstrap: Bootstrap): void {
               ? `configured: ${creds.names().join(', ')}${credRisk ? `. ${credWarnings.join(' ')}` : ''}`
               : 'none configured (the mock provider needs none)',
           });
-          const live = await findLiveRuntime(workspacePaths(workspaceDir));
+          // Everything in the workspace that holds a secret, asked the same question: can only you read it?
+          // On Windows that is an ACL rather than a mode, and an owner who moved their workspace somewhere
+          // shared has no other way to find out.
+          const wsPaths = workspacePaths(workspaceDir);
+          const secrets: [string, string][] = [
+            ['credentials', wsPaths.credentialsJson],
+            ['runtime token', wsPaths.runtimeToken],
+            ['push keys', path.join(wsPaths.dir, 'data', 'vapid.json')],
+          ];
+          const exposed = secrets
+            .map(([label, file]) => [label, file, checkSecretFile(file)] as const)
+            .filter(([, , result]) => !result.protected);
+          checks.push({
+            name: 'file access',
+            ok: exposed.length === 0,
+            detail: exposed.length === 0
+              ? 'the credentials, runtime token and push keys are readable only by you'
+              : exposed.map(([label, , r]) => `${label}: ${r.detail}${r.fix ? `. Run: ${r.fix}` : ''}`).join('; '),
+          });
+
+          const live = await findLiveRuntime(wsPaths);
           checks.push({ name: 'runtime', ok: true, detail: live ? `running on 127.0.0.1:${live.port} (pid ${live.pid})` : 'not running; commands will use an ephemeral runtime' });
           checks.push({ name: 'database', ok: true, detail: fs.existsSync(ws.paths.db) ? ws.paths.db : 'not created yet (created on first start)' });
         } catch (e) {
