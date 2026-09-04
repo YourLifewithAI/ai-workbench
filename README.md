@@ -13,10 +13,16 @@ every capability it has is denied until you grant it.
 
 Requires Node 22. Deno is optional and unlocks the code-execution tools; the workbench says so if it is missing.
 
-**On Windows**, `npm ci` needs a C++ toolchain: tick *Tools for Native Modules* when installing Node, or
-install Visual Studio Build Tools with the *Desktop development with C++* workload. Linux and macOS already
-have one. (`better-sqlite3` ships a Windows prebuild, but it also ships a `binding.gyp` with no install
-script, so npm compiles it anyway on every platform.) Your provider keys are protected there by a file ACL rather than
+**On Windows**, install without the build step:
+
+```sh
+npm ci --ignore-scripts && npm rebuild deno esbuild
+```
+
+`better-sqlite3` ships a prebuilt Windows binary and loads it in preference to a compiled one, but it also
+carries a `binding.gyp` with no install script, so npm compiles it anyway — and that needs Visual Studio.
+Skipping scripts and re-running the two that fetch real binaries avoids the toolchain entirely. Plain
+`npm ci` works too if you have the *Desktop development with C++* workload installed. Your provider keys are protected there by a file ACL rather than
 by `chmod` — the workbench applies it on save and refuses to start if another account can read the file.
 
 ```sh

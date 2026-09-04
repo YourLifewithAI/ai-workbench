@@ -16,22 +16,22 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
-      # better-sqlite3 ships a win32-x64 prebuild in its tarball, but it also ships a binding.gyp with no
-      # install script, so npm injects `node-gyp rebuild` and compiles it anyway — on every platform. Linux and
-      # macOS have a compiler and nobody noticed; Windows does not, and node-gyp 11.5 cannot identify the
-      # runner's Visual Studio 18 (its PowerShell probe overflows its own stdio buffer, then reads the version
-      # as "undefined"). Running the install inside a developer command prompt sidesteps the detection entirely:
-      # vcvars has already put the compiler, INCLUDE and LIB in the environment, so there is nothing to find.
-      - name: Install inside a Visual Studio developer prompt
+      # better-sqlite3 ships prebuilt binaries for every platform in its own tarball, and its loader tries
+      # `prebuilds/<platform>-<arch>.node` before `build/Release` — the compile produces a binary it already
+      # has. It happens anyway because the package carries a binding.gyp with no install script, which makes
+      # npm inject `node-gyp rebuild`. Linux and macOS have a compiler so nobody noticed; on Windows node-gyp
+      # 11.5 cannot parse Visual Studio 18's version even from inside a developer prompt, where it correctly
+      # identifies the install and then reads the version as "undefined". That is a node-gyp limitation, not an
+      # environment one, so the fix is to stop compiling rather than to keep coaxing the detection.
+      #
+      # deno and esbuild are the only other packages with install hooks, and theirs fetch real platform
+      # binaries, so they are re-run by name. Naming them means a new native dependency fails loudly here
+      # rather than silently going uninstalled.
+      - name: Install
         if: runner.os == 'Windows'
-        shell: cmd
         run: |
-          set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
-          if not exist "%VSWHERE%" ( echo vswhere.exe is not at its documented path & exit /b 1 )
-          for /f "usebackq delims=" %%i in (`"%VSWHERE%" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
-          if not defined VSPATH ( echo vswhere found no Visual Studio carrying the C++ tools & exit /b 1 )
-          echo Using %VSPATH%
-          call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat" && npm ci
+          npm ci --ignore-scripts
+          npm rebuild deno esbuild
       - name: Install
         if: runner.os != 'Windows'
         run: npm ci
