@@ -48,3 +48,7 @@ Everything an agent needs is in at most ten bounded files. Done is a command, no
 > Amendment (owner review, 2026-09-04): RUN-13 (editing a workflow) and RUN-14 (the standing permissions
 > review) are planned, not scheduled. Both came out of the first human walk of the ten-minute path. Neither
 > blocks anything already built; take them in either order, or neither.
+
+> Amendment (owner review, 2026-09-04): RUN-15 (the catalog learns what exists) is planned, not
+> scheduled. It came from the first live run failing on a retired model. Like RUN-13 and RUN-14 it blocks
+> nothing already built.
