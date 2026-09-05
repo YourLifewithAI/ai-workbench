@@ -14,6 +14,7 @@ import { api, ApiRequestError } from '../lib/api.js';
 import { RunGraph, type GraphStep } from '../components/RunGraph.js';
 import { Button } from '../components/ui/button.js';
 import { Card } from '../components/ui/card.js';
+import { Prose, ScreenTitle, SectionTitle, Subheading } from '../components/ui/text.js';
 
 type Rec = Record<string, unknown>;
 type StepDraft = Rec & { id: string; kind: string };
@@ -92,10 +93,10 @@ export function WorkflowNew() {
   return (
     <section aria-labelledby="screen-title">
       <p className="text-sm"><Link to="/workflows" className="text-blue-700 underline underline-offset-4 dark:text-sky-300">← All workflows</Link></p>
-      <h1 id="screen-title" className="mt-2 text-2xl font-semibold">New workflow</h1>
-      <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+      <ScreenTitle className="mt-2">New workflow</ScreenTitle>
+      <Prose className="mt-1">
         This writes one file, <code className="font-mono">workflows/&lt;id&gt;.workflow.json</code>, and opens it in the editor.
-      </p>
+      </Prose>
       <form className="mt-4 max-w-xl space-y-4" onSubmit={(e) => { e.preventDefault(); create.mutate(); }}>
         <div>
           <label htmlFor="wf-name" className={LABEL}>Name</label>
@@ -157,6 +158,8 @@ function Editor({ loaded }: { loaded: WorkflowDetail }) {
   // A stable key per step row, kept beside the draft rather than in it: ids are editable, so they cannot key
   // the rows (each keystroke would remount the form), and nothing in the file may carry an editor artefact.
   const [keys, setKeys] = useState<number[]>(() => (loaded.definition['steps'] as unknown[]).map((_, i) => i));
+  // The step forms are a list of headings with one open (L4): a six-step workflow is a screen, not a scroll.
+  const [openStep, setOpenStep] = useState<number | null>(0);
   const nextKey = useRef(keys.length);
   const [baseVersion, setBaseVersion] = useState(loaded.version);
   const [conflict, setConflict] = useState<WorkflowConflict | null>(null);
@@ -194,37 +197,40 @@ function Editor({ loaded }: { loaded: WorkflowDetail }) {
     if (target < 0 || target >= draft.steps.length) return;
     setDraft((d) => ({ ...d, steps: swap(d.steps, index, target) }));
     setKeys((k) => swap(k, index, target));
+    setOpenStep((o) => (o === index ? target : o === target ? index : o));
   };
   const removeStep = (index: number): void => {
     setDraft((d) => ({ ...d, steps: d.steps.filter((_, i) => i !== index) }));
     setKeys((k) => k.filter((_, i) => i !== index));
+    setOpenStep((o) => (o === null || o === index ? null : o > index ? o - 1 : o));
   };
   const addStep = (): void => {
     let n = draft.steps.length + 1;
     while (draft.steps.some((s) => s.id === `step-${n}`)) n++;
     setDraft((d) => ({ ...d, steps: [...d.steps, { id: `step-${n}`, kind: 'agent', agent: agentIds[0] ?? '', input: '' }] }));
     setKeys((k) => [...k, nextKey.current++]);
+    setOpenStep(draft.steps.length);
   };
 
   const loadDisk = (): void => { void client.invalidateQueries({ queryKey: ['workflow', loaded.id] }); };
 
   return (
     <>
-      <h1 id="screen-title" className="mt-2 text-2xl font-semibold">Edit {loaded.name}</h1>
+      <ScreenTitle className="mt-2">Edit {loaded.name}</ScreenTitle>
       <p className="mt-1 font-mono text-xs text-gray-600 dark:text-gray-400">{loaded.file} · opened at {baseVersion.replace('sha256:', '').slice(0, 16)}</p>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
           <Card>
-            <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">The graph, as the draft reads now</h2>
+            <Subheading as="h2">The graph, as the draft reads now</Subheading>
             <p className={HINT}>Edges come from references: type <code className="font-mono">{'{{steps.x.output}}'}</code> in a step and watch it connect. Nothing here is draggable, because an edge you drew is a line the runtime would not read.</p>
             <div data-testid="draft-graph" className="mt-3">
-              {analysis.graph.length ? <RunGraph steps={analysis.graph} /> : <p className="text-sm">No steps yet.</p>}
+              {analysis.graph.length ? <RunGraph steps={analysis.graph} /> : <p className="text-sm">No steps yet. Add the first one under Steps; it appears here as you type.</p>}
             </div>
           </Card>
           {analysis.issues.length ? (
             <Card className="border-l-4 border-l-red-600 dark:border-l-red-400" role="status" aria-live="polite" data-testid="draft-issues">
-              <h2 className="text-sm font-medium">This draft would not run</h2>
+              <Subheading as="h2">This draft would not run</Subheading>
               <ul className="mt-1 space-y-1 text-sm">
                 {analysis.issues.map((issue, i) => (
                   <li key={`${issue.path}-${i}`}>{issue.stepId ? <><span className="font-mono text-xs">{issue.stepId}</span> — </> : <><span className="font-mono text-xs">{issue.path}</span> — </>}{issue.message}</li>
@@ -234,7 +240,7 @@ function Editor({ loaded }: { loaded: WorkflowDetail }) {
           ) : null}
           {analysis.smells.length ? (
             <Card className="border-l-4 border-l-amber-600 dark:border-l-amber-400" data-testid="draft-smells">
-              <h2 className="text-sm font-medium">Worth a look</h2>
+              <Subheading as="h2">Worth a look</Subheading>
               <ul className="mt-1 space-y-1 text-sm">
                 {analysis.smells.map((s) => <li key={`${s.stepId}-${s.message}`}><span className="font-mono text-xs">{s.stepId}</span> — {s.message}</li>)}
               </ul>
@@ -245,7 +251,7 @@ function Editor({ loaded }: { loaded: WorkflowDetail }) {
 
         <form className="space-y-6" onSubmit={(e) => { e.preventDefault(); save.mutate(baseVersion); }} aria-label="Workflow editor">
           <Card className="space-y-3">
-            <h2 className="text-lg font-semibold">The workflow</h2>
+            <SectionTitle>The workflow</SectionTitle>
             <div>
               <label htmlFor="wf-name" className={LABEL}>Name</label>
               <input id="wf-name" value={draft.name} onChange={(e) => update({ name: e.target.value })} className={FIELD} />
@@ -270,7 +276,7 @@ function Editor({ loaded }: { loaded: WorkflowDetail }) {
 
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-lg font-semibold">Steps</h2>
+              <SectionTitle>Steps</SectionTitle>
               <Button type="button" variant="secondary" size="sm" onClick={addStep}>Add a step</Button>
             </div>
             {draft.steps.map((step, index) => (
@@ -286,6 +292,8 @@ function Editor({ loaded }: { loaded: WorkflowDetail }) {
                 onChange={(next) => updateStep(index, next)}
                 onMove={(by) => moveStep(index, by)}
                 onRemove={() => removeStep(index)}
+                open={openStep === index}
+                onToggle={() => setOpenStep((o) => (o === index ? null : index))}
               />
             ))}
           </div>
@@ -438,9 +446,12 @@ interface StepEditorProps {
   step: StepDraft; index: number; count: number; stepIds: string[];
   agentIds: string[]; modelIds: string[]; toolIds: string[];
   onChange: (step: StepDraft) => void; onMove: (by: -1 | 1) => void; onRemove: () => void;
+  /** One step is open at a time (L4); the rest are a heading, a summary and an Open button. */
+  open: boolean;
+  onToggle: () => void;
 }
 
-function StepEditor({ step, index, count, stepIds, agentIds, modelIds, toolIds, onChange, onMove, onRemove }: StepEditorProps) {
+function StepEditor({ step, index, count, stepIds, agentIds, modelIds, toolIds, onChange, onMove, onRemove, open, onToggle }: StepEditorProps) {
   const id = `step-${index}`;
   const set = (patch: Rec): void => {
     const next: Rec = { ...step, ...patch };
@@ -456,11 +467,21 @@ function StepEditor({ step, index, count, stepIds, agentIds, modelIds, toolIds, 
     else onChange({ ...common, over: '', step: { id: 'item', kind: 'agent', agent, input: '{{item}}', output: { document: null } } });
   };
   const output = step['output'] as { document?: string | null } | undefined;
+  const summary = step.kind === 'agent' ? `agent · ${str(step['agent']) || 'no agent yet'}`
+    : step.kind === 'tool' ? `tool · ${str(step['tool']) || 'no tool yet'}`
+    : `map over ${str(step['over']) || '…'}`;
 
   return (
     <fieldset className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900" data-testid={`step-${step.id}`}>
       <legend className="px-1 text-sm font-semibold">Step {step.id || `#${index + 1}`}</legend>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-gray-700 dark:text-gray-300">{summary}{step['review'] === 'blocking' ? ' · waits for your review' : ''}</p>
+        <Button type="button" variant="ghost" size="sm" aria-expanded={open} onClick={onToggle}>
+          {open ? 'Close' : 'Open'}<span className="sr-only"> step {step.id}</span>
+        </Button>
+      </div>
+      {open ? <>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <div>
           <label htmlFor={`${id}-id`} className={LABEL}>Step id</label>
           <input id={`${id}-id`} value={step.id} onChange={(e) => set({ id: e.target.value })} className={MONO} />
@@ -545,6 +566,7 @@ function StepEditor({ step, index, count, stepIds, agentIds, modelIds, toolIds, 
       </div>
       <datalist id="wb-models">{modelIds.map((m) => <option key={m} value={m} />)}</datalist>
       <datalist id="wb-tools">{toolIds.map((t) => <option key={t} value={t} />)}</datalist>
+      </> : null}
     </fieldset>
   );
 }

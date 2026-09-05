@@ -13,6 +13,7 @@ import { EmptyState } from '../components/EmptyState.js';
 import { Button } from '../components/ui/button.js';
 import { Badge, Card } from '../components/ui/card.js';
 import { CANCELLABLE, stateTone, useLiveRuns } from './Runs.js';
+import { ScreenTitle, SectionTitle, Subheading } from '../components/ui/text.js';
 
 export function Dashboard() {
   const q = useQuery({ queryKey: ['dashboard'], queryFn: api.dashboard, refetchInterval: 5000 });
@@ -53,7 +54,7 @@ export function Dashboard() {
   return (
     <section aria-labelledby="screen-title">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 id="screen-title" className="text-2xl font-semibold">Dashboard</h1>
+        <ScreenTitle>Dashboard</ScreenTitle>
         {d && d.networkMode !== 'offline' ? (
           <Button variant="secondary" size="sm" onClick={() => offline.mutate()} disabled={offline.isPending}>
             {offline.isPending ? 'Going offline…' : 'Pause all — go offline'}
@@ -66,7 +67,7 @@ export function Dashboard() {
 
       {d ? (
         <>
-          <h2 className="mt-6 text-lg font-medium">Needs you</h2>
+          <SectionTitle className="mt-6">Needs you</SectionTitle>
           {pending.length ? (
             <p className="mt-1 hidden text-sm text-gray-600 md:block dark:text-gray-400">
               Keys: <kbd className="font-mono">a</kbd> allow · <kbd className="font-mono">d</kbd> deny · <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> move.
@@ -75,7 +76,9 @@ export function Dashboard() {
           {d.approvals.length === 0 && d.needsYou.length === 0 && d.failed.length === 0 ? (
             <div className="mt-2">
               <EmptyState title={waitingTitle(d)}>
-                {d.unreviewed > 0 || d.findings > 0 ? <Button onClick={() => navigate('/review')}>Open Review</Button> : null}
+                {d.unreviewed > 0 || d.findings > 0
+                  ? <Button onClick={() => navigate('/review')}>Open Review</Button>
+                  : <Button variant="secondary" onClick={() => navigate('/workflows')}>Run a workflow</Button>}
               </EmptyState>
             </div>
           ) : (
@@ -122,9 +125,11 @@ export function Dashboard() {
           ) : null}
           {resume.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{resume.error.message}</p> : null}
 
-          <h2 className="mt-8 text-lg font-medium">Running</h2>
+          <SectionTitle className="mt-8">Running</SectionTitle>
           {d.running.length === 0 ? (
-            <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">Nothing is running.</p>
+            <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
+              Nothing is running. Start one from <Link to="/workflows" className="text-blue-700 underline underline-offset-4 dark:text-sky-300">Workflows</Link> or <Link to="/agents" className="text-blue-700 underline underline-offset-4 dark:text-sky-300">Agents</Link>.
+            </p>
           ) : (
             <ul className="mt-2 space-y-2">
               {d.running.map((r) => (
@@ -150,7 +155,7 @@ export function Dashboard() {
             </ul>
           )}
 
-          <h2 className="mt-8 text-lg font-medium">Today and this month</h2>
+          <SectionTitle className="mt-8">Today and this month</SectionTitle>
           <Card className="mt-2">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-sm">Spent today</p>
@@ -191,7 +196,7 @@ export function Dashboard() {
                 Schedules are paused: the month&apos;s cap is used up. Raise it in <Link to="/settings" className="underline underline-offset-4">Settings</Link>, or wait for the month to turn.
               </p>
             ) : null}
-            <h3 className="mt-4 text-sm font-medium">Next scheduled</h3>
+            <Subheading className="mt-4">Next scheduled</Subheading>
             {d.schedules.length === 0 ? (
               <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
                 Nothing is scheduled. Add one from a <Link to="/workflows" className="text-blue-700 underline underline-offset-4 dark:text-sky-300">workflow</Link>.

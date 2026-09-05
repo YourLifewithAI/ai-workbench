@@ -136,3 +136,38 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > Amendment (F6, 2026-09-05): **Welcome** gains a fifth step, *Meet your companion*, which opens the shipped
 > companion agent with the companion project chosen (`/agents/companion?project=companion`); an agent's run form
 > reads `?project=` as its initial target project.
+
+> Amendment (L1 + L2, 2026-09-05): **the type scale and the button family are named once**, in
+> `src/ui/components/ui/text.tsx` and `button.tsx`, and every screen uses them. Four heading sizes by role —
+> `ScreenTitle` (h1, one per screen), `SectionTitle` (h2, the first `mt-6` under the title and `mt-8` after),
+> `CardTitle` (a card or block), `Subheading` (a group inside a card or form) — and two tones, `Prose` for what is
+> read and `Hint` for a note; `text-xs` is always the hint tone. Buttons are one family with variants by role,
+> not by mood (default moves the screen forward; secondary is the alternative; ghost is a toolbar action; link is
+> an action in a sentence), and `asChild` puts the same classes on a `<Link>` so a navigation that looks like a
+> button is one. Tabs and the phone's bottom bar are not buttons and keep their own shapes.
+
+> Amendment (L3, 2026-09-05): **every empty state offers the one action that fills it**, or says in one sentence
+> where that action is when it sits on the same screen. Dashboard: *Run a workflow* when nothing waits, and
+> *Running* names Workflows and Agents; Agents: *Reload agents*; Review: *Run a workflow*; Workflows: *New
+> workflow*; a Library project: *Run an agent here* (the project travels to the agent's run form as `?project=`);
+> Memory: *Write the first one* (focuses the remember field); Models: *Add a key*; Settings' lists say what fills
+> them and where; the editor's empty graph points at *Steps*. "Nothing has been refused" on Tools stays as it is:
+> that one is good news.
+
+> Amendment (L4, 2026-09-05): **the workflow editor** keeps the graph above the form under `lg` and beside it
+> from `lg`; the step forms are a list of headings with one open at a time — each closed step is its id, a
+> one-line summary (kind and agent, tool or list; whether it waits for review) and an *Open* button; adding a
+> step opens it; moving or removing one keeps the open step the same step.
+
+> Amendment (L5, 2026-09-05): **the mark** is a bench with a light above it, drawn once in `src/ui/public/favicon.svg`
+> and inlined as `Mark` beside the wordmark in the sidebar and on the token page; the Home Screen icons
+> (`icon-192.png`, `icon-512.png`, the maskable `icon-maskable-512.png`) and the push notification's icon are
+> renderings of the same drawing. Navy `#1e2952` ground (the manifest's theme colour), white bench, sky `#38bdf8`
+> light: it reads at 16 px and carries its own ground, so it is the same in both themes.
+
+> Amendment (L6 + L7, 2026-09-05): checked in dark at 1280 px and in light at an iPhone 14 width, from screenshots
+> of every screen with content. Dark: the `busy` badge tone is amber-900 under amber-100 (it was a deep orange under
+> near-white); the diff view's added and removed rows are a visible tint (`green-900/40`, `red-900/40`) and the
+> sign column takes the semantic colour in both themes. Phone: the network banner is one line — the chip and the
+> action; its sentence appears from `md` — so *Needs you* sits higher on the Dashboard. Review cards, findings and
+> the run form at 390 px wrap onto two rows of controls at most; nothing becomes a column of single words.

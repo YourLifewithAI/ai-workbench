@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api.js';
 import { cn } from '../lib/cn.js';
+import { Button } from './ui/button.js';
 
 const COPY: Record<string, { label: string; says: string; tone: string }> = {
   offline: { label: 'Offline', says: 'Nothing leaves this machine. Local models still run.', tone: 'bg-slate-200 text-slate-900 dark:bg-slate-700 dark:text-slate-100' },
@@ -29,15 +30,15 @@ export function NetworkBanner() {
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 px-4 py-2 text-sm dark:border-gray-800">
       <span className={cn('rounded px-2 py-0.5 text-xs font-medium', copy.tone)}>Network: {copy.label}</span>
-      <span className="text-gray-600 dark:text-gray-400">{copy.says}</span>
+      <span className="hidden text-gray-600 md:inline dark:text-gray-400">{copy.says}</span>
       {mode === 'offline' ? (
-        <button type="button" onClick={() => setMode.mutate('allowlist')} disabled={setMode.isPending} className="ml-auto min-h-11 rounded px-2 text-xs font-medium underline underline-offset-4 hover:bg-gray-100 md:min-h-0 md:py-1 dark:hover:bg-gray-800">
+        <Button variant="link" size="sm" className="ml-auto text-xs underline" onClick={() => setMode.mutate('allowlist')} disabled={setMode.isPending}>
           Go back online (allowlist)
-        </button>
+        </Button>
       ) : (
-        <button type="button" onClick={() => setMode.mutate('offline')} disabled={setMode.isPending} className="ml-auto min-h-11 rounded px-2 text-xs font-medium underline underline-offset-4 hover:bg-gray-100 md:min-h-0 md:py-1 dark:hover:bg-gray-800">
+        <Button variant="link" size="sm" className="ml-auto text-xs underline" onClick={() => setMode.mutate('offline')} disabled={setMode.isPending}>
           Go offline
-        </button>
+        </Button>
       )}
     </div>
   );

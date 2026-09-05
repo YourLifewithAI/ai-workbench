@@ -7,6 +7,7 @@ import { api } from '../lib/api.js';
 import { pushAvailability, subscribeToPush, unsubscribeFromPush } from '../lib/push.js';
 import { Button } from './ui/button.js';
 import { Card } from './ui/card.js';
+import { CardTitle } from './ui/text.js';
 
 const EVENTS: { kind: PushEventKind; label: string; note: string }[] = [
   { kind: 'approval-requested', label: 'An agent asks permission', note: 'Refused automatically after 30 minutes, so this is the one worth a buzz.' },
@@ -42,7 +43,7 @@ export function PushSettings() {
 
   return (
     <Card>
-      <h2 className="font-medium">Notifications</h2>
+      <CardTitle>Notifications</CardTitle>
       <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
         A notification carries an id and a kind — never the output, the document, or what the agent said. Tapping it opens the workbench, which fetches the rest once you are back in.
       </p>

@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api.js';
 import { Badge, Card } from '../components/ui/card.js';
+import { CardTitle, Subheading } from './ui/text.js';
 
 export function PrivacyInspector({ runId }: { runId: string }) {
   const q = useQuery({ queryKey: ['privacy', runId], queryFn: () => api.privacy(runId), enabled: runId !== '' });
@@ -20,7 +21,7 @@ export function PrivacyInspector({ runId }: { runId: string }) {
 
       {q.data.destinations.length ? (
         <Card>
-          <h3 className="font-medium">Who received it</h3>
+          <CardTitle as="h3">Who received it</CardTitle>
           <ul className="mt-2 space-y-2 text-sm">
             {q.data.destinations.map((d) => {
               const policy = (d.dataPolicy ?? {}) as { trainsOnContent?: string; retentionDays?: number };
@@ -42,7 +43,7 @@ export function PrivacyInspector({ runId }: { runId: string }) {
 
       {q.data.egress.length ? (
         <div>
-          <h3 className="font-medium">Every attempt to leave this machine</h3>
+          <CardTitle as="h3">Every attempt to leave this machine</CardTitle>
           <ul className="mt-2 space-y-2">
             {q.data.egress.map((e) => (
               <li key={e.id}>
@@ -56,7 +57,7 @@ export function PrivacyInspector({ runId }: { runId: string }) {
                   <div className="space-y-2 border-t border-gray-100 px-3 py-2 dark:border-gray-800">
                     {e.reason ? <p className="text-sm text-gray-700 dark:text-gray-300">{e.reason}</p> : null}
                     <div>
-                      <h4 className="text-sm font-medium">Body as stored <span className="font-normal text-gray-600 dark:text-gray-400">(secrets already redacted)</span></h4>
+                      <Subheading as="h4">Body as stored <span className="font-normal text-gray-600 dark:text-gray-400">(secrets already redacted)</span></Subheading>
                       <pre tabIndex={0} className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 font-mono text-xs dark:bg-gray-950">{e.bodyRedacted || '(empty)'}</pre>
                     </div>
                   </div>

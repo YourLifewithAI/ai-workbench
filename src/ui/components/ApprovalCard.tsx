@@ -6,6 +6,7 @@ import type { ApprovalItem } from '../../shared/api/index.js';
 import { api } from '../lib/api.js';
 import { Button } from './ui/button.js';
 import { Badge, Card } from './ui/card.js';
+import { CardTitle } from './ui/text.js';
 
 /** What this action would actually do, said plainly. The card is read under time pressure; the tool id is not enough. */
 function riskLine(tool: string, args: Record<string, unknown>): string {
@@ -41,9 +42,9 @@ export function ApprovalCard({ item, focused }: { item: ApprovalItem; focused?: 
     <Card className={focused ? 'border-l-4 border-l-amber-600 ring-2 ring-blue-700 dark:border-l-amber-400 dark:ring-sky-400' : 'border-l-4 border-l-amber-600 dark:border-l-amber-400'}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="font-medium">
-            {item.subject} <span className="font-mono text-xs text-gray-700 dark:text-gray-300">{item.stepId}</span>
-          </h3>
+          <CardTitle as="h3">
+            {item.subject} <span className="font-mono text-xs text-gray-600 dark:text-gray-400">{item.stepId}</span>
+          </CardTitle>
           <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
             <Link to={`/runs/${item.runId}`} className="underline underline-offset-4">run {item.runId.slice(-8)}</Link>
             {' · '}refused automatically at <time dateTime={item.expiresAt}>{expires.toLocaleTimeString()}</time> if nobody answers
@@ -56,7 +57,7 @@ export function ApprovalCard({ item, focused }: { item: ApprovalItem; focused?: 
         {item.actions.map((action) => (
           <li key={action.id} className="rounded border border-gray-200 p-3 dark:border-gray-800">
             <p className="text-sm">{riskLine(action.tool, action.args)}</p>
-            <p className="mt-1 text-xs text-gray-700 dark:text-gray-300">
+            <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
               <span className="font-mono">{action.tool}</span> · {action.policy}
             </p>
           </li>

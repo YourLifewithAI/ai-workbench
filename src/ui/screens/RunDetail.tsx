@@ -12,6 +12,7 @@ import { PrivacyInspector } from '../components/PrivacyInspector.js';
 import { BudgetBar } from '../components/BudgetBar.js';
 import { RunGraph } from '../components/RunGraph.js';
 import { CANCELLABLE, stateTone } from './Runs.js';
+import { ScreenTitle, SectionTitle, Subheading } from '../components/ui/text.js';
 
 const TERMINAL = new Set(['run-completed', 'run-failed', 'run-cancelled', 'run-interrupted']);
 
@@ -71,7 +72,7 @@ export function RunDetail() {
   return (
     <section aria-labelledby="screen-title">
       <p className="text-sm"><Link to="/runs" className="text-blue-700 underline underline-offset-4 dark:text-sky-300">← All runs</Link></p>
-      <h1 id="screen-title" className="mt-2 text-2xl font-semibold">Run <span className="font-mono text-lg">{id}</span></h1>
+      <ScreenTitle className="mt-2">Run <span className="font-mono text-lg">{id}</span></ScreenTitle>
       {run.isError ? <p role="alert" className="mt-3 text-red-700 dark:text-red-300">{run.error.message}</p> : null}
 
       {summary ? <SummaryCard summary={summary} className="mt-4" /> : null}
@@ -95,7 +96,7 @@ export function RunDetail() {
 
           {workflow.data ? (
             <>
-              <h2 className="mt-6 text-lg font-medium">Graph</h2>
+              <SectionTitle className="mt-6">Graph</SectionTitle>
               <Card className="mt-2"><RunGraph workflow={workflow.data} states={run.data.steps} /></Card>
             </>
           ) : null}
@@ -117,7 +118,7 @@ export function RunDetail() {
 
           {tab === 'privacy' ? <div className="mt-4"><PrivacyInspector runId={id} /></div> : null}
 
-          {tab === 'trace' ? <><h2 className="mt-6 text-lg font-medium">Steps</h2>
+          {tab === 'trace' ? <><SectionTitle className="mt-6">Steps</SectionTitle>
           <div className="mt-2 space-y-4">
             {run.data.steps.map((step) => (
               <StepBlock key={step.stepId} step={step} events={events} streaming={streaming[step.stepId]} run={run.data!} />
@@ -130,7 +131,7 @@ export function RunDetail() {
 
       {tab === 'trace' ? (
         <>
-      <h2 className="mt-8 text-lg font-medium">Raw timeline</h2>
+      <SectionTitle className="mt-8">Raw timeline</SectionTitle>
       <p className="text-sm text-gray-600 dark:text-gray-400">Every event this run wrote, in order — the same lines <code className="font-mono">workbench trace</code> prints.</p>
       {streamError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{streamError}</p> : null}
       <ol className="mt-3 space-y-2" aria-live="polite" aria-relevant="additions">
@@ -155,19 +156,19 @@ function StepBlock({ step, events, streaming, run }: { step: StepSummary; events
 
       {streaming !== undefined ? (
         <div className="mt-3">
-          <h3 className="text-sm font-medium">Streaming<span className="sr-only"> output, updating live</span></h3>
+          <Subheading>Streaming<span className="sr-only"> output, updating live</span></Subheading>
           <pre tabIndex={0} aria-live="polite" className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 font-mono text-sm dark:bg-gray-950">{streaming}<span aria-hidden="true" className="opacity-60">▌</span></pre>
         </div>
       ) : finalText ? (
         <div className="mt-3">
-          <h3 className="text-sm font-medium">Output</h3>
+          <Subheading>Output</Subheading>
           <pre tabIndex={0} className="mt-1 max-h-96 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 font-mono text-sm dark:bg-gray-950">{finalText}</pre>
         </div>
       ) : null}
 
       {calls.length ? (
         <div className="mt-3">
-          <h3 className="text-sm font-medium">Model calls</h3>
+          <Subheading>Model calls</Subheading>
           <ul className="mt-1 space-y-2">
             {calls.filter((e) => e.type === 'model-completed' || e.type === 'model-aborted').map((e) => (
               <li key={e.seq}><ModelCallBlock completed={e} started={calls.find((s) => s.type === 'model-started' && s.seq < e.seq)} /></li>
@@ -196,7 +197,7 @@ function ModelCallBlock({ completed, started }: { completed: EventRecord; starte
       <div className="space-y-3 border-t border-gray-100 px-3 py-2 dark:border-gray-800">
         {request ? (
           <div>
-            <h4 className="text-sm font-medium">Compiled prompt</h4>
+            <Subheading as="h4">Compiled prompt</Subheading>
             <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">System ({request.system?.length ?? 0} chars) · {request.messages?.length ?? 0} message(s) · {request.tools?.length ?? 0} tool(s) · prompt {String(p['promptVersion'] ?? '').replace('sha256:', '').slice(0, 12)} · agent {String(p['agentVersion'] ?? '').replace('sha256:', '').slice(0, 12)}</p>
             <pre tabIndex={0} className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 font-mono text-xs dark:bg-gray-950">{request.system}</pre>
             {request.messages?.map((m, i) => (
@@ -209,13 +210,13 @@ function ModelCallBlock({ completed, started }: { completed: EventRecord; starte
         ) : null}
         {response?.content?.length ? (
           <div>
-            <h4 className="text-sm font-medium">Response</h4>
+            <Subheading as="h4">Response</Subheading>
             <pre tabIndex={0} className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-3 font-mono text-xs dark:bg-gray-950">{response.content.map((c) => c.text ?? `[${c.type}]`).join('\n')}</pre>
           </div>
         ) : null}
         {failed ? (
           <div>
-            <h4 className="text-sm font-medium">Error</h4>
+            <Subheading as="h4">Error</Subheading>
             <pre tabIndex={0} className="mt-1 overflow-auto whitespace-pre-wrap rounded bg-red-50 p-3 font-mono text-xs text-red-900 dark:bg-red-950 dark:text-red-100">{JSON.stringify(p['error'], null, 2)}</pre>
           </div>
         ) : null}

@@ -7,6 +7,7 @@ import type { AgentGrantSummary, GrantCell } from '../../shared/api/index.js';
 import { api } from '../lib/api.js';
 import { Badge, Card } from '../components/ui/card.js';
 import { Button } from '../components/ui/button.js';
+import { Prose, ScreenTitle, SectionTitle } from '../components/ui/text.js';
 
 const NET_MODE_NOTE: Record<string, string> = {
   offline: 'no tool reaches the network',
@@ -35,17 +36,17 @@ export function Tools() {
 
   return (
     <section aria-labelledby="screen-title">
-      <h1 id="screen-title" className="text-2xl font-semibold">Tools</h1>
-      <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+      <ScreenTitle>Tools</ScreenTitle>
+      <Prose className="mt-1">
         Tools are denied until you grant them. What an agent asks for in its own file is a request; this table is the answer.
-      </p>
+      </Prose>
 
       {q.isPending ? <p className="mt-4" role="status">Loading…</p> : null}
       {q.isError ? <p className="mt-4 text-red-700 dark:text-red-300" role="alert">Could not load tools: {q.error.message}</p> : null}
 
       {q.data ? (
         <>
-          <h2 className="mt-6 text-lg font-medium">Who may use what</h2>
+          <SectionTitle className="mt-6">Who may use what</SectionTitle>
           <div className="mt-2 overflow-x-auto" tabIndex={0}>
             <table className="w-full text-left text-sm">
               <caption className="sr-only">The tool by agent grant matrix. Each cell allows, denies, or leaves a tool unset for one agent.</caption>
@@ -62,7 +63,7 @@ export function Tools() {
                   <tr key={tool.id} className="border-b border-gray-100 align-top dark:border-gray-800">
                     <th scope="row" className="py-2 pr-3 font-normal">
                       <span className="font-mono text-xs">{tool.id}</span>
-                      <span className="ml-2 text-xs text-gray-700 dark:text-gray-300">{TIER_NOTE[tool.tier]}</span>
+                      <span className="ml-2 text-xs text-gray-600 dark:text-gray-400">{TIER_NOTE[tool.tier]}</span>
                       {tool.approvalByDefault ? <Badge tone="busy" className="ml-2">always asks</Badge> : null}
                       {tool.usesNetwork ? <Badge tone="busy" className="ml-2">leaves the machine</Badge> : null}
                       {tool.origin?.kind === 'mcp' ? <Badge className="ml-2">{tool.origin.server}</Badge> : null}
@@ -98,7 +99,7 @@ export function Tools() {
           </div>
           {setGrant.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{setGrant.error.message}</p> : null}
 
-          <h2 className="mt-8 text-lg font-medium">What can run code</h2>
+          <SectionTitle className="mt-8">What can run code</SectionTitle>
           <Card className="mt-2" data-testid="sandbox-status">
             {q.data.sandbox.available ? (
               <>
@@ -107,7 +108,7 @@ export function Tools() {
                   Code runs in Deno with no network and no filesystem beyond what an agent was granted. A script reaches
                   its tools through the bridge, where every check still applies.
                 </p>
-                <p className="mt-2 text-xs text-gray-700 dark:text-gray-300">
+                <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
                   <span className="font-mono">{q.data.sandbox.path}</span> · stopped after{' '}
                   {Math.round(q.data.sandbox.limits.wallClockMs / 1000)}s, {q.data.sandbox.limits.memoryMb} MB, or{' '}
                   {Math.round(q.data.sandbox.limits.maxOutputBytes / 1024)} KB of output
@@ -120,7 +121,7 @@ export function Tools() {
                   Deno is not installed, so nothing can be executed. These tools exist and cannot run:{' '}
                   <span className="font-mono text-xs">{q.data.sandbox.disabled.join(', ') || 'none'}</span>.
                 </p>
-                <p className="mt-2 text-xs text-gray-700 dark:text-gray-300">
+                <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
                   Install Deno (deno.land) and restart. There is no unsandboxed fallback: running a model's code in this
                   process would be the thing the sandbox exists to prevent.
                 </p>
@@ -130,7 +131,7 @@ export function Tools() {
 
           {q.data.mcpServers.length ? (
             <>
-              <h2 className="mt-8 text-lg font-medium">MCP servers</h2>
+              <SectionTitle className="mt-8">MCP servers</SectionTitle>
               <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
                 Tools from outside this workbench. They are granted in the same table as the built-ins, and a tool the
                 server did not mark read-only asks you every time.
@@ -146,7 +147,7 @@ export function Tools() {
                       </p>
                       {server.error ? <p className="mt-1 text-sm text-red-700 dark:text-red-300">{server.error}</p> : null}
                       {server.tools.length ? (
-                        <p className="mt-1 text-xs text-gray-700 dark:text-gray-300">
+                        <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
                           <span className="font-mono">{server.tools.join(', ')}</span>
                         </p>
                       ) : null}
@@ -157,7 +158,7 @@ export function Tools() {
             </>
           ) : null}
 
-          <h2 className="mt-8 text-lg font-medium">Where they may go</h2>
+          <SectionTitle className="mt-8">Where they may go</SectionTitle>
           <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
             A granted network tool still only reaches what the policy allows. This is the policy as the fetch path
             computes it: the workspace's, narrowed by each agent's own.
@@ -215,7 +216,7 @@ export function Tools() {
             </table>
           </div>
 
-          <h2 className="mt-8 text-lg font-medium">What they may reach on disk</h2>
+          <SectionTitle className="mt-8">What they may reach on disk</SectionTitle>
           <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
             The other half of a grant: the workspace paths an agent may read and write, and the repositories it may
             edit on a branch. A repository tool works only inside a granted checkout and only on the branches named
@@ -252,7 +253,7 @@ export function Tools() {
             </table>
           </div>
 
-          <h2 className="mt-8 text-lg font-medium">What each tool does</h2>
+          <SectionTitle className="mt-8">What each tool does</SectionTitle>
           <ul className="mt-2 space-y-2">
             {q.data.tools.map((tool) => (
               <li key={tool.id}>
@@ -266,7 +267,7 @@ export function Tools() {
 
           {q.data.remembered.length ? (
             <>
-              <h2 className="mt-8 text-lg font-medium">Approvals you agreed to remember</h2>
+              <SectionTitle className="mt-8">Approvals you agreed to remember</SectionTitle>
               <ul className="mt-2 space-y-1 text-sm">
                 {q.data.remembered.map((rule) => (
                   <li key={JSON.stringify(rule)} className="font-mono text-xs">{JSON.stringify(rule)}</li>
@@ -275,7 +276,7 @@ export function Tools() {
             </>
           ) : null}
 
-          <h2 className="mt-8 text-lg font-medium">Refused</h2>
+          <SectionTitle className="mt-8">Refused</SectionTitle>
           {q.data.denials.length === 0 ? (
             <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">Nothing has been refused. This fills in as agents ask for things they do not have.</p>
           ) : (
@@ -331,8 +332,8 @@ function RepoGrants({ grant, onChanged }: { grant: AgentGrantSummary; onChanged:
           {grant.repos.map((repo) => (
             <li key={`${repo.path}:${repo.branches}`} className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-xs break-all">{repo.path}</span>
-              <span className="text-xs text-gray-700 dark:text-gray-300">may push to <span className="font-mono">{repo.branches}</span></span>
-              {repo.deny.length ? <span className="text-xs text-gray-700 dark:text-gray-300">may not write <span className="font-mono">{repo.deny.join(', ')}</span></span> : null}
+              <span className="text-xs text-gray-600 dark:text-gray-400">may push to <span className="font-mono">{repo.branches}</span></span>
+              {repo.deny.length ? <span className="text-xs text-gray-600 dark:text-gray-400">may not write <span className="font-mono">{repo.deny.join(', ')}</span></span> : null}
               <Button size="sm" variant="ghost" onClick={() => save.mutate(current.filter((r) => r.path !== repo.path || r.branches !== repo.branches))} disabled={save.isPending} aria-label={`Remove repository ${repo.path} from ${grant.agentId}`}>Remove</Button>
             </li>
           ))}

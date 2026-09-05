@@ -7,6 +7,7 @@ import { EmptyState } from '../components/EmptyState.js';
 import { BudgetLine } from '../components/BudgetBar.js';
 import { Button } from '../components/ui/button.js';
 import { Badge } from '../components/ui/card.js';
+import { ScreenTitle } from '../components/ui/text.js';
 
 /** The states a run can still be stopped from (workflows-and-execution.md §Cancel). */
 export const CANCELLABLE = new Set<RunSummary['state']>(['queued', 'running', 'waiting_review', 'waiting_approval']);
@@ -60,7 +61,7 @@ export function Runs() {
   return (
     <section aria-labelledby="screen-title">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 id="screen-title" className="text-2xl font-semibold">Runs</h1>
+        <ScreenTitle>Runs</ScreenTitle>
         <Button variant="secondary" size="sm" onClick={() => example.mutate(undefined, { onSuccess: ({ runId }) => navigate(`/runs/${runId}`) })} disabled={example.isPending}>
           {example.isPending ? 'Starting…' : 'Run the example'}
         </Button>
@@ -82,7 +83,7 @@ export function Runs() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="font-medium">{r.agentId ?? r.workflowId ?? r.kind}</p>
-                  <p className="mt-0.5 text-xs text-gray-700 dark:text-gray-300">
+                  <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">
                     <time dateTime={r.startedAt}>{new Date(r.startedAt).toLocaleString()}</time>
                   </p>
                 </div>
