@@ -127,3 +127,8 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > Amendment (F4, 2026-09-05): **Review** no longer shows a step's intermediate output (`output: { document:
 > null }`) as unreviewed; the auditor's JSON, a map's per-item drafts and the like stay out of the queue. A
 > blocking step is still shown, whatever its output setting.
+
+> Amendment (F8, 2026-09-05): **Dashboard** — *Needs you* counts the permissions review's open findings in one
+> line under the blocking items (`3 permission findings`, linking to Review). Findings block nothing, so they are
+> never cards there; when nothing is blocked and findings are open, the empty state says "Nothing is blocked"
+> rather than "nothing is waiting". `GET /dashboard` carries the count as `findings`.

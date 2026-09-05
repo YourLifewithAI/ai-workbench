@@ -594,6 +594,8 @@ export const DashboardResponse = z.object({
   schedulesPaused: z.boolean().default(false),
   schedules: z.array(ScheduleSummary),
   networkMode: z.string(),
+  /** How many of the permissions review's findings are open (F8). Nothing is blocked by them; Review decides each. */
+  findings: z.number().int().nonnegative().default(0),
 });
 export type DashboardResponse = z.infer<typeof DashboardResponse>;
 

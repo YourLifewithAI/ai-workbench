@@ -75,7 +75,12 @@ test('@run-14 the permissions review lands in the queue; one finding is applied,
   const { runId } = (await started.json()) as { runId: string };
   await expect.poll(async () => ((await (await request.get(base() + `/api/v1/runs/${runId}`, { headers: auth })).json()) as { state: string }).state, { timeout: 60_000 }).toBe('completed');
 
-  await page.goto(base() + '/review#token=' + token());
+  // The Dashboard counts them under Needs you (F8) and the count is the way to Review.
+  await page.goto(base() + '/dashboard#token=' + token());
+  await expect(page.getByRole('heading', { name: 'Needs you' })).toBeVisible();
+  const count = page.getByTestId('findings-count');
+  await expect(count).toContainText('2 permission findings from the review are waiting in Review.');
+  await count.getByRole('link', { name: '2 permission findings' }).click();
   await expect(page.getByRole('heading', { name: 'Permissions review' })).toBeVisible();
   const reviewer = page.getByTestId('finding-unjustified:reviewer:memory.remember');
   await expect(reviewer.getByRole('heading', { name: 'reviewer holds memory.remember; the auditor reads its instructions as no longer needing it.' })).toBeVisible();
@@ -97,4 +102,9 @@ test('@run-14 the permissions review lands in the queue; one finding is applied,
   await expect(researcher).toHaveCount(0);
   expect(await cellOf('researcher', 'http.fetch')).toBe('allow');
   await expect(page.getByRole('heading', { name: 'Permissions review' })).toHaveCount(0);
+
+  // Decided, so the Dashboard has nothing to count.
+  await page.goto(base() + '/dashboard#token=' + token());
+  await expect(page.getByRole('heading', { name: 'Needs you' })).toBeVisible();
+  await expect(page.getByTestId('findings-count')).toHaveCount(0);
 });
