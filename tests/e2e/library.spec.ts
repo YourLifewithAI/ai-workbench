@@ -77,6 +77,9 @@ test('@run-03 the exported folder is one a human can read', async () => {
   fs.rmSync(out, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
+// The suite shares one runtime, and agents.spec's @run-18 case reads this same space in parallel, asserting
+// that the Researcher is *not* one of anthology's agents. So the agent this test adds (and briefly leaves on
+// disk) is the Judge, whom no other case looks for; the Researcher is only ever ticked into the refused save.
 test('@run-18 a project\'s space is a form on its Library page, saved hash-pinned', async ({ page, request }) => {
   await page.goto(base() + '/library/anthology#token=' + token());
   const card = page.getByTestId('space');
@@ -84,25 +87,25 @@ test('@run-18 a project\'s space is a form on its Library page, saved hash-pinne
   await expect(card.getByLabel('Goals')).toHaveValue('');
   await expect(card.getByLabel('Goals').getByRole('option', { name: 'bible.md' })).toBeAttached();
   await expect(card.getByRole('checkbox', { name: 'weaver' })).toBeChecked();
-  await expect(card.getByRole('checkbox', { name: 'researcher' })).not.toBeChecked();
+  await expect(card.getByRole('checkbox', { name: 'judge' })).not.toBeChecked();
   await expectNoA11yViolations(page, 'Library project with its space');
 
   // A change is a save, and the runtime reads it at once.
-  await card.getByRole('checkbox', { name: 'researcher' }).check();
+  await card.getByRole('checkbox', { name: 'judge' }).check();
   await expect(card.getByText('Unsaved.')).toBeVisible();
   await card.getByRole('button', { name: 'Save space' }).click();
   await expect(card.getByRole('status')).toHaveText(/Saved/);
   const auth = { Authorization: `Bearer ${token()}` };
   const saved = (await (await request.get(base() + '/api/v1/projects/anthology/space', { headers: auth })).json()) as { space: { agents: string[] } };
-  expect(saved.space.agents).toContain('researcher');
+  expect(saved.space.agents).toContain('judge');
 
   // The file moved underneath (another save with the version this page loaded): the next save is refused, not applied.
   const current = (await (await request.get(base() + '/api/v1/projects/anthology/space', { headers: auth })).json()) as { version: string; space: Record<string, unknown> };
   await request.put(base() + '/api/v1/projects/anthology/space', { headers: { ...auth, 'Content-Type': 'application/json' }, data: { space: { ...current.space, agents: ['architect', 'weaver', 'cutter'] }, baseVersion: current.version } });
-  await card.getByRole('checkbox', { name: 'judge' }).check();
+  await card.getByRole('checkbox', { name: 'researcher' }).check();
   await card.getByRole('button', { name: 'Save space' }).click();
   await expect(card.getByRole('alert')).toContainText('changed since this form loaded it');
   await card.getByRole('button', { name: 'Load what is on disk' }).click();
-  await expect(card.getByRole('checkbox', { name: 'researcher' })).not.toBeChecked();
   await expect(card.getByRole('checkbox', { name: 'judge' })).not.toBeChecked();
+  await expect(card.getByRole('checkbox', { name: 'researcher' })).not.toBeChecked();
 });
