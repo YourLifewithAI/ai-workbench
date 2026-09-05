@@ -78,7 +78,8 @@ export const Workflow = z.object({
   outputs: z.record(z.string(), Template).default({}),
   budgets: Budgets.partial().optional(),
   permissions: Permissions.optional(),
-  schedule: z.object({ cron: z.string(), inputs: z.record(z.string(), z.unknown()).default({}), catchUp: z.enum(['none', 'once']).default('none') }).optional(),
+  /** `enabled: false` seeds the row paused: shipped for the owner to switch on, never nagging on day one (RUN-14). */
+  schedule: z.object({ cron: z.string(), inputs: z.record(z.string(), z.unknown()).default({}), catchUp: z.enum(['none', 'once']).default('none'), enabled: z.boolean().default(true) }).optional(),
 });
 export type Workflow = z.infer<typeof Workflow>;
 

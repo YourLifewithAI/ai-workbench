@@ -6,7 +6,7 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import {
-  RerunRequest, ApprovalDecisionRequest, CompareRequest, CreateWorkflowRequest, SaveWorkflowRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetReposRequest, SetPriceRequest, SetEnabledRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type DeleteWorkflowResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
+  RerunRequest, ApprovalDecisionRequest, CompareRequest, CreateWorkflowRequest, FindingDecisionRequest, SaveWorkflowRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetReposRequest, SetPriceRequest, SetEnabledRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type DeleteWorkflowResponse, type PermissionFinding, type PermissionFindingsResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
@@ -75,6 +75,11 @@ export interface AppDeps {
   setNetworkMode: (mode: SetNetworkModeRequest['mode']) => void;
   /** A human granting or withdrawing a tool. This is the authority; what an agent's file asks for is not. */
   setGrant: (agentId: string, permissions: unknown) => void;
+  /** The permissions review (D-63): what the auditor proposed, and the person's decision on each. */
+  findings: {
+    list: (state: 'open' | 'applied' | 'dismissed' | 'all') => PermissionFinding[];
+    decide: (id: string, decision: 'apply' | 'dismiss') => PermissionFinding;
+  };
   push: PushStore;
   vapidPublicKey: () => string;
   artifacts: ArtifactStore;
@@ -491,6 +496,31 @@ export function createApp(deps: AppDeps): Hono {
     const agent = ws.agents.get(parsed.data.agentId)!;
     const tool = deps.engine.tools.catalog().find((t) => t.id === parsed.data.toolId)!;
     return json(c, deps.engine.tools.grantCell(agent, tool));
+  });
+
+  // ---- the permissions review (D-63, RUN-14) --------------------------------------------------
+  // Findings are proposals. Reading them is like reading the queue; deciding one is a human's matrix write.
+  app.get('/api/v1/permissions/findings', (c) => {
+    const state = c.req.query('state') ?? 'open';
+    if (!['open', 'applied', 'dismissed', 'all'].includes(state)) return fail(c, 'validation', 'state is one of open, applied, dismissed, all.', 400);
+    const body: PermissionFindingsResponse = { findings: deps.findings.list(state as 'open' | 'applied' | 'dismissed' | 'all') };
+    return json(c, body);
+  });
+
+  app.post('/api/v1/permissions/findings/:id', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = FindingDecisionRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'A decision is { decision: "apply" | "dismiss" }.', 400, parsed.error.issues);
+    try {
+      return json(c, deps.findings.decide(c.req.param('id'), parsed.data.decision));
+    } catch (e) {
+      return mapError(c, e);
+    }
   });
 
   // A repository grant from the Tools screen (D-66). Still a person writing it — on a form rather than in a

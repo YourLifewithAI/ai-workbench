@@ -130,3 +130,6 @@ Schedules live in the `schedules` table and are edited in the Workflows screen. 
 >   could make itself — and it is how `coding-run` files the gate's real output into the handoff and commits
 >   and pushes whether or not the model remembers to.
 
+> Amendment (RUN-14, 2026-09-05): a workflow's `schedule` block takes `enabled` (default `true`). A shipped
+> workflow that should never run unasked — the permissions review is the first — seeds its schedule row
+> paused; the owner switches it on from the Workflows screen or `workbench schedules`.

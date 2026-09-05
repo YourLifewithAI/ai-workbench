@@ -98,3 +98,12 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > file changed on disk after it was opened; the person then loads what is on disk or saves the draft over it,
 > explicitly. *Delete…* asks inline and says how many schedules go with the workflow. A file that failed to
 > load offers *Delete…* and names `workbench workflows edit <id>`.
+
+> Amendment (RUN-14, 2026-09-05): **Review** gains a *Permissions review* section above the queue, shown only
+> when the auditor has left findings. Each finding is a card: a headline in the runtime's words (`researcher
+> holds http.fetch and has never used it.`), the evidence as bullet lines (the age, the zero, the streak, the
+> hosts), the auditor's note when it added one (rendered as text), and one button that says exactly what it
+> will do — *Take back http.fetch from researcher*, *Stop asking before weaver uses artifact.write*, *Narrow
+> researcher's hosts to api.example.com* — plus *Dismiss*. Pressing the button is the person writing the
+> matrix, the same act as on the Tools screen; a finding with nothing to flip says so and offers only Dismiss.
+> **Workflows** shows `permissions-review` with its schedule paused: the owner switches it on.

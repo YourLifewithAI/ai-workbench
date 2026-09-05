@@ -1,0 +1,13 @@
+{
+  "match": { "systemIncludes": "The Auditor" },
+  "respond": {
+    "json": {
+      "findings": [
+        { "kind": "unjustified", "agentId": "researcher", "tool": "http.fetch", "note": "The Researcher's instructions say to answer from search results and cite what it read; nothing there needs a raw page fetch." },
+        { "kind": "unjustified", "agentId": "reviewer", "tool": "memory.remember", "note": "The Reviewer's instructions describe a one-off read of a briefing and never mention keeping anything between runs." }
+      ],
+      "summary": "A mock review: two grants whose instructions do not mention the tool. On a real model this reads the numbers first."
+    },
+    "usage": { "input": 3200, "output": 180 }
+  }
+}

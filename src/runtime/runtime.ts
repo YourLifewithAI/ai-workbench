@@ -11,6 +11,10 @@ import { packagePaths, type PackagePaths } from './paths.js';
 import type { Bootstrap } from './bootstrap.js';
 import { loadAgents, loadWorkflows, loadWorkspace, type BrokenAgent, type Workspace } from './workspace/loader.js';
 import { createWorkflow, deleteWorkflowFile, saveWorkflow, WorkflowWriteError } from './workspace/workflows.js';
+import { FindingStore, logGrantChange } from './permissions/store.js';
+import { applyProposal, DEFAULT_THRESHOLDS, gatherFacts, recordCatalogSeen, type PermissionFacts, type ReviewThresholds } from './permissions/review.js';
+import { proposeFindings } from './permissions/propose.js';
+import { grantFor } from './security/permissions.js';
 import { Redactor } from './security/redaction.js';
 import { writeSecretFile } from './security/secretFile.js';
 import { loadCredentials, type Credentials } from './security/credentials.js';
@@ -29,7 +33,7 @@ import { WorkspaceError } from './util/errors.js';
 import type { LookupFn } from './security/dns.js';
 import type { NetConnector } from './security/netfetch.js';
 import type { EgressAttempt, EgressDecision } from './security/egress.js';
-import { Engine } from './engine/run.js';
+import { Engine, ConflictError, NotFoundError, ValidationError } from './engine/run.js';
 import { AdapterRegistry, type FetchLike } from './models/adapter.js';
 import { MockAdapter } from './models/adapters/mock/index.js';
 import { MockUpstream } from './models/adapters/mock/upstream.js';
@@ -40,7 +44,7 @@ import { createApp } from './api/app.js';
 import { ArtifactStore } from './artifacts/store.js';
 import { listModels, pollLocalEndpoints, providerOf, type PollResult } from './models/availability.js';
 import { applyFinding, diffProvider, pinsFor } from './models/discovery.js';
-import type { CatalogFinding, CreateWorkflowRequest, DeleteWorkflowResponse, DiscoveryReport } from '../shared/api/index.js';
+import type { CatalogFinding, CreateWorkflowRequest, DeleteWorkflowResponse, DiscoveryReport, PermissionFinding } from '../shared/api/index.js';
 import { Workflow, type LoadedWorkflow } from '../shared/workflow.js';
 import { ModelsFile, type CatalogEntry } from '../shared/model.js';
 import { EgressDeniedError } from './security/egress.js';
@@ -121,6 +125,8 @@ export class Runtime {
     readonly sandbox: Sandbox,
     /** What the plugin loader found at startup: loaded, refused, or waiting to be acknowledged (D-32). */
     readonly plugins: PluginStatus[],
+    /** What the permissions review proposed and what the person did with it (D-63). */
+    readonly reviewFindings: FindingStore,
   ) {
     this.log = logHandle.logger;
     // Generated once per workspace and kept at 0600 next to the runtime token: whoever holds these can send
@@ -176,6 +182,7 @@ export class Runtime {
       artifacts,
       setNetworkMode: (mode) => this.setNetworkMode(mode),
       setGrant: (agentId, permissions) => this.setGrant(agentId, permissions),
+      findings: { list: (state) => this.reviewFindings.list(state), decide: (id, decision) => this.decideFinding(id, decision) },
       push: this.push,
       vapidPublicKey: () => this.vapid.publicKey,
       db,
@@ -225,7 +232,8 @@ export class Runtime {
       childEnvAllowlist: opts.bootstrap.childEnvAllowlist,
       log: logHandle.logger,
     });
-    const engine = new Engine({
+    const factsByRun = new Map<string, PermissionFacts>();
+    const engine: Engine = new Engine({
       db, events, workspace: () => workspace, registry, credentials, redactor,
       log: logHandle.logger, providerOverride: opts.providerOverride ?? null,
       runtimePort: () => portRef.current,
@@ -236,6 +244,16 @@ export class Runtime {
       sandbox,
       childEnvAllowlist: opts.bootstrap.childEnvAllowlist,
       mcp: mcpHost,
+      // The auditor's tools (RUN-14). The facts a run was shown are kept by run id, so what it proposes is
+      // judged against the candidates it saw, at the thresholds it asked for.
+      permissionsReview: {
+        facts: (thresholds, runId) => { const facts: PermissionFacts = runtime.permissionFacts(thresholds); factsByRun.set(runId, facts); return facts; },
+        propose: (findings, runId) => {
+          const facts: PermissionFacts = factsByRun.get(runId) ?? runtime.permissionFacts();
+          factsByRun.delete(runId);
+          return proposeFindings(runtime.reviewFindings, facts, findings, runId);
+        },
+      },
       // Tool egress writes the same egress_log rows a model call does, so the Privacy Inspector shows one story.
       net: {
         record: (attempt, decision) => runtime.recordEgress(attempt, decision),
@@ -263,11 +281,13 @@ export class Runtime {
     const plugins = await loader.load();
     for (const adapter of plugins.adapters) registry.register(adapter);
 
-    const runtime = new Runtime(opts, pkg, workspace, db, redactor, credentials, logHandle, events, registry, engine, portRef, artifacts, mcpHost, sandbox, plugins.statuses);
+    const runtime: Runtime = new Runtime(opts, pkg, workspace, db, redactor, credentials, logHandle, events, registry, engine, portRef, artifacts, mcpHost, sandbox, plugins.statuses, new FindingStore(db));
     // Configured MCP servers are spawned once, here, and their tools join the catalogue before anything runs.
     // A server that fails to start is on the Tools screen and in `doctor`; it does not stop the runtime.
     engine.tools.add(await mcpHost.start());
     engine.tools.add(plugins.tools);
+    // Every tool now in the catalogue gets a first-seen date, once, so "undecided" can mean "new" (RUN-14).
+    recordCatalogSeen(db, engine.tools.catalog());
     return runtime;
   }
 
@@ -595,9 +615,34 @@ export class Runtime {
 
   /** A human granting or withdrawing a tool. This is the authority; what an agent's own file asks for is not. */
   setGrant(agentId: string, permissions: unknown): void {
+    const before = grantFor(this.workspace.config, agentId);
     this.workspace.config.grants[agentId] = permissions;
     this.persistConfig(this.workspace.config);
-    this.log.info({ agentId }, 'a grant changed');
+    // The audit log the review reads for "since when": one row per field that moved, always by a human.
+    const rows = logGrantChange(this.db, agentId, before, grantFor(this.workspace.config, agentId));
+    this.log.info({ agentId, changed: rows }, 'a grant changed');
+  }
+
+  /** What the auditor sees (D-63): grant metadata and how it was used, never a trace, a memory or a document. */
+  permissionFacts(thresholds: Partial<ReviewThresholds> = {}): PermissionFacts {
+    return gatherFacts({ db: this.db, workspace: () => this.workspace, tools: () => this.engine.tools.catalog() }, { ...DEFAULT_THRESHOLDS, ...thresholds });
+  }
+
+  /**
+   * The person deciding a finding. Apply is a matrix write by the human — through `setGrant`, the same door the
+   * Tools screen uses, and logged the same way. Dismiss remembers the facts, so the finding stays quiet until
+   * they change. No agent reaches this: it sits behind the token like every other route.
+   */
+  decideFinding(id: string, decision: 'apply' | 'dismiss'): PermissionFinding {
+    const finding = this.reviewFindings.get(id);
+    if (!finding) throw new NotFoundError(`There is no finding with id "${id}".`);
+    if (finding.state !== 'open') throw new ConflictError(`That finding was already ${finding.state}.`);
+    if (decision === 'dismiss') return this.reviewFindings.decide(id, 'dismissed')!;
+    if (!finding.proposal) throw new ValidationError('This finding has nothing to apply: it is worth reading, and the change, if any, is yours to make on the Tools screen. Dismiss it when you have.');
+    if (!this.workspace.agents.has(finding.proposal.agentId)) throw new NotFoundError(`Agent "${finding.proposal.agentId}" is no longer in this workspace.`);
+    this.setGrant(finding.proposal.agentId, applyProposal(grantFor(this.workspace.config, finding.proposal.agentId), finding.proposal));
+    this.log.info({ finding: id, agentId: finding.proposal.agentId, tool: finding.proposal.tool ?? null }, 'a permissions finding was applied');
+    return this.reviewFindings.decide(id, 'applied')!;
   }
 
   /** Picks up edits to agent.json and instructions.md without a restart; a broken file becomes a listed error. */

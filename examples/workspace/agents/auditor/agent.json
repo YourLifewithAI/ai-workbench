@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "auditor",
+  "name": "The Auditor",
+  "description": "Reads how the grant matrix has actually been used and proposes what to take back. Proposes only; a person applies.",
+  "instructions": {
+    "file": "instructions.md"
+  },
+  "modelPolicy": {
+    "primary": "google/gemini-3.6-flash",
+    "fallbacks": [
+      "google/gemini-3.8-flash"
+    ]
+  },
+  "permissions": {
+    "tools": {
+      "permissions.facts": "allow",
+      "permissions.propose": "allow"
+    }
+  },
+  "review": "none",
+  "output": {
+    "kind": "json",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "candidate": { "type": "string" },
+              "kind": { "type": "string", "enum": ["unjustified"] },
+              "agentId": { "type": "string" },
+              "tool": { "type": "string" },
+              "note": { "type": "string", "maxLength": 600 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "summary": { "type": "string", "maxLength": 600 }
+      },
+      "required": ["findings", "summary"],
+      "additionalProperties": false
+    }
+  }
+}

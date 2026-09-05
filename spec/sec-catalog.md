@@ -42,6 +42,7 @@ Every run reads this file for the ids its brief lists (D-38). Each entry is a te
 | SEC-34 | `git.push` to a branch outside the grant's pattern is refused, `main` first among them; no merge tool exists; a coding agent cannot move `main` (D-66) | 16 |
 | SEC-35 | `check` runs only the command declared in the repository's `.workbench/repo.json`; an agent-supplied command is not an input; the child gets `childEnv()` and no credential (D-66) | 16 |
 | SEC-36 | A provider's model listing is a proposal and untrusted text: refresh writes nothing; accepting writes only the id, numbers and any stated price, never the display name or description; that text reaches no compiled prompt and renders as text; findings pass through the redactor like any body (D-64) | 15 |
+| SEC-37 | The auditor cannot read what it audits the access to: its grant is the two metadata tools, whose `maxPermissions` admit no path, host or credential, and a run of `permissions-review` makes no artifact, memory, knowledge, file, repository or web call. No run can write the grant matrix: no tool sets a grant, the finding routes sit behind the token and the origin check, and a review run leaves `config/workbench.json` and `grant_log` untouched (D-63) | 14 |
 
 > Amendment (RUN-19, 2026-09-04): SEC-05 and SEC-07 are written in POSIX terms, and Windows CI showed both
 > asserting the platform rather than the promise.
@@ -65,3 +66,7 @@ Every run reads this file for the ids its brief lists (D-38). Each entry is a te
 > under any grant — and SEC-08 is offline mode. The editor's write routes add nothing a tool can reach: they
 > sit behind SEC-01 and SEC-02 like every other route, and a draft that carries a credential leaves the runtime
 > redacted (SEC-06) while the file on disk holds what the owner typed. `tests/security/sec-11-workflow-editor.test.ts`.
+
+
+> Amendment (RUN-14, 2026-09-05): the RUN-14 brief cites SEC-08 for "only a human writes to the matrix"; as
+> with RUN-13, that promise is SEC-11 here, and the new row is SEC-37. `tests/security/sec-37-permissions-review.test.ts`.

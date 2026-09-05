@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import type { ReviewItem } from '../../shared/api/index.js';
+import type { PermissionFinding, ReviewItem } from '../../shared/api/index.js';
 import { api } from '../lib/api.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { Button } from '../components/ui/button.js';
@@ -72,6 +72,8 @@ export function Review() {
         {' '}<span className="text-gray-600 dark:text-gray-400">Keys: <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> move · <kbd className="font-mono">1</kbd>–<kbd className="font-mono">5</kbd> rate · <kbd className="font-mono">c</kbd> continue · <kbd className="font-mono">r</kbd> reject.</span>
       </p>
       <p role="status" aria-live="polite" className="sr-only">{said}</p>
+
+      <Findings />
 
       {q.isPending ? <p className="mt-4" role="status">Loading…</p> : null}
       {q.isError ? <p className="mt-4 text-red-700 dark:text-red-300" role="alert">Could not load the queue: {q.error.message}</p> : null}
@@ -163,6 +165,65 @@ export function Review() {
       </ul>
       {decide.isError ? <p role="alert" className="mt-3 text-sm text-red-700 dark:text-red-300">{decide.error.message}</p> : null}
       {rate.isError ? <p role="alert" className="mt-3 text-sm text-red-700 dark:text-red-300">{rate.error.message}</p> : null}
+    </section>
+  );
+}
+
+const KIND_LABEL: Record<PermissionFinding['kind'], string> = {
+  unused: 'never used', unjustified: 'instructions moved on', reach: 'wider than the need', fatigue: 'approval fatigue', undecided: 'undecided',
+};
+
+/**
+ * The permissions review's findings (D-63, RUN-14). Each is a proposal with the runtime's evidence and one
+ * button that does exactly what it says; pressing it is the person writing the matrix, nothing else is.
+ */
+function Findings() {
+  const client = useQueryClient();
+  const q = useQuery({ queryKey: ['findings'], queryFn: api.findings });
+  const [said, setSaid] = useState('');
+  const decide = useMutation({
+    mutationFn: (input: { id: string; decision: 'apply' | 'dismiss' }) => api.decideFinding(input.id, input.decision),
+    onSuccess: (finding) => {
+      setSaid(finding.state === 'applied' ? `Applied: ${finding.proposal?.label ?? 'the change'}.` : 'Dismissed until the facts change.');
+      void client.invalidateQueries({ queryKey: ['findings'] });
+      void client.invalidateQueries({ queryKey: ['tools'] });
+    },
+  });
+  const findings = q.data ?? [];
+  if (!findings.length) return <p role="status" aria-live="polite" className="sr-only">{said}</p>;
+  return (
+    <section aria-labelledby="findings-title" className="mt-6" data-testid="findings">
+      <h2 id="findings-title" className="text-lg font-semibold">Permissions review</h2>
+      <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+        What the auditor noticed about the grant matrix. It can only propose; a button here is you changing a grant, the same as on the Tools screen.
+      </p>
+      <p role="status" aria-live="polite" className="sr-only">{said}</p>
+      {decide.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{decide.error.message}</p> : null}
+      <ul className="mt-3 space-y-3">
+        {findings.map((f) => (
+          <li key={f.id}>
+            <Card className="border-l-4 border-l-amber-600 dark:border-l-amber-400" data-testid={`finding-${f.key}`}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <h3 className="font-medium">{f.headline}</h3>
+                <Badge>{KIND_LABEL[f.kind]}</Badge>
+              </div>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700 dark:text-gray-300">
+                {f.evidence.map((line, i) => <li key={i}>{line}</li>)}
+              </ul>
+              {f.note ? <p className="mt-2 rounded border-l-4 border-l-gray-300 bg-gray-50 p-2 text-sm dark:border-l-gray-700 dark:bg-gray-950">The auditor adds: {f.note}</p> : null}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {f.proposal ? (
+                  <Button size="sm" onClick={() => decide.mutate({ id: f.id, decision: 'apply' })} disabled={decide.isPending}>{f.proposal.label}</Button>
+                ) : (
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Nothing to flip here; the change, if any, is yours to make on the Tools screen.</span>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => decide.mutate({ id: f.id, decision: 'dismiss' })} disabled={decide.isPending}>Dismiss<span className="sr-only"> {f.headline}</span></Button>
+                {f.runId ? <Link to={`/runs/${f.runId}`} className="text-sm underline underline-offset-4">the review run</Link> : null}
+              </div>
+            </Card>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

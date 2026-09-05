@@ -104,3 +104,11 @@ Vocabularies: `runs.kind ∈ agent | workflow | experiment`; `runs.state ∈ que
 > Amendment (RUN-13, 2026-09-05): `workflow_versions` is also written by the editor's save and by create, not
 > only when a run starts, so a conflict diff can be drawn against the version the editor opened even after a
 > reload in between. Editing never touches `runs.workflow_version`: a run keeps the hash it began with.
+
+> Amendment (RUN-14, 2026-09-05): `grant_log(id, agent_id, tool, field, before_json, after_json, source, at)` —
+> every change a human makes to one agent's grant block, one row per field that moved, written by `setGrant`
+> whatever route called it; `source` is always `human`, on purpose. `permission_findings(id, key, kind,
+> agent_id, tool, evidence_json, proposal_json, note, facts_hash, state, run_id, created_at, decided_at)` and
+> `permission_finding_dismissals(key, facts_hash, dismissed_at)` — what the auditor proposed and what the
+> person did; a dismissal holds while the facts hash is unchanged. `tool_catalog_seen(tool, first_seen_at)` —
+> when each tool first appeared, so *undecided* can mean *new*. Migration `0013`.

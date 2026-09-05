@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "id": "permissions-review",
+  "name": "Permissions review",
+  "description": "Once a week, something notices that the grant matrix has drifted from what you meant, and says so in the Review queue. It can propose; only you can apply.",
+  "inputs": {
+    "type": "object",
+    "properties": {
+      "unusedDays": { "type": "integer", "title": "Unused after", "description": "A grant this many days old that was never exercised is worth raising.", "default": 30, "minimum": 1 },
+      "fatigueStreak": { "type": "integer", "title": "Approvals in a row", "description": "This many approvals without a rejection is worth raising.", "default": 30, "minimum": 1 }
+    }
+  },
+  "steps": [
+    {
+      "id": "facts",
+      "kind": "tool",
+      "tool": "permissions.facts",
+      "agent": "auditor",
+      "input": { "unusedDays": "{{inputs.unusedDays}}", "fatigueStreak": "{{inputs.fatigueStreak}}" }
+    },
+    {
+      "id": "audit",
+      "kind": "agent",
+      "agent": "auditor",
+      "input": "Here are the facts. Choose what to raise.\n\n{{steps.facts.output}}",
+      "output": { "document": null }
+    },
+    {
+      "id": "file",
+      "kind": "tool",
+      "tool": "permissions.propose",
+      "agent": "auditor",
+      "input": { "findings": "{{steps.audit.output.findings}}" }
+    }
+  ],
+  "outputs": {
+    "summary": "{{steps.audit.output.summary}}",
+    "raised": "{{steps.file.output.raised}}",
+    "suppressed": "{{steps.file.output.suppressed}}"
+  },
+  "schedule": {
+    "cron": "0 8 * * 1",
+    "catchUp": "once",
+    "enabled": false
+  }
+}
