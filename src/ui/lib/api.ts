@@ -42,6 +42,8 @@ export const api = {
   reloadAgents: (): Promise<ReloadAgentsResponse> => apiFetch('/agents/reload', { method: 'POST' }).then((r) => r.json() as Promise<ReloadAgentsResponse>),
   models: (): Promise<ModelListResponse> => apiFetch('/models').then((r) => r.json() as Promise<ModelListResponse>),
   refreshModels: (): Promise<ModelListResponse> => apiFetch('/models/refresh', { method: 'POST' }).then((r) => r.json() as Promise<ModelListResponse>),
+  acceptFinding: (id: string): Promise<ModelListResponse> => apiFetch(`/models/findings/${encodeURIComponent(id)}/accept`, { method: 'POST' }).then((r) => r.json() as Promise<ModelListResponse>),
+  dismissFinding: (id: string): Promise<ModelListResponse> => apiFetch(`/models/findings/${encodeURIComponent(id)}/dismiss`, { method: 'POST' }).then((r) => r.json() as Promise<ModelListResponse>),
   privacy: (id: string): Promise<PrivacyResponse> => apiFetch(`/runs/${encodeURIComponent(id)}/privacy`).then((r) => r.json() as Promise<PrivacyResponse>),
   setNetworkMode: (mode: string): Promise<{ networkMode: string }> =>
     apiFetch('/settings/network', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) }).then((r) => r.json() as Promise<{ networkMode: string }>),

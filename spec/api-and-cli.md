@@ -18,7 +18,7 @@ Order of checks: `Host`/`Origin` (403) before token (401). Requests without an `
 | documents | `GET /projects/:slug/documents` · `GET /documents/:id` · `GET /documents/:id/versions` · `PUT /documents/:id` (human edit → version) · `POST /runs/:id/rerun` `{ model? }` |
 | review | `GET /reviews?state=open` · `POST /reviews/:id` (`rate | edit | reject | continue`) |
 | approvals | `GET /approvals?state=pending` · `POST /approvals/:id` (`allow | deny`, `remember?`) |
-| models | `GET /models` (catalog + availability + data policy) · `POST /models/refresh` (Ollama listing) |
+| models | `GET /models` (catalog + availability + data policy) · `POST /models/refresh` (polls local endpoints and, from RUN-15, asks every provider with a credential what it offers; answers with `findings`, D-64) · `POST /models/findings/:id/accept` (writes the catalog as a hand edit would; a new model lands disabled) · `POST /models/findings/:id/dismiss` (suppressed until the provider's facts change) |
 | memory | `GET /memory?q=&scope=` · `POST /memory` · `DELETE /memory/:id?redactTraces=true` |
 | memory (RUN-08) | also `GET /memory/:id/traces` → `{ itemId, runIds }`, so the delete dialog can say how many traces quoted it before it offers to rewrite them |
 | knowledge (RUN-08) | `POST /projects/:slug/knowledge?filename=<name>` takes the file as the raw request body (`application/octet-stream`); the extension decides the format |
@@ -69,7 +69,7 @@ workbench schedules list|set|enable|disable    workbench tools list|grant|revoke
 workbench settings get|set               workbench datasets list|create|export|import
 workbench experiments run|results        workbench compare --step <id> --models a,b,c
 workbench approvals list|allow|deny <id> [--remember]
-workbench models list|refresh
+workbench models list|refresh|accept|dismiss
 workbench memory search|add|delete
 workbench export project|agent|workflow|memory|runs|workspace <…> --out <dir>
 workbench import project|agent|workflow|memory|knowledge <path>

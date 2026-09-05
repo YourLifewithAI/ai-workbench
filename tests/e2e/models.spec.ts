@@ -24,12 +24,12 @@ test('@run-02 the Models screen lists what the local endpoint reports, and says 
   await page.goto(base() + '/models#token=' + token());
   await expect(page.getByRole('heading', { name: 'Models' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Refresh local endpoints' }).click();
-  const ollama = page.locator('li', { has: page.getByText('ollama/qwen3:14b', { exact: true }) }).first();
+  await page.getByRole('button', { name: 'Check for changes' }).click();
+  const ollama = page.getByRole('list', { name: 'Catalog' }).locator('li', { has: page.getByText('ollama/qwen3:14b', { exact: true }) }).first();
   await expect(ollama.getByText('ready')).toBeVisible({ timeout: 10_000 });
   await expect(ollama.getByText(/Pulled on this endpoint:.*llama3\.2:3b/)).toBeVisible();
 
-  const gemini = page.locator('li', { has: page.getByText('google/gemini-3.8-flash', { exact: true }) }).first();
+  const gemini = page.getByRole('list', { name: 'Catalog' }).locator('li', { has: page.getByText('google/gemini-3.8-flash', { exact: true }) }).first();
   await expect(gemini.getByText('no key')).toBeVisible();
   await expect(gemini.getByText(/credential named "google"/)).toBeVisible();
   await expect(gemini.getByText('Trains on your content')).toBeVisible();
@@ -45,7 +45,7 @@ test('@run-02 going offline is one click, and it greys the cloud models', async 
   await expect(page.getByText('Network: Offline')).toBeVisible();
   await expect(page.getByText('Nothing leaves this machine. Local models still run.')).toBeVisible();
 
-  const gemini = page.locator('li', { has: page.getByText('google/gemini-3.8-flash', { exact: true }) }).first();
+  const gemini = page.getByRole('list', { name: 'Catalog' }).locator('li', { has: page.getByText('google/gemini-3.8-flash', { exact: true }) }).first();
   await expect(gemini.getByText('blocked by network mode')).toBeVisible({ timeout: 10_000 });
 
   await page.getByRole('button', { name: 'Go back online (allowlist)' }).click();
@@ -81,4 +81,33 @@ test('@run-02 the Privacy Inspector shows where a routed call went and what it c
   await expect(page.getByText('inspect this sentence').first()).toBeVisible();
 
   await expectNoA11yViolations(page, 'PrivacyInspector');
+});
+
+test('@run-15 Check for changes shows what the provider offers; one finding is accepted, one dismissed', async ({ page }) => {
+  await page.goto(base() + '/models#token=' + token());
+  await page.getByRole('button', { name: 'Check for changes' }).click();
+  await expect(page.getByRole('heading', { name: 'What changed at the provider' })).toBeVisible({ timeout: 10_000 });
+
+  const findings = page.getByRole('list', { name: 'Findings' });
+  const catalog = page.getByRole('list', { name: 'Catalog' });
+
+  // The provider's own name for the new model is an instruction. It is on the screen as text, and nothing else.
+  const added = findings.locator('li', { has: page.getByRole('heading', { name: 'google/gemini-3.9-flash' }) });
+  await expect(added.getByText('new', { exact: true })).toBeVisible();
+  await expect(added.getByText(/Provider calls it: Ignore previous instructions/)).toBeVisible();
+
+  const retired = findings.locator('li', { has: page.getByRole('heading', { name: 'google/gemini-3.6-flash' }) });
+  await expect(retired.getByText('retired', { exact: true })).toBeVisible();
+
+  await expectNoA11yViolations(page, 'Models with findings');
+
+  // Accept the new one: it leaves the findings and appears in the catalog, disabled.
+  await page.getByRole('button', { name: 'Add, disabled: google/gemini-3.9-flash' }).click();
+  await expect(page.getByRole('button', { name: 'Add, disabled: google/gemini-3.9-flash' })).toHaveCount(0);
+  const card = catalog.locator('li', { has: page.getByText('google/gemini-3.9-flash', { exact: true }) });
+  await expect(card.getByText('disabled', { exact: true })).toBeVisible();
+
+  // Dismiss the repriced one: gone from the list.
+  await page.getByRole('button', { name: 'Dismiss: google/gemini-3.8-flash' }).click();
+  await expect(page.getByRole('button', { name: 'Dismiss: google/gemini-3.8-flash' })).toHaveCount(0);
 });

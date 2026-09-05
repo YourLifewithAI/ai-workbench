@@ -1,8 +1,8 @@
 # STATUS
 
-**Current run:** none — RUN-00 … RUN-12 are all merged, plus the maintenance branches through `run/19-windows-native` · awaiting the owner's verification scripts
+**Current run:** RUN-15: awaiting verification @ 0a854bc · RUN-00 … RUN-12 and the maintenance branches are merged · awaiting the owner's verification scripts
 **Last verified:** every run merged to `main` with CI green on **Linux, macOS and Windows**, plus Docker and a machine without a sandbox; the owner's scripts in each `runlog/` are still outstanding
-**Gates:** `npm run check` green (unit 62 · security 125 · contract 47) · every `tests/dod/RUN-*.test.ts` suite green on all three platforms (DoD 07-2 is live-only) · `npm run e2e` 31 passed · Docker smoke and a no-sandbox job: CI
+**Gates:** `npm run check` green (unit 62 · security 127 · contract 51) · every `tests/dod/RUN-*.test.ts` suite green on all three platforms (DoD 07-2 is live-only) · `npm run e2e` 32 passed · Docker smoke and a no-sandbox job: CI
 
 Run agents update this file at the end of a run; the human updates it on acceptance.
 

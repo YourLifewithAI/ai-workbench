@@ -1,4 +1,4 @@
-import type { CatalogEntry, ModelEvent, ModelRequest, ModelResponse } from '../../shared/model.js';
+import type { CatalogEntry, DiscoveredModel, ModelEvent, ModelRequest, ModelResponse } from '../../shared/model.js';
 
 export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
@@ -7,12 +7,20 @@ export interface AdapterContext {
   fetch: FetchLike;
   apiKey: string | undefined;
   runId: string | undefined;
+  /** For a listing under `--provider mock`: which provider's scripted listing to serve (D-37, D-64). */
+  provider?: string | undefined;
 }
 
 export interface ModelAdapter {
   readonly id: string;
   generate(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext): Promise<ModelResponse>;
   stream(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext): AsyncIterable<ModelEvent>;
+  /**
+   * What the provider offers (D-64). Optional on purpose: an OpenAI-compatible endpoint may have no such
+   * route and the mock has nothing real to list. An adapter without it is not broken — its models simply
+   * stay hand-declared. The answer is untrusted data fetched through the injected, egress-checked fetch.
+   */
+  listModels?(ctx: AdapterContext): Promise<DiscoveredModel[]>;
 }
 
 export class AdapterRegistry {

@@ -4,8 +4,12 @@ import type { CatalogEntry, ModelsFile } from '../../shared/model.js';
 import type { NetworkMode } from '../../shared/permissions.js';
 import type { FetchLike } from './adapter.js';
 import { reachableInMode } from '../engine/selection.js';
+import { priceFor } from './catalog.js';
 
-export type Availability = 'ready' | 'no-credential' | 'blocked-by-mode' | 'unreachable' | 'disabled' | 'no-adapter';
+export type Availability = 'ready' | 'no-credential' | 'blocked-by-mode' | 'unreachable' | 'disabled' | 'no-adapter' | 'price-unknown';
+
+/** The one sentence D-65 comes down to, shared by the screen, the doctor and the rejection reason. */
+export const PRICE_UNKNOWN = 'No price is on record. A cloud model with no price would cost $0, and a run that costs nothing cannot be stopped by any cap (D-65). Enter the price from the provider\'s page into config/models.json.';
 
 export interface ModelStatus {
   id: string;
@@ -46,6 +50,8 @@ export function statusFor(entry: CatalogEntry, input: AvailabilityInput): { avai
       ? { availability: 'ready', reason: null }
       : { availability: 'unreachable', reason: `Nothing answered at ${entry.baseUrl}. Start the server, then refresh.` };
   }
+  // Price before credential: a key cannot make an unpriced entry usable, so that is the reason to show (D-65).
+  if (entry.locality === 'cloud' && !priceFor(entry, new Date())) return { availability: 'price-unknown', reason: PRICE_UNKNOWN };
   const provider = providerOf(entry.id);
   if (!input.hasCredential(provider)) {
     return { availability: 'no-credential', reason: `No credential named "${provider}". Add one in Settings → Credentials; it takes effect at once.` };

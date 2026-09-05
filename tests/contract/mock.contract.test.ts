@@ -26,6 +26,13 @@ fs.writeFileSync(path.join(fixtures, '2-structured.json'), JSON.stringify({
   respond: { json: { city: 'Chicago', population: 2_721_000 }, usage: { input: 20, output: 16 } },
 }));
 
+// The mock lists what `fixtures/discovery/` scripts (D-37 for D-64), so the shared list-models case runs against it too.
+fs.mkdirSync(path.join(fixtures, 'discovery'));
+fs.writeFileSync(path.join(fixtures, 'discovery', 'mock.json'), JSON.stringify({
+  provider: 'mock',
+  models: [{ id: 'echo', displayName: 'Echo', contextTokens: 8192 }, { id: 'upstream' }],
+}));
+
 const noNetwork: FetchLike = () => { throw new Error('the mock adapter must never open a socket'); };
 
 runContractSuite('mock', () => ({ fetch: () => noNetwork, adapter: new MockAdapter(fixtures), model }));
