@@ -35,6 +35,12 @@ export type ToolSpec = z.infer<typeof ToolSpec>;
 /** The persisted form of a request (no AbortSignal). Stored whole in `model-started` events. */
 export const CompiledRequest = z.object({
   system: z.string(),
+  /**
+   * Where the stable part of `system` ends (D-46): everything before it — identity, instructions, retrieved
+   * sections — is the same on every call of a step; the harness after it changes per call. An adapter whose
+   * provider caches prefixes puts its breakpoint here and reports `usage.cachedInput`.
+   */
+  cacheBoundary: z.number().int().nonnegative().optional(),
   messages: z.array(Message),
   tools: z.array(ToolSpec).default([]),
   outputSchema: JsonSchema.optional(),
@@ -52,6 +58,8 @@ export const Usage = z.object({
   input: z.number().int().nonnegative(),
   output: z.number().int().nonnegative(),
   cachedInput: z.number().int().nonnegative().optional(),
+  /** Tokens written to the provider's cache this call; Anthropic bills them at 1.25× the input rate. */
+  cacheWriteInput: z.number().int().nonnegative().optional(),
   reasoning: z.number().int().nonnegative().optional(),
   raw: Meta.default({}),
 });
