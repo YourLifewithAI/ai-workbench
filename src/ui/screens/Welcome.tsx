@@ -67,6 +67,9 @@ export function Welcome() {
       </ol>
 
       <p className="mt-8 text-sm text-gray-600 dark:text-gray-400">
+        On Windows? <a href="https://github.com/YourLifewithAI/ai-workbench/blob/main/docs/first-hour-windows.md" target="_blank" rel="noreferrer" className="text-blue-700 underline underline-offset-4 dark:text-sky-300">The first hour on Windows</a> walks through the install, the key, the first run, the first workflow edit, and what each screen is for.
+      </p>
+      <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
         Already know your way around? <Link to="/runs" onClick={() => setWelcomeDone(true)} className="text-blue-700 underline underline-offset-4 dark:text-sky-300">Skip to Runs</Link>. You can reopen this path from Settings.
       </p>
     </section>
