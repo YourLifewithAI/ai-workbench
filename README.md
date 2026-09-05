@@ -16,7 +16,7 @@ Requires Node 22. Deno is optional and unlocks the code-execution tools; the wor
 Install, then build:
 
 ```sh
-npm ci            # on Windows: npm ci --ignore-scripts && npm rebuild deno esbuild
+npm ci            # on Windows: npm ci --ignore-scripts && npm rebuild deno esbuild && npm run prepare
 npm run build
 ```
 

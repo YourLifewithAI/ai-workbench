@@ -36,12 +36,11 @@ export function Welcome() {
             <details className="rounded-md border border-gray-200 p-3 text-sm dark:border-gray-800">
               <summary className="cursor-pointer font-medium">Add a provider key</summary>
               <p className="mt-2 text-gray-700 dark:text-gray-300">
-                Keys live in one file that only you can read, never in an agent and never in this page. Create
-                <code className="mx-1 font-mono text-xs">config/credentials.json</code> in your workspace:
+                Paste it in <strong>Settings → Credentials</strong>. It is in use the moment you save, and it lands in
+                <code className="mx-1 font-mono text-xs">config/credentials.json</code> in your workspace, readable only by you — never in an agent, never in this page, and redacted from every trace, log, and response.
               </p>
-              <pre tabIndex={0} className="mt-2 overflow-x-auto rounded bg-gray-50 p-3 font-mono text-xs dark:bg-gray-950">{'{ "google": { "apiKey": "…" } }'}</pre>
               <p className="mt-2 text-gray-700 dark:text-gray-300">
-                Then <code className="font-mono text-xs">chmod 600</code> it and restart the runtime. The workbench refuses to read it at any looser permission, and redacts the value from every trace, log, and response.
+                You can also write that file yourself — <code className="font-mono text-xs">{'{ "google": { "apiKey": "…" } }'}</code> — but a file edited by hand is read at the next start, and the workbench refuses one that another account can read.
               </p>
             </details>
           )}

@@ -28,4 +28,30 @@ describe('SEC-31 secret scan', () => {
     const ok = spawnSync(TSX, [TSX_ENTRY, path.join(REPO, 'scripts', 'secret-scan.ts'), clean], { cwd: REPO, encoding: 'utf8' });
     expect(ok.status).toBe(0);
   }, 60_000);
+
+  it('--staged judges only what is about to be committed, and an ignored file cannot fail it', () => {
+    // A throwaway repository, so the hook's exact code path runs against a real index.
+    const repo = tempDir('sec31-staged');
+    const git = (...args: string[]): void => { expect(spawnSync('git', args, { cwd: repo, encoding: 'utf8' }).status, args.join(' ')).toBe(0); };
+    git('init', '-q');
+    git('config', 'user.email', 'sec31@example.test');
+    git('config', 'user.name', 'sec31');
+    fs.writeFileSync(path.join(repo, '.gitignore'), '.env.local\n');
+    // The correct place for a key. It must never be what fails the commit.
+    fs.writeFileSync(path.join(repo, '.env.local'), `${['WORKBENCH', 'CRED', 'GOOGLE'].join('_')}=${assembled()}\n`);
+    fs.writeFileSync(path.join(repo, 'fine.ts'), 'export const nothing = 1;\n');
+    git('add', '-A');
+    const script = path.join(REPO, 'scripts', 'secret-scan.ts');
+    const clean = spawnSync(TSX, [TSX_ENTRY, script, '--staged', repo], { cwd: repo, encoding: 'utf8' });
+    expect(clean.status, clean.stdout + clean.stderr).toBe(0);
+    expect(clean.stdout).toContain('staged file(s)');
+
+    // Now the mistake this gate exists for: the key typed straight into a source file.
+    fs.writeFileSync(path.join(repo, 'oops.ts'), `export const key = '${assembled()}';\n`);
+    git('add', 'oops.ts');
+    const bad = spawnSync(TSX, [TSX_ENTRY, script, '--staged', repo], { cwd: repo, encoding: 'utf8' });
+    expect(bad.status).toBe(1);
+    expect(bad.stdout).toContain('oops.ts:1');
+    expect(bad.stdout, 'the value itself is never printed').not.toContain(assembled());
+  }, 60_000);
 });

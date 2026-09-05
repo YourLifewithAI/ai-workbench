@@ -93,7 +93,7 @@ function Credentials({ configured, onSaid, onDone }: { configured: string[]; onS
     mutationFn: (input: { name: string; apiKey: string | null }) => api.setCredential(input.name, input.apiKey),
     onSuccess: (_r, input) => {
       setName(''); setValue('');
-      onSaid(input.apiKey === null ? `Removed the ${input.name} credential.` : `Saved the ${input.name} credential. Restart the runtime to use it.`);
+      onSaid(input.apiKey === null ? `Removed the ${input.name} credential.` : `Saved the ${input.name} credential. It is in use now.`);
       onDone();
     },
   });
