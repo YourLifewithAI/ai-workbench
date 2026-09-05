@@ -9,6 +9,8 @@ export interface AdapterContext {
   runId: string | undefined;
   /** For a listing under `--provider mock`: which provider's scripted listing to serve (D-37, D-64). */
   provider?: string | undefined;
+  /** For a listing by an OpenAI-compatible adapter: the endpoint to ask, since the adapter never guesses one. */
+  baseUrl?: string | undefined;
 }
 
 export interface ModelAdapter {

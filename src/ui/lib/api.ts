@@ -1,5 +1,5 @@
 // Every call carries the bearer token; SSE is fetch-based (never EventSource) so it can too.
-import type { AgentDetail, AgentListResponse, ApprovalItem, ApprovalListResponse, CompareRequest, ComparePickRequest, CompareResponse, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, DashboardResponse, DatasetSummary, DeleteMemoryResponse, ExperimentResults, ExperimentSummary, DiffResponse, DocumentDetail, DocumentSummary, GrantCell, KnowledgeSearchResponse, MemoryItem, MemoryResponse, MemoryTracesResponse, ModelListResponse, PrivacyResponse, Project, PushEventKind, PushSubscription, PushSubscriptionsResponse, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunSummary, ScheduleListResponse, ScheduleSummary, SetGrantRequest, SettingsResponse, UpdateSettingsRequest, SubscribePushRequest, ToolsResponse, UpsertScheduleRequest, WorkflowDetail, WorkflowListResponse } from '../../shared/api/index.js';
+import type { AgentDetail, AgentGrantSummary, AgentListResponse, ApprovalItem, ApprovalListResponse, CompareRequest, ComparePickRequest, CompareResponse, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, DashboardResponse, DatasetSummary, DeleteMemoryResponse, ExperimentResults, ExperimentSummary, DiffResponse, DocumentDetail, DocumentSummary, GrantCell, KnowledgeSearchResponse, MemoryItem, MemoryResponse, MemoryTracesResponse, ModelListResponse, PrivacyResponse, Project, PushEventKind, PushSubscription, PushSubscriptionsResponse, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunSummary, ScheduleListResponse, ScheduleSummary, SetGrantRequest, SettingsResponse, UpdateSettingsRequest, SubscribePushRequest, ToolsResponse, UpsertScheduleRequest, WorkflowDetail, WorkflowListResponse } from '../../shared/api/index.js';
 import type { EventRecord } from '../../shared/events.js';
 import { getToken, markUnauthorized } from './auth.js';
 
@@ -44,6 +44,12 @@ export const api = {
   refreshModels: (): Promise<ModelListResponse> => apiFetch('/models/refresh', { method: 'POST' }).then((r) => r.json() as Promise<ModelListResponse>),
   acceptFinding: (id: string): Promise<ModelListResponse> => apiFetch(`/models/findings/${encodeURIComponent(id)}/accept`, { method: 'POST' }).then((r) => r.json() as Promise<ModelListResponse>),
   dismissFinding: (id: string): Promise<ModelListResponse> => apiFetch(`/models/findings/${encodeURIComponent(id)}/dismiss`, { method: 'POST' }).then((r) => r.json() as Promise<ModelListResponse>),
+  setPrice: (id: string, price: { inputPerM: number; outputPerM: number }): Promise<ModelListResponse> =>
+    apiFetch(`/models/${encodeURIComponent(id)}/price`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(price) }).then((r) => r.json() as Promise<ModelListResponse>),
+  setEnabled: (id: string, enabled: boolean): Promise<ModelListResponse> =>
+    apiFetch(`/models/${encodeURIComponent(id)}/enabled`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) }).then((r) => r.json() as Promise<ModelListResponse>),
+  setRepos: (agentId: string, repos: { path: string; branches: string; deny?: string[] }[]): Promise<AgentGrantSummary> =>
+    apiFetch('/tools/repos', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId, repos }) }).then((r) => r.json() as Promise<AgentGrantSummary>),
   privacy: (id: string): Promise<PrivacyResponse> => apiFetch(`/runs/${encodeURIComponent(id)}/privacy`).then((r) => r.json() as Promise<PrivacyResponse>),
   setNetworkMode: (mode: string): Promise<{ networkMode: string }> =>
     apiFetch('/settings/network', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode }) }).then((r) => r.json() as Promise<{ networkMode: string }>),

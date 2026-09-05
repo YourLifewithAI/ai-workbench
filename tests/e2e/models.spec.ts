@@ -111,3 +111,26 @@ test('@run-15 Check for changes shows what the provider offers; one finding is a
   await page.getByRole('button', { name: 'Dismiss: google/gemini-3.8-flash' }).click();
   await expect(page.getByRole('button', { name: 'Dismiss: google/gemini-3.8-flash' })).toHaveCount(0);
 });
+
+test('an accepted model gets its price and its enabled flag from the screen, not from a file', async ({ page }) => {
+  // The @run-15 case above accepted google/gemini-3.9-flash: disabled, and with no price on record.
+  await page.goto(base() + '/models#token=' + token());
+  const catalog = page.getByRole('list', { name: 'Catalog' });
+  const card = catalog.locator('li', { has: page.getByText('google/gemini-3.9-flash', { exact: true }) });
+  await expect(card).toBeVisible();
+
+  const priceForm = card.getByRole('form', { name: 'Set a price: google/gemini-3.9-flash' });
+  await expect(priceForm).toBeVisible();
+  await priceForm.getByLabel('Input, $ per million').fill('0.50');
+  await priceForm.getByLabel('Output, $ per million').fill('2.00');
+  await priceForm.getByRole('button', { name: 'Save price' }).click();
+  await expect(card.getByText('$0.5/M in · $2/M out')).toBeVisible({ timeout: 10_000 });
+  await expect(priceForm).toHaveCount(0);
+
+  await card.getByRole('button', { name: 'Enable: google/gemini-3.9-flash' }).click();
+  // Enabled and priced, the only thing still in its way is a key, which is the honest next step.
+  await expect(card.getByText('no key', { exact: true })).toBeVisible({ timeout: 10_000 });
+  await card.getByRole('button', { name: 'Disable: google/gemini-3.9-flash' }).click();
+  await expect(card.getByText('disabled', { exact: true })).toBeVisible({ timeout: 10_000 });
+});
+

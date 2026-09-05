@@ -40,7 +40,7 @@ import { ArtifactStore } from './artifacts/store.js';
 import { listModels, pollLocalEndpoints, providerOf, type PollResult } from './models/availability.js';
 import { applyFinding, diffProvider, pinsFor } from './models/discovery.js';
 import type { CatalogFinding, DiscoveryReport } from '../shared/api/index.js';
-import { ModelsFile } from '../shared/model.js';
+import { ModelsFile, type CatalogEntry } from '../shared/model.js';
 import { EgressDeniedError } from './security/egress.js';
 import { ModelError } from './models/errors.js';
 import { createEgressFetch } from './security/egress.js';
@@ -166,6 +166,8 @@ export class Runtime {
       models: (refresh) => this.models(refresh),
       acceptFinding: (id) => this.acceptFinding(id),
       dismissFinding: (id) => this.dismissFinding(id),
+      setPrice: (id, price) => this.setPrice(id, price),
+      setEnabled: (id, enabled) => this.setEnabled(id, enabled),
       artifacts,
       setNetworkMode: (mode) => this.setNetworkMode(mode),
       setGrant: (agentId, permissions) => this.setGrant(agentId, permissions),
@@ -303,15 +305,23 @@ export class Runtime {
     const mock = this.opts.providerOverride === 'mock';
     // provider → adapter. From the catalog first; then any adapter that can list speaks for a provider of its
     // own name, so a workspace with no google entries at all can still learn what google offers.
+    const config = this.workspace.config;
     const providers = new Map<string, string>();
     if (mock) {
       for (const p of this.mockAdapter.discoveryProviders()) providers.set(p, 'mock');
     } else {
       for (const entry of this.workspace.catalog.models) if (entry.adapter !== 'mock') providers.set(providerOf(entry.id), entry.adapter);
       for (const id of this.registry.ids()) if (this.registry.get(id)?.listModels && !providers.has(id)) providers.set(id, id);
+      // Providers config names that no entry does yet — OpenAI, Qwen, Kimi — so a key alone is enough to ask.
+      for (const [name, cfg] of Object.entries(config.discovery.providers)) if (!providers.has(name)) providers.set(name, cfg.adapter);
     }
+    // Where an OpenAI-compatible provider is asked: the configured endpoint, or the one its entries already name.
+    const baseUrls = new Map<string, string>();
+    for (const [name, cfg] of Object.entries(config.discovery.providers)) baseUrls.set(name, cfg.baseUrl);
+    for (const entry of this.workspace.catalog.models) if (entry.baseUrl && !baseUrls.has(providerOf(entry.id))) baseUrls.set(providerOf(entry.id), entry.baseUrl);
+    const realAdapter = (provider: string): string =>
+      this.workspace.catalog.models.find((m) => providerOf(m.id) === provider)?.adapter ?? config.discovery.providers[provider]?.adapter ?? provider;
 
-    const config = this.workspace.config;
     const pins = pinsFor({
       agents: [...this.workspace.agents.values()].map((a) => ({ id: a.definition.id, primary: a.definition.modelPolicy.primary, fallbacks: a.definition.modelPolicy.fallbacks })),
       workflows: [...this.workspace.workflows.values()].map((w) => ({ id: w.definition.id, steps: w.definition.steps.map((s) => ({ id: s.id, model: (s as { model?: string | undefined }).model })) })),
@@ -336,16 +346,18 @@ export class Runtime {
         record: () => undefined, // a listing carries none of the workspace's data
       }, { purpose: 'model', declared: true, categories: [] });
       try {
-        const discovered = await adapter.listModels({ fetch: fetchImpl, apiKey, runId: undefined, provider });
-        found.push(...diffProvider({ catalog: this.workspace.catalog, provider, adapter: mock ? 'google' : adapterId, discovered, pins, now }));
+        const baseUrl = baseUrls.get(provider);
+        const discovered = await adapter.listModels({ fetch: fetchImpl, apiKey, runId: undefined, provider, ...(baseUrl ? { baseUrl } : {}) });
+        const adapterFor = mock ? realAdapter(provider) : adapterId;
+        found.push(...diffProvider({
+          catalog: this.workspace.catalog, provider, adapter: adapterFor, discovered, pins, now,
+          ...(adapterFor === 'openai-compatible' && baseUrl ? { baseUrl } : {}),
+        }));
       } catch (e) {
         const code = e instanceof EgressDeniedError ? 'NetworkPolicy' : e instanceof ModelError ? e.code : 'Unknown';
         report.errors.push({ provider, code, message: (e as Error).message });
       }
     }
-    // Under the mock, a scripted listing's `adapter` should be the adapter the provider really uses, so an
-    // accepted entry is runnable once a key exists rather than pinned to the mock forever.
-    if (mock) for (const f of found) f.adapter = this.workspace.catalog.models.find((m) => providerOf(m.id) === f.provider)?.adapter ?? f.provider;
     this.findings = found.filter((f) => dismissed.get(f.id) !== f.factsHash);
     return report;
   }
@@ -361,6 +373,31 @@ export class Runtime {
     this.findings = this.findings!.filter((f) => f.id !== id);
     this.polled = null;
     this.log.info({ finding: id, kind: finding.kind, model: finding.modelId }, 'catalog finding accepted');
+    return this.models(false);
+  }
+
+  /** A price typed in on the Models screen: one more row, in effect from now, the way a hand edit adds one (D-65). */
+  async setPrice(id: string, price: { inputPerM: number; outputPerM: number; cachedPerM?: number | undefined }): Promise<ModelListResponse | null> {
+    return this.editCatalog(id, (entry) => ({
+      ...entry,
+      pricing: [...entry.pricing, { effectiveFrom: new Date().toISOString(), inputPerM: price.inputPerM, outputPerM: price.outputPerM, ...(price.cachedPerM !== undefined ? { cachedPerM: price.cachedPerM } : {}) }],
+    }));
+  }
+
+  /** Enable or disable one entry from the Models screen: the `enabled` flag a hand edit would flip. */
+  async setEnabled(id: string, enabled: boolean): Promise<ModelListResponse | null> {
+    return this.editCatalog(id, (entry) => ({ ...entry, enabled }));
+  }
+
+  private async editCatalog(id: string, edit: (entry: CatalogEntry) => CatalogEntry): Promise<ModelListResponse | null> {
+    const index = this.workspace.catalog.models.findIndex((m) => m.id === id);
+    if (index === -1) return null;
+    const models = this.workspace.catalog.models.map((m, i) => (i === index ? edit(m) : m));
+    const next = ModelsFile.parse({ schemaVersion: 1, models });
+    fs.writeFileSync(this.workspace.paths.modelsJson, JSON.stringify(next, null, 2) + '\n');
+    this.workspace.catalog.models.splice(0, this.workspace.catalog.models.length, ...next.models);
+    this.polled = null;
+    this.log.info({ model: id }, 'catalog entry edited from the Models screen');
     return this.models(false);
   }
 

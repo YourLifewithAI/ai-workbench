@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { CatalogFinding, ModelStatus } from '../../shared/api/index.js';
+import type { CatalogFinding, ModelListResponse, ModelStatus } from '../../shared/api/index.js';
 import { api } from '../lib/api.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { Button } from '../components/ui/button.js';
@@ -97,19 +98,36 @@ export function Models() {
 
       {q.data?.models.length ? (
         <ul className="mt-4 space-y-3" aria-label="Catalog">
-          {q.data.models.map((m) => <li key={m.id}><ModelCard model={m} pulled={m.baseUrl ? q.data.pulled[m.baseUrl] : undefined} retiredPinned={retiredPins.has(m.id)} /></li>)}
+          {q.data.models.map((m) => (
+            <li key={m.id}>
+              <ModelCard
+                model={m}
+                pulled={m.baseUrl ? q.data.pulled[m.baseUrl] : undefined}
+                retiredPinned={retiredPins.has(m.id)}
+                onChanged={(data) => client.setQueryData(['models'], data)}
+              />
+            </li>
+          ))}
         </ul>
       ) : null}
     </section>
   );
 }
 
-function ModelCard({ model, pulled, retiredPinned }: { model: ModelStatus; pulled: string[] | undefined; retiredPinned: boolean }) {
+function ModelCard({ model, pulled, retiredPinned, onChanged }: { model: ModelStatus; pulled: string[] | undefined; retiredPinned: boolean; onChanged: (data: ModelListResponse) => void }) {
   const a = AVAILABILITY[model.availability];
   const unavailable = model.availability !== 'ready';
   const caps = model.capabilities as { contextTokens?: number; toolCalling?: string; structuredOutput?: string; reasoning?: string; vision?: boolean };
-  const price = (model.pricing[0] ?? null) as { inputPerM?: number; outputPerM?: number } | null;
+  const rows = model.pricing as { effectiveFrom: string; inputPerM: number; outputPerM: number }[];
+  // The row in effect: the newest whose date has arrived. A cloud model with none is unusable until a person types one in (D-65).
+  const now = Date.now();
+  const price = rows.filter((r) => Date.parse(r.effectiveFrom) <= now).sort((x, y) => (x.effectiveFrom < y.effectiveFrom ? 1 : -1))[0] ?? null;
+  const needsPrice = model.locality === 'cloud' && model.adapter !== 'mock' && price === null;
   const policy = model.dataPolicy as { trainsOnContent?: string; retentionDays?: number; policyUrl?: string };
+  const [inputPerM, setInputPerM] = useState('');
+  const [outputPerM, setOutputPerM] = useState('');
+  const setPrice = useMutation({ mutationFn: () => api.setPrice(model.id, { inputPerM: Number(inputPerM), outputPerM: Number(outputPerM) }), onSuccess: onChanged });
+  const setEnabled = useMutation({ mutationFn: (enabled: boolean) => api.setEnabled(model.id, enabled), onSuccess: onChanged });
 
   return (
     <Card className={cn(unavailable && 'border-dashed bg-gray-50 dark:bg-gray-950')}>
@@ -118,12 +136,37 @@ function ModelCard({ model, pulled, retiredPinned }: { model: ModelStatus; pulle
           <h2 className="font-mono text-sm font-medium">{model.id}</h2>
           <p className="mt-1 text-xs text-gray-700 dark:text-gray-300">{model.adapter} · {model.locality}{model.baseUrl ? ` · ${model.baseUrl}` : ''}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           {retiredPinned ? <Badge tone="bad">pinned but retired</Badge> : null}
           <Badge tone={a.tone}>{a.label}</Badge>
+          {model.adapter !== 'mock' ? (
+            <Button size="sm" variant="secondary" onClick={() => setEnabled.mutate(!model.enabled)} disabled={setEnabled.isPending} aria-label={`${model.enabled ? 'Disable' : 'Enable'}: ${model.id}`}>
+              {model.enabled ? 'Disable' : 'Enable'}
+            </Button>
+          ) : null}
         </div>
       </div>
       {model.reason ? <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">{model.reason}</p> : null}
+      {needsPrice ? (
+        <form
+          className="mt-3 flex flex-wrap items-end gap-2 rounded border border-amber-300 bg-amber-50 p-2 dark:border-amber-700 dark:bg-amber-950"
+          onSubmit={(e) => { e.preventDefault(); if (inputPerM !== '' && outputPerM !== '') setPrice.mutate(); }}
+          aria-label={`Set a price: ${model.id}`}
+        >
+          <p className="w-full text-sm">No price is on record, so this model cannot be picked: every cost cap depends on the number. Copy it from the provider's pricing page, in dollars per million tokens.</p>
+          <label className="block">
+            <span className="block text-xs font-medium">Input, $ per million</span>
+            <input type="number" min="0" step="0.01" required value={inputPerM} onChange={(e) => setInputPerM(e.target.value)} className="mt-1 w-32 rounded border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-950" />
+          </label>
+          <label className="block">
+            <span className="block text-xs font-medium">Output, $ per million</span>
+            <input type="number" min="0" step="0.01" required value={outputPerM} onChange={(e) => setOutputPerM(e.target.value)} className="mt-1 w-32 rounded border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-950" />
+          </label>
+          <Button type="submit" size="sm" disabled={setPrice.isPending}>Save price</Button>
+          {setPrice.isError ? <p role="alert" className="w-full text-sm text-red-700 dark:text-red-300">{setPrice.error.message}</p> : null}
+        </form>
+      ) : null}
+      {setEnabled.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{setEnabled.error.message}</p> : null}
 
       <dl className="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
         <Row k="Context" v={caps.contextTokens ? `${caps.contextTokens.toLocaleString()} tokens` : 'unknown'} />

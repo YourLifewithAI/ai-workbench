@@ -119,7 +119,8 @@ function Credentials({ configured, onSaid, onDone }: { configured: string[]; onS
 
       <form
         className="mt-3 flex flex-wrap items-end gap-2"
-        onSubmit={(e) => { e.preventDefault(); if (name.trim() && value.trim()) save.mutate({ name: name.trim(), apiKey: value.trim() }); }}
+        // The name is the prefix of the catalog ids the key unlocks, which are lowercase: `OpenAI` means `openai`.
+        onSubmit={(e) => { e.preventDefault(); if (name.trim() && value.trim()) save.mutate({ name: name.trim().toLowerCase(), apiKey: value.trim() }); }}
       >
         <label className="block">
           <span className="block text-sm font-medium">Provider</span>

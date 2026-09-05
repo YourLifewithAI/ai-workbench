@@ -6,7 +6,7 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import {
-  RerunRequest, ApprovalDecisionRequest, CompareRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
+  RerunRequest, ApprovalDecisionRequest, CompareRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetReposRequest, SetPriceRequest, SetEnabledRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
@@ -64,6 +64,8 @@ export interface AppDeps {
   /** Null when there is no such finding on the last refresh (D-64). */
   acceptFinding: (id: string) => Promise<ModelListResponse | null>;
   dismissFinding: (id: string) => Promise<ModelListResponse | null>;
+  setPrice: (id: string, price: SetPriceRequest) => Promise<ModelListResponse | null>;
+  setEnabled: (id: string, enabled: boolean) => Promise<ModelListResponse | null>;
   /** The one-click network switch (ui.md §UX rules): writes the mode to config and reloads it. */
   setNetworkMode: (mode: SetNetworkModeRequest['mode']) => void;
   /** A human granting or withdrawing a tool. This is the authority; what an agent's file asks for is not. */
@@ -482,6 +484,28 @@ export function createApp(deps: AppDeps): Hono {
     return json(c, deps.engine.tools.grantCell(agent, tool));
   });
 
+  // A repository grant from the Tools screen (D-66). Still a person writing it — on a form rather than in a
+  // text editor — and still the whole list for one agent, replaced, so what the screen shows is what holds.
+  app.put('/api/v1/tools/repos', async (c) => {
+    let body: unknown;
+    try { body = await c.req.json(); } catch { return fail(c, 'validation', 'The request body must be JSON.', 400); }
+    const parsed = SetReposRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'Expected { agentId, repos: [{ path, branches }] }.', 400, parsed.error.issues);
+    const ws = deps.workspace();
+    if (!ws.agents.has(parsed.data.agentId)) return fail(c, 'not_found', `There is no agent called "${parsed.data.agentId}".`, 404);
+    const relative = parsed.data.repos.find((r) => !path.isAbsolute(r.path));
+    if (relative) return fail(c, 'validation', `"${relative.path}" is not an absolute path. A repository grant names the whole path to a checkout, like C:/Users/you/project or /home/you/project.`, 400);
+    const existing = (ws.config.grants[parsed.data.agentId] ?? {}) as Record<string, unknown>;
+    deps.setGrant(parsed.data.agentId, { ...existing, repos: parsed.data.repos });
+    const granted = grantFor(ws.config, parsed.data.agentId);
+    const summary: AgentGrantSummary = {
+      agentId: parsed.data.agentId,
+      fs: { read: granted?.fs.read ?? [], write: granted?.fs.write ?? [] },
+      repos: (granted?.repos ?? []).map((r) => ({ path: r.path, branches: r.branches, deny: r.deny })),
+    };
+    return json(c, summary);
+  });
+
   // ---- schedules (D-15) -----------------------------------------------------------------------
   app.get('/api/v1/schedules', (c) => {
     const body: ScheduleListResponse = { schedules: deps.scheduler.list() };
@@ -654,6 +678,29 @@ export function createApp(deps: AppDeps): Hono {
     const id = c.req.param('id');
     const result = await deps.dismissFinding(id);
     return result ? json(c, result) : fail(c, 'not_found', `No finding "${id}" on the last refresh. Check for changes again.`, 404);
+  });
+  // The two edits a person makes to a catalog entry by hand, as buttons: a price (D-65) and the enabled flag.
+  app.put('/api/v1/models/:id/price', async (c) => {
+    const id = c.req.param('id');
+    let body: unknown;
+    try { body = await c.req.json(); } catch { return fail(c, 'validation', 'The request body must be JSON.', 400); }
+    const parsed = SetPriceRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'Expected { inputPerM, outputPerM } in dollars per million tokens, and optionally cachedPerM.', 400, parsed.error.issues);
+    try {
+      const result = await deps.setPrice(id, parsed.data);
+      return result ? json(c, result) : fail(c, 'not_found', `There is no catalog entry "${id}".`, 404);
+    } catch (e) {
+      return fail(c, 'validation', `That price would leave config/models.json invalid: ${(e as Error).message}`, 400);
+    }
+  });
+  app.put('/api/v1/models/:id/enabled', async (c) => {
+    const id = c.req.param('id');
+    let body: unknown;
+    try { body = await c.req.json(); } catch { return fail(c, 'validation', 'The request body must be JSON.', 400); }
+    const parsed = SetEnabledRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'Expected { enabled: true | false }.', 400, parsed.error.issues);
+    const result = await deps.setEnabled(id, parsed.data.enabled);
+    return result ? json(c, result) : fail(c, 'not_found', `There is no catalog entry "${id}".`, 404);
   });
 
   // The Privacy Inspector's data: every attempt this run made to leave the machine, and who holds the result.
@@ -1036,7 +1083,12 @@ export function createApp(deps: AppDeps): Hono {
       return fail(c, 'validation', 'The request body must be JSON.', 400);
     }
     const parsed = SetCredentialRequest.safeParse(raw);
-    if (!parsed.success) return fail(c, 'validation', 'Expected { name, apiKey } — or { name, apiKey: null } to remove one.', 400, parsed.error.issues);
+    if (!parsed.success) {
+      const nameIssue = parsed.error.issues.some((i) => i.path[0] === 'name');
+      return fail(c, 'validation', nameIssue
+        ? 'A provider name is lowercase letters, digits and hyphens — openai, not OpenAI. It is the prefix of the catalog ids the key unlocks.'
+        : 'Expected { name, apiKey } — or { name, apiKey: null } to remove one.', 400, parsed.error.issues);
+    }
     try {
       deps.setCredential(parsed.data.name, parsed.data.apiKey);
       // The names, never the values: a credential this workbench holds is not readable back out of it (SEC-05).

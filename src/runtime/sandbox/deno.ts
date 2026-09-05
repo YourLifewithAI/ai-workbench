@@ -193,9 +193,11 @@ export function findDeno(pathVar: string | undefined, configured?: string | unde
   if (configured) return configured;
   const onPath = findExecutable('deno', pathVar);
   if (onPath) return onPath;
-  // Only when PATH offered a shim we cannot spawn. A machine with no Deno at all still has no sandbox, which
-  // is a state the execute tier is required to report honestly rather than quietly work around.
-  return hasUnspawnableShim('deno', pathVar) ? vendoredDeno() : null;
+  // Then the copy npm installed with this workbench, whether PATH offered its shim or nothing at all: an owner
+  // who runs `node dist/cli.js start` has no `node_modules/.bin` on PATH and still has a real Deno. A machine
+  // with none anywhere still has no sandbox, which the execute tier reports rather than works around (D-30).
+  void hasUnspawnableShim;
+  return vendoredDeno();
 }
 
 /**

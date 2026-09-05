@@ -219,3 +219,10 @@ Import trust is defined in `agents-and-prompts.md` (D-34) and exports in `data-m
 > whatever the agent's own grant says — "briefs are not amended by run agents" is now the checker's rule as
 > well as the protocol's. The Tools screen shows a grant's denies beside its branch pattern.
 
+> Amendment (run/24, 2026-09-05): **the vendored Deno counts.** `npm ci` installs Deno into `node_modules` with
+> the workbench; an owner who runs `node dist/cli.js start` has no `node_modules/.bin` on PATH and was told the
+> sandbox was missing on a machine that had one. The lookup is now PATH first, then the copy npm installed,
+> then none — and none is still reported by name (D-30). Also: a **repository grant may be written from the
+> Tools screen** (`PUT /tools/repos`, absolute paths only). A person is still the one granting; the form only
+> spares them the text editor, and the whole list for one agent is replaced each time so the screen is the truth.
+

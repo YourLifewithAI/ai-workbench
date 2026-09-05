@@ -162,17 +162,24 @@ describe('DoD 2: without Deno there is no execution at all', () => {
     }
   }, 120_000);
 
-  it('doctor names the disabled tools when Deno is missing', async () => {
+  it('doctor names the disabled tools when Deno is missing, and finds the vendored one when it is not', async () => {
     const result = await runCli(['doctor', '--json', '--workspace', tempWorkspace('dod09-doctor')], {
       dist: true,
-      // An empty PATH is a machine with no Deno on it, whatever this one has installed.
+      // An empty PATH: whatever Deno this machine has is the copy npm installed with the workbench, or none.
+      // The no-sandbox CI job removes that copy, which is the honest "machine with no Deno on it".
       env: { PATH: '' },
     });
     const report = JSON.parse(result.stdout) as { checks: { name: string; detail: string }[] };
     const deno = report.checks.find((c) => c.name === 'deno')!;
-    expect(deno.detail).toContain('unavailable');
-    expect(deno.detail).toContain('code.execute');
-    expect(deno.detail).toContain('shell');
+    if (findDeno('') === null) {
+      expect(deno.detail).toContain('unavailable');
+      expect(deno.detail).toContain('code.execute');
+      expect(deno.detail).toContain('shell');
+    } else {
+      // An owner running `node dist/cli.js start` has no node_modules/.bin on PATH and a real Deno all the same.
+      expect(deno.detail).toContain('the sandbox is available');
+      expect(deno.detail).toContain('node_modules');
+    }
   }, 120_000);
 
   it('there is no in-process execution path in the source', () => {

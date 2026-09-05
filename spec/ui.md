@@ -82,3 +82,8 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > that a step's cap ends the step with a summary and the run's cap ends the run. The Tools screen's disk table
 > shows a repository grant's `deny` prefixes beside the branches it may push to.
 
+> Amendment (run/24, 2026-09-05): **Models** — an Enable/Disable button on every non-mock card, and a price form
+> (input and output, dollars per million) on any cloud entry with no price in effect. **Tools** — the disk
+> table's repository cell carries *Grant a repository…* (checkout path, branches) and a *Remove* per grant.
+> **Settings** — a provider name is lowercased on save, and a bad one is refused with the rule.
+

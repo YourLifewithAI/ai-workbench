@@ -18,13 +18,13 @@ Order of checks: `Host`/`Origin` (403) before token (401). Requests without an `
 | documents | `GET /projects/:slug/documents` · `GET /documents/:id` · `GET /documents/:id/versions` · `PUT /documents/:id` (human edit → version) · `POST /runs/:id/rerun` `{ model? }` |
 | review | `GET /reviews?state=open` · `POST /reviews/:id` (`rate | edit | reject | continue`) |
 | approvals | `GET /approvals?state=pending` · `POST /approvals/:id` (`allow | deny`, `remember?`) |
-| models | `GET /models` (catalog + availability + data policy) · `POST /models/refresh` (polls local endpoints and, from RUN-15, asks every provider with a credential what it offers; answers with `findings`, D-64) · `POST /models/findings/:id/accept` (writes the catalog as a hand edit would; a new model lands disabled) · `POST /models/findings/:id/dismiss` (suppressed until the provider's facts change) |
+| models | `GET /models` (catalog + availability + data policy) · `POST /models/refresh` (polls local endpoints and, from RUN-15, asks every provider with a credential what it offers; answers with `findings`, D-64) · `POST /models/findings/:id/accept` (writes the catalog as a hand edit would; a new model lands disabled) · `POST /models/findings/:id/dismiss` (suppressed until the provider's facts change) · `PUT /models/:id/price` (a price row in effect from now, typed in on the Models screen, D-65) · `PUT /models/:id/enabled` (the flag a hand edit would flip) |
 | memory | `GET /memory?q=&scope=` · `POST /memory` · `DELETE /memory/:id?redactTraces=true` |
 | memory (RUN-08) | also `GET /memory/:id/traces` → `{ itemId, runIds }`, so the delete dialog can say how many traces quoted it before it offers to rewrite them |
 | knowledge (RUN-08) | `POST /projects/:slug/knowledge?filename=<name>` takes the file as the raw request body (`application/octet-stream`); the extension decides the format |
 | knowledge | `POST /projects/:slug/knowledge` (ingest) · `GET /knowledge/search?q=` |
 | schedules | `GET /schedules` · `POST /schedules` (upsert; pass an id to replace) |
-| tools | `GET /tools` (built-ins, MCP, sandbox status, grant matrix) · `PUT /tools/grants` |
+| tools | `GET /tools` (built-ins, MCP, sandbox status, grant matrix) · `PUT /tools/grants` · `PUT /tools/repos` (a repository grant from the Tools screen: the whole list for one agent, replaced; paths must be absolute, D-66) |
 | experiments | `GET/POST /datasets` · `GET /datasets/:id/export` · `POST /datasets/import` · `GET/POST /experiments` · `GET /experiments/:id/results` · `POST /compare` |
 | export / import | `GET /export/agent/:id` · `GET /export/workflow/:id` · `GET /export/memory?scope=` · `GET /export/runs?ids=` · `POST /import/agent` · `POST /import/workflow` · `POST /import/memory` (project export/import are under projects) |
 | settings | `GET /settings` → `{ workspacePath, networkMode, budgets, execution, retention, providersConfigured: string[], sandbox: { deno: boolean } }` · `PUT /settings` (rewrites `config/workbench.json`) · `PUT /settings/credentials` |

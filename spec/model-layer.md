@@ -139,3 +139,16 @@ With no matching fixture the mock echoes the last user text. It streams when ask
 > mocked the way every other external service is (D-37). The contract suite has a `list-models` case that runs
 > for adapters that declare it, against a recorded or authored exchange like every other case. A cloud entry
 > whose `pricing` has no row in effect is `price-unknown`: listed with that reason, and not selectable (D-65).
+
+> Amendment (run/24, 2026-09-05): three things that kept a person in `config/models.json`.
+>
+> - **`discovery.providers`** in `config/workbench.json` names providers no catalog entry names yet — shipped:
+>   `openai`, `qwen`, `kimi`, each `{ adapter: "openai-compatible", baseUrl }`. A key saved under the name is
+>   enough to be asked; the OpenAI-compatible adapter lists at `<baseUrl>/models` (the one route every such
+>   server has, Ollama included) and a proposed entry carries that `baseUrl`. None of them state a price, so
+>   what arrives is unpriced (D-65) — and the price is typed in on the screen, below.
+> - **`PUT /models/:id/price`** adds a price row in effect from now, exactly the row a hand edit would add; the
+>   Models screen shows the two boxes on any cloud entry with no price in effect.
+> - **`PUT /models/:id/enabled`** flips the flag; the Models screen has the button. An accepted model lands
+>   disabled and unpriced and is made usable with two clicks, never with a file.
+

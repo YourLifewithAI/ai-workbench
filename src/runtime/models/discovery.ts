@@ -53,6 +53,8 @@ export interface DiffInput {
   discovered: DiscoveredModel[];
   pins: Pins;
   now: Date;
+  /** The endpoint an OpenAI-compatible provider was asked at, which a new entry has to name. */
+  baseUrl?: string | undefined;
 }
 
 const CAPABILITY_KEYS = ['vision', 'audioInput', 'toolCalling', 'structuredOutput', 'streaming', 'reasoning', 'contextTokens', 'maxOutputTokens'] as const;
@@ -78,6 +80,7 @@ export function diffProvider(input: DiffInput): CatalogFinding[] {
       ...(d.description !== undefined ? { description: d.description } : {}),
       pinnedBy: [],
       proposed,
+      ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
     });
   }
 
@@ -149,6 +152,7 @@ export function applyFinding(catalog: ModelsFile, finding: CatalogFinding, now: 
     const entry: CatalogEntry = CatalogEntrySchema.parse({
       id: finding.modelId,
       adapter: finding.adapter,
+      ...(finding.baseUrl ? { baseUrl: finding.baseUrl } : {}),
       enabled: false,
       locality: 'cloud',
       capabilities: {

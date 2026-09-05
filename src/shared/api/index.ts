@@ -149,6 +149,8 @@ export const CatalogFinding = z.object({
   description: z.string().optional(),
   pinnedBy: z.array(CatalogFindingPin),
   proposed: z.record(z.string(), z.unknown()).optional(),
+  /** For a new entry on an OpenAI-compatible provider: the endpoint the entry will name. */
+  baseUrl: z.string().optional(),
 });
 export type CatalogFinding = z.infer<typeof CatalogFinding>;
 
@@ -553,6 +555,24 @@ export const ToolsResponse = z.object({
   mcpServers: z.array(McpServerSummary),
 });
 export type ToolsResponse = z.infer<typeof ToolsResponse>;
+
+/** A person granting a repository from the Tools screen (D-66): the whole list for one agent, replaced. */
+export const SetReposRequest = z.object({
+  agentId: z.string(),
+  repos: z.array(z.object({ path: z.string().min(1), branches: z.string().min(1).default('run/*'), deny: z.array(z.string()).default([]) })),
+});
+export type SetReposRequest = z.infer<typeof SetReposRequest>;
+
+/** A price typed in on the Models screen: a new row in effect from now (D-65). */
+export const SetPriceRequest = z.object({
+  inputPerM: z.number().nonnegative(),
+  outputPerM: z.number().nonnegative(),
+  cachedPerM: z.number().nonnegative().optional(),
+});
+export type SetPriceRequest = z.infer<typeof SetPriceRequest>;
+
+export const SetEnabledRequest = z.object({ enabled: z.boolean() });
+export type SetEnabledRequest = z.infer<typeof SetEnabledRequest>;
 
 export const SetGrantRequest = z.object({
   agentId: z.string(),
