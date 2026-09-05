@@ -6,7 +6,7 @@ import { Permissions } from '../../src/shared/permissions.js';
 
 const facts = (over: Partial<PermissionFacts>): PermissionFacts => ({
   generatedAt: '2026-09-05T00:00:00.000Z', thresholds: { unusedDays: 30, fatigueStreak: 30 },
-  agents: [], tools: [], grants: [], approvals: [], hosts: [], undecided: [], candidates: [], ...over,
+  agents: [], tools: [], grants: [], approvals: [], hosts: [], undecided: [], projects: [], candidates: [], ...over,
 });
 
 describe('candidate findings', () => {

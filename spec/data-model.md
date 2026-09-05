@@ -112,3 +112,8 @@ Vocabularies: `runs.kind ∈ agent | workflow | experiment`; `runs.state ∈ que
 > `permission_finding_dismissals(key, facts_hash, dismissed_at)` — what the auditor proposed and what the
 > person did; a dismissal holds while the facts hash is unchanged. `tool_catalog_seen(tool, first_seen_at)` —
 > when each tool first appeared, so *undecided* can mean *new*. Migration `0013`.
+
+> Amendment (RUN-18, 2026-09-05, D-69): no new table. A project's space lives in `projects/<slug>/project.json`
+> (schema in `src/shared/project.ts`: `schemaVersion`, `name?`, `description?`, `goals?`, `agents[]`, `tools[]?`,
+> `memory[]`), loaded with the workspace and reloaded on save; its version is the content hash of the parsed form.
+> One new event type, `goals-missing`.

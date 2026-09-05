@@ -19,6 +19,15 @@ interface ArtifactVersion {
 
 During a step, `artifact.write` stages under `runs/<id>/scratch/out/`; when the step completes, staged writes are committed as versions in one transaction. A human edit in the Library creates a version with `createdBy: 'human'`; "re-run downstream" starts the dependent steps from that version. The bible of the story example is a project document injected as knowledge, not code.
 
+> Amendment (RUN-18, 2026-09-05, D-69): a project directory may carry **`project.json`** — its agents, a goals
+> document, a tool ceiling and its memory scopes (`src/shared/project.ts`). The goals document is rendered into
+> every prompt of a run in that project as an instruction section named `goals`, after the agent's own sections
+> and before anything retrieved; a document that is both the agent's `documents` entry and the goals is injected
+> once, as goals; a missing goals document is a `goals-missing` event and the run goes on. The memory list narrows
+> `scopesFor` for retrieval and `memory.remember` refuses a scope outside it by name. The file is read at start
+> and on save (`PUT /projects/:slug/space`, hash-pinned like a workflow), never on a schedule; a file that does
+> not load is listed as broken on the project's page and the project reads as a plain one.
+
 > Amendment (RUN-03, 2026-09-03): a project directory that exists on disk without a row is **adopted** on startup —
 > its markdown, text and JSON files become documents with `createdBy: 'import'`. That is how `init` can ship an
 > example project, and how a workspace copied between machines keeps working. Writing a body identical to the

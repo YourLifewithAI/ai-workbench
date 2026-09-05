@@ -80,6 +80,8 @@ export class ArtifactStore {
       const dir = path.join(this.projectsDir, entry.name);
       for (const file of fs.readdirSync(dir, { withFileTypes: true })) {
         if (!file.isFile() || !/\.(md|markdown|txt|json)$/i.test(file.name)) continue;
+        // The space file (D-69) describes the project; it is not one of its documents.
+        if (file.name === 'project.json') continue;
         this.writeDocument({
           projectSlug: project.slug,
           path: file.name,
@@ -185,6 +187,14 @@ export class ArtifactStore {
   findDocumentByPath(projectSlug: string, docPath: string): DocumentRow | undefined {
     const project = this.requireProject(projectSlug);
     return this.db.prepare('SELECT * FROM documents WHERE project_id = ? AND path = ?').get(project.id, normalizeDocumentPath(docPath)) as DocumentRow | undefined;
+  }
+
+  /** The latest version's content and author: a goals document is an instruction only when a person wrote it (D-69). */
+  readDocumentWithAuthor(projectSlug: string, docPath: string): { content: string; createdBy: 'run-step' | 'human' | 'import' } | null {
+    const doc = this.findDocumentByPath(projectSlug, docPath);
+    if (!doc?.latest_version_id) return null;
+    const version = this.db.prepare('SELECT content, created_by FROM document_versions WHERE id = ?').get(doc.latest_version_id) as { content: string; created_by: string } | undefined;
+    return version ? { content: version.content, createdBy: version.created_by as 'run-step' | 'human' | 'import' } : null;
   }
 
   /** The content an agent's `documents: [...]` list injects as its knowledge section. */

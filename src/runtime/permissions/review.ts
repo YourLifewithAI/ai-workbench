@@ -48,6 +48,8 @@ export interface ApprovalFact {
   byAgentFile: boolean;
 }
 export interface HostFact { agentId: string; allowed: string[]; used: string[]; unused: string[] }
+/** A project's space (D-69): its agents, its tool ceiling (null: none), the memory scopes it uses. */
+export interface ProjectFact { slug: string; agents: string[]; tools: string[] | null; memory: string[] }
 export interface UndecidedFact { tool: string; tier: string; firstSeenAt: string | null; requestedBy: string[] }
 export interface Candidate {
   id: string; kind: FindingKind; agentId: string | null; tool: string | null;
@@ -62,6 +64,7 @@ export interface PermissionFacts {
   approvals: ApprovalFact[];
   hosts: HostFact[];
   undecided: UndecidedFact[];
+  projects: ProjectFact[];
   candidates: Candidate[];
 }
 
@@ -95,6 +98,10 @@ export function gatherFacts(deps: FactsDeps, thresholds: ReviewThresholds = DEFA
       net: { mode: granted?.net.mode ?? null, allow: granted?.net.allow ?? [] },
     };
   }).sort((a, b) => a.id.localeCompare(b.id));
+
+  const projects: ProjectFact[] = [...ws.spaces.values()].map((sp) => ({
+    slug: sp.slug, agents: [...sp.definition.agents].sort(), tools: sp.definition.tools ? [...sp.definition.tools].sort() : null, memory: [...sp.definition.memory],
+  })).sort((a, b) => a.slug.localeCompare(b.slug));
 
   const toolFacts: ToolFact[] = tools.map((t) => ({
     id: t.id, tier: t.tier, description: t.description, usesNetwork: t.usesNetwork === true, approvalByDefault: t.approvalByDefault === true,
@@ -161,7 +168,8 @@ export function gatherFacts(deps: FactsDeps, thresholds: ReviewThresholds = DEFA
     tool: t.id, tier: t.tier, firstSeenAt: t.firstSeenAt, requestedBy: agents.filter((a) => a.requested.includes(t.id)).map((a) => a.id),
   }));
 
-  const facts: PermissionFacts = { generatedAt: now.toISOString(), thresholds, agents, tools: toolFacts, grants, approvals, hosts, undecided, candidates: [] };
+  const facts: PermissionFacts = { generatedAt: now.toISOString(), thresholds, agents, tools: toolFacts, grants, approvals, hosts, undecided,
+    projects, candidates: [] };
   facts.candidates = candidateFindings(facts);
   return facts;
 }
@@ -181,6 +189,25 @@ export function hostMatches(pattern: string, host: string): boolean {
 export function candidateFindings(facts: PermissionFacts): Candidate[] {
   const out: Candidate[] = [];
   const t = facts.thresholds;
+
+  // Nowhere (D-69): an agent's grant that no project it belongs to allows. Every project it is an agent of has
+  // a ceiling, and none of them lists the tool, so the grant is real and nowhere usable.
+  for (const g of facts.grants) {
+    if (g.decision !== 'allow') continue;
+    const mine = facts.projects.filter((p) => p.agents.includes(g.agentId));
+    if (!mine.length || mine.some((p) => p.tools === null || p.tools.includes(g.tool))) continue;
+    out.push({
+      id: `nowhere:${g.agentId}:${g.tool}`, kind: 'nowhere', agentId: g.agentId, tool: g.tool,
+      headline: `${g.agentId} holds ${g.tool}, and no project it works in allows it.`,
+      evidence: [
+        `${g.agentId} is an agent of ${mine.map((p) => p.slug).join(', ')}.`,
+        ...mine.map((p) => `${p.slug} allows: ${p.tools!.join(', ') || 'nothing'}.`),
+        `Exercised ${g.uses} time${g.uses === 1 ? '' : 's'}.`,
+      ],
+      proposal: { agentId: g.agentId, tool: g.tool, set: 'unset', label: `Take back ${g.tool} from ${g.agentId}` },
+      factsHash: contentHash({ kind: 'nowhere', agentId: g.agentId, tool: g.tool, projects: mine.map((p) => [p.slug, p.tools]) }),
+    });
+  }
 
   for (const g of facts.grants) {
     if (g.decision !== 'allow' || g.uses !== 0 || g.ageDays < t.unusedDays) continue;
@@ -313,6 +340,7 @@ export interface FactsBrief {
   undecided: { tool: string; requestedBy: string[] }[];
   approvals: { agentId: string | null; tool: string; asked: number; streak: number }[];
   hosts: { agentId: string; allowed: string[]; used: string[] }[];
+  projects: { slug: string; agents: string[]; tools: string[] | null }[];
   grants: { agentId: string; tool: string; decision: 'allow' | 'deny'; ageDays: number; uses: number }[];
   agents: { id: string; holds: string[]; instructions: string }[];
 }
@@ -325,6 +353,7 @@ export function briefOf(facts: PermissionFacts, instructionChars = 260): FactsBr
     undecided: facts.undecided.filter((u) => u.requestedBy.length).map((u) => ({ tool: u.tool, requestedBy: u.requestedBy })),
     approvals: facts.approvals.map((a) => ({ agentId: a.agentId, tool: a.tool, asked: a.asked, streak: a.streak })),
     hosts: facts.hosts.map((h) => ({ agentId: h.agentId, allowed: h.allowed, used: h.used })),
+    projects: facts.projects.map((p) => ({ slug: p.slug, agents: p.agents, tools: p.tools })),
     grants: facts.grants.map((g) => ({ agentId: g.agentId, tool: g.tool, decision: g.decision, ageDays: g.ageDays, uses: g.uses })),
     agents: facts.agents
       .filter((a) => Object.keys(a.granted).length)

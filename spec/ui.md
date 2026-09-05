@@ -171,3 +171,10 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > sign column takes the semantic colour in both themes. Phone: the network banner is one line — the chip and the
 > action; its sentence appears from `md` — so *Needs you* sits higher on the Dashboard. Review cards, findings and
 > the run form at 390 px wrap onto two rows of controls at most; nothing becomes a column of single words.
+
+> Amendment (RUN-18, 2026-09-05, D-69): **Library** — a project's page carries a *Space* card: a form over
+> `project.json` (goals document, memory scopes, this project's agents, the tool ceiling with a *Limit the tools in
+> this project* switch), saved hash-pinned; a save against a moved file is refused with *Load what is on disk*.
+> **Agents** — with `?project=` in the URL the list opens with *This project's agents* and then *Others*, and the
+> project travels to the agent's run form. **Review** — a `nowhere` finding (a grant no project allows) is
+> labelled *allowed nowhere* and its button takes the grant back, never the ceiling.

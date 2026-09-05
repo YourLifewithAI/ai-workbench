@@ -142,6 +142,8 @@ export interface GrantSource {
   workflowCeiling?: Permissions | undefined;
   /** A run override. It can only narrow, which is why it is just another layer here. */
   runOverride?: Permissions | undefined;
+  /** The project's tool ceiling (D-69): the tools any agent may use there. A tool outside it is refused by name. */
+  projectCeiling?: { project: string; tools: string[] } | undefined;
 }
 
 export interface EffectivePermissions {
@@ -181,6 +183,9 @@ export function effectivePermissions(source: GrantSource): EffectivePermissions 
             ? 'The agent asks for it in its own file, but nothing has granted it. Grant it in the Tools screen.'
             : 'Tools are denied until a human grants them. Grant it in the Tools screen if this agent should have it.',
         };
+      }
+      if (source.projectCeiling && !source.projectCeiling.tools.includes(toolId)) {
+        return { allowed: false, approval: false, reason: `"${toolId}" is not allowed in project ${source.projectCeiling.project}.`, hint: 'The project\'s ceiling is set on its Library page. Add the tool there if this project should allow it; the grant itself is unchanged.' };
       }
       const needsApproval = approvalRequired || permissions.approvalRequired.includes(toolId);
       return { allowed: true, approval: needsApproval, reason: needsApproval ? `"${toolId}" is granted but every call needs a human decision.` : `"${toolId}" is granted.` };

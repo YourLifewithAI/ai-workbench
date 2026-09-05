@@ -2,6 +2,7 @@
 import { z } from 'zod';
 import { RunKind, RunState, Spent, EventRecord } from '../events.js';
 import { Budgets, NetworkMode } from '../permissions.js';
+import { ProjectSpace } from '../project.js';
 
 export const ApiErrorCode = z.enum(['unauthorized', 'forbidden', 'not_found', 'validation', 'conflict', 'budget', 'unavailable', 'internal']);
 export const ApiError = z.object({ error: z.object({ code: ApiErrorCode, message: z.string(), details: z.unknown().optional() }) });
@@ -249,6 +250,27 @@ export type SetNetworkModeRequest = z.infer<typeof SetNetworkModeRequest>;
 export const Project = z.object({ id: z.string(), slug: z.string(), name: z.string(), description: z.string().nullable(), createdAt: z.string(), documents: z.number().int() });
 export type Project = z.infer<typeof Project>;
 
+/** A project's space (D-69, RUN-18): the file, its version for a hash-pinned save, or `exists: false` with the defaults. */
+export const ProjectSpaceResponse = z.object({
+  slug: z.string(),
+  space: ProjectSpace,
+  /** The hash a save must pin; `none` when there is no file yet. */
+  version: z.string(),
+  exists: z.boolean(),
+  file: z.string(),
+  /** The documents in the project, so a goals picker needs no second request. */
+  documents: z.array(z.string()),
+  /** Set when the file exists but does not load; the space shown is then the defaults. */
+  error: z.string().nullable(),
+});
+export type ProjectSpaceResponse = z.infer<typeof ProjectSpaceResponse>;
+
+export const SaveProjectSpaceRequest = z.object({
+  space: z.record(z.string(), z.unknown()),
+  baseVersion: z.string().min(1),
+});
+export type SaveProjectSpaceRequest = z.infer<typeof SaveProjectSpaceRequest>;
+
 export const CreateProjectRequest = z.object({ slug: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'lowercase letters, digits and hyphens'), name: z.string().min(1), description: z.string().optional() });
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequest>;
 
@@ -378,7 +400,7 @@ export type DeleteWorkflowResponse = z.infer<typeof DeleteWorkflowResponse>;
 
 // ---- the permissions review (D-63, RUN-14) -------------------------------------------------------
 
-export const FindingKind = z.enum(['unused', 'unjustified', 'reach', 'fatigue', 'undecided']);
+export const FindingKind = z.enum(['unused', 'unjustified', 'reach', 'fatigue', 'undecided', 'nowhere']);
 export type FindingKind = z.infer<typeof FindingKind>;
 
 /**

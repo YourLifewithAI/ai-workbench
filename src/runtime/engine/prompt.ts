@@ -28,11 +28,19 @@ export interface AssembleOptions {
   knowledge?: KnowledgeDocument[] | undefined;
   /** Retrieved memory, already split by trust. Trusted is context; untrusted is fenced as data (SEC-14). */
   memory?: { trusted: MemorySnippet[]; untrusted: MemorySnippet[] } | undefined;
+  /** The project's goals document (D-69): the owner's word, an instruction section after the agent's own — when a person wrote its latest version. Otherwise data, fenced. */
+  goals?: { source: string; text: string; trusted: boolean } | undefined;
 }
 
 export function assemblePrompt(agent: LoadedAgent, task: string, harness: string, options: AssembleOptions = {}): AssembledPrompt {
   const identity = `${agent.definition.name}: ${agent.definition.description}`;
-  const stable = [{ name: 'identity', text: identity }, ...agent.sections.map((s) => ({ name: s.name, text: s.text }))];
+  const stable = [
+    { name: 'identity', text: identity },
+    ...agent.sections.map((s) => ({ name: s.name, text: s.text })),
+    // Goals are instructions, not data: they are the owner's own, in the owner's workspace (D-69). They sit in
+    // the stable prefix but outside promptVersion, which hashes the agent and only the agent.
+    ...(options.goals?.trusted ? [{ name: 'goals', text: options.goals.text }] : []),
+  ];
   // promptVersion covers the authored part only, so it moves when someone edits the agent, not on every call.
   const promptVersion = contentHash({ identity, instructions: agent.sections });
 
@@ -49,6 +57,8 @@ export function assemblePrompt(agent: LoadedAgent, task: string, harness: string
       ? [{ name: 'memory.untrusted', text: untrusted.map((m) => renderDataSection(`memory:${m.scope}`, m.content)).join('\n\n') }]
       : []),
     ...(knowledge.length ? [{ name: 'knowledge', text: knowledge.map((k) => renderDataSection(k.source, k.text)).join('\n\n') }] : []),
+    // Goals whose latest version a run wrote: content, not instructions, until a person writes the next version.
+    ...(options.goals && !options.goals.trusted ? [{ name: 'goals.untrusted', text: renderDataSection(options.goals.source, options.goals.text) }] : []),
   ];
 
   // Order is D-46: nothing time-varying before the stable prefix; retrieved data next to the task; harness last.

@@ -12,6 +12,9 @@ import { guardedFetch, NetDeniedError, type NetFetchDeps } from '../security/net
 import type { RunTaint } from '../engine/taint.js';
 import { EXTERNAL_TOOLS, PRIVATE_TOOLS } from '../engine/taint.js';
 import { ANY_REPO, EMPTY_PERMISSIONS, effectivePermissions, grantFor, narrowestMode, type ToolDecision } from '../security/permissions.js';
+
+/** A project's tool ceiling (D-69). */
+export type ProjectCeiling = { project: string; tools: string[] };
 import type { WorkbenchConfig } from '../../shared/workspace.js';
 import type { NetworkMode, Permissions } from '../../shared/permissions.js';
 import { toolError, type ToolContext, type ToolDefinition, type ToolResult } from '../../shared/tool.js';
@@ -73,6 +76,8 @@ export interface ExecuteInput {
   project: string | null;
   scratchDir: string;
   workflowCeiling?: Permissions | undefined;
+  /** The project's tool ceiling (D-69), when the run's project has one. */
+  projectCeiling?: ProjectCeiling | undefined;
   signal: AbortSignal;
   timeoutMs: number;
   /** The exfiltration rule's memory of this run (D-29). */
@@ -136,17 +141,18 @@ export class ToolExecutor {
   }
 
   /** Which tools this agent may actually see. A tool the model cannot call should not be in its prompt. */
-  availableTo(agent: LoadedAgent, workflowCeiling?: Permissions): ToolDefinition[] {
-    return [...this.deps.tools.values()].filter((tool) => this.decisionFor(agent, tool, workflowCeiling).allowed);
+  availableTo(agent: LoadedAgent, workflowCeiling?: Permissions, projectCeiling?: ProjectCeiling): ToolDefinition[] {
+    return [...this.deps.tools.values()].filter((tool) => this.decisionFor(agent, tool, workflowCeiling, projectCeiling).allowed);
   }
 
-  private decisionFor(agent: LoadedAgent, tool: ToolDefinition, workflowCeiling?: Permissions): ToolDecision {
+  private decisionFor(agent: LoadedAgent, tool: ToolDefinition, workflowCeiling?: Permissions, projectCeiling?: ProjectCeiling): ToolDecision {
     const config = this.deps.config();
     return effectivePermissions({
       requested: agent.definition.permissions,
       granted: grantFor(config, agent.definition.id),
       toolMax: tool.maxPermissions,
       ...(workflowCeiling ? { workflowCeiling } : {}),
+      ...(projectCeiling ? { projectCeiling } : {}),
     }).decide(tool.id, tool.approvalByDefault ?? false);
   }
 
@@ -193,11 +199,11 @@ export class ToolExecutor {
 
     const tool = this.deps.tools.get(call.name);
     if (!tool) {
-      const result = toolError('UnknownTool', `There is no tool called "${call.name}".`, `Tools available to this agent: ${this.availableTo(input.agent, input.workflowCeiling).map((t) => t.id).join(', ') || 'none'}.`);
+      const result = toolError('UnknownTool', `There is no tool called "${call.name}".`, `Tools available to this agent: ${this.availableTo(input.agent, input.workflowCeiling, input.projectCeiling).map((t) => t.id).join(', ') || 'none'}.`);
       return this.finish(call, input, result, started, 'unknown');
     }
 
-    const decision = this.decisionFor(input.agent, tool, input.workflowCeiling);
+    const decision = this.decisionFor(input.agent, tool, input.workflowCeiling, input.projectCeiling);
     this.deps.events.append(input.runId, input.stepId, 'permission-decided', {
       callId: call.id, tool: call.name, allowed: decision.allowed, approval: decision.approval, reason: decision.reason,
     });

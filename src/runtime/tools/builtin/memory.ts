@@ -46,6 +46,10 @@ export function memoryTools(deps: MemoryToolDeps): ToolDefinition[] {
       const scope = input.scope ?? 'agent';
       const ownerId = ownerFor(scope, ctx.agentId, ctx.project);
       if (ownerId === null) return toolError('InvalidInput', 'This run has no project, so there is nothing to remember it against. Use a different scope.');
+      // The project's space lists the scopes a run there may use (D-69): the same list reads are narrowed to.
+      if (!deps.scopesFor(ctx.agentId, ctx.project).some((s) => s.scope === scope)) {
+        return toolError('PermissionDenied', `Memory scope "${scope}" is not in project ${ctx.project}'s list, so this run cannot write to it.`, 'The scopes a project uses are set on its Library page. Remember in one of the listed scopes instead.');
+      }
       if (input.supersedesId) {
         const existing = deps.memory.byId(input.supersedesId);
         if (!existing) return toolError('NotFound', `There is no memory item with id "${input.supersedesId}".`);
