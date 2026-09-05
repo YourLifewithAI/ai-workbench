@@ -12,7 +12,7 @@ Order of checks: `Host`/`Origin` (403) before token (401). Requests without an `
 |---|---|
 | runs | `POST /runs` `{ kind: 'agent'|'workflow', id, inputs, project?, overrides?, provider?: 'mock' }` → `{ runId }` · `GET /runs?state=&kind=&project=` · `GET /runs/:id` (summary, steps, spent) · `POST /runs/:id/cancel` · `POST /runs/:id/resume` · `GET /runs/:id/events?after=<seq>` (replays stored events after `seq`, then streams live ones; SSE `id` = seq, `event` = type, `data` = the JSONL line; the stream closes after a terminal event) · `GET /runs/events` (workspace-level SSE of `run-*` events for every run, feeding lists and the Dashboard) · `GET /runs/:id/trace.jsonl` · `GET /runs/:id/privacy` |
 | agents | `GET /agents` (incl. load errors) · `GET /agents/:id` · `POST /agents/reload` |
-| workflows | `GET /workflows` · `GET /workflows/:id` |
+| workflows | `GET /workflows` · `GET /workflows/:id` · `POST /workflows` (new: blank or a copy, RUN-13) · `PUT /workflows/:id` `{ definition, baseVersion }` (the editor's save: validated, refused with a diff if the file moved, D-62) · `DELETE /workflows/:id?deleteSchedules=true` (refused with the count until the schedules are accepted) |
 | projects | `GET /projects` · `POST /projects` · `GET /projects/:slug` |
 | evaluation | `GET /datasets` · `POST /datasets` · `GET /datasets/:id/cases` · `GET /datasets/:id/export` · `POST /datasets/import` · `GET /experiments` · `POST /experiments` · `GET /experiments/:id/results` · `POST /experiments/:id/cancel` · `POST /compare` · `POST /compare/pick` |
 | documents | `GET /projects/:slug/documents` · `GET /documents/:id` · `GET /documents/:id/versions` · `PUT /documents/:id` (human edit → version) · `POST /runs/:id/rerun` `{ model? }` |

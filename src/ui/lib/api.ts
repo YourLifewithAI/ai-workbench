@@ -1,10 +1,11 @@
 // Every call carries the bearer token; SSE is fetch-based (never EventSource) so it can too.
-import type { AgentDetail, AgentGrantSummary, AgentListResponse, ApprovalItem, ApprovalListResponse, CompareRequest, ComparePickRequest, CompareResponse, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, DashboardResponse, DatasetSummary, DeleteMemoryResponse, ExperimentResults, ExperimentSummary, DiffResponse, DocumentDetail, DocumentSummary, GrantCell, KnowledgeSearchResponse, MemoryItem, MemoryResponse, MemoryTracesResponse, ModelListResponse, PrivacyResponse, Project, PushEventKind, PushSubscription, PushSubscriptionsResponse, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunSummary, ScheduleListResponse, ScheduleSummary, SetGrantRequest, SettingsResponse, UpdateSettingsRequest, SubscribePushRequest, ToolsResponse, UpsertScheduleRequest, WorkflowDetail, WorkflowListResponse } from '../../shared/api/index.js';
+import type { AgentDetail, AgentGrantSummary, AgentListResponse, ApprovalItem, ApprovalListResponse, CompareRequest, ComparePickRequest, CompareResponse, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, DashboardResponse, DatasetSummary, DeleteMemoryResponse, ExperimentResults, ExperimentSummary, DiffResponse, DocumentDetail, DocumentSummary, GrantCell, KnowledgeSearchResponse, MemoryItem, MemoryResponse, MemoryTracesResponse, ModelListResponse, PrivacyResponse, Project, PushEventKind, PushSubscription, PushSubscriptionsResponse, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunSummary, ScheduleListResponse, ScheduleSummary, SetGrantRequest, SettingsResponse, UpdateSettingsRequest, SubscribePushRequest, ToolsResponse, UpsertScheduleRequest, CreateWorkflowRequest, DeleteWorkflowResponse, SaveWorkflowRequest, WorkflowDetail, WorkflowListResponse } from '../../shared/api/index.js';
 import type { EventRecord } from '../../shared/events.js';
 import { getToken, markUnauthorized } from './auth.js';
 
 export class ApiRequestError extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) {
+  /** Whatever the route attached to explain itself: validation issues, a conflict's diff, a schedule count. */
+  constructor(readonly status: number, readonly code: string, message: string, readonly details?: unknown) {
     super(message);
     this.name = 'ApiRequestError';
   }
@@ -22,13 +23,14 @@ async function apiFetch(path: string, init: RequestInit = {}): Promise<Response>
   if (!res.ok) {
     let code = 'internal';
     let message = `${res.status} ${res.statusText}`;
+    let details: unknown;
     try {
-      const body = (await res.json()) as { error?: { code?: string; message?: string } };
-      if (body.error?.message) { message = body.error.message; code = body.error.code ?? code; }
+      const body = (await res.json()) as { error?: { code?: string; message?: string; details?: unknown } };
+      if (body.error?.message) { message = body.error.message; code = body.error.code ?? code; details = body.error.details; }
     } catch {
       // not JSON
     }
-    throw new ApiRequestError(res.status, code, message);
+    throw new ApiRequestError(res.status, code, message, details);
   }
   return res;
 }
@@ -106,6 +108,12 @@ export const api = {
     apiFetch(`/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }).then((r) => r.json() as Promise<{ cancelled: boolean }>),
   workflows: (): Promise<WorkflowListResponse> => apiFetch('/workflows').then((r) => r.json() as Promise<WorkflowListResponse>),
   workflow: (id: string): Promise<WorkflowDetail> => apiFetch(`/workflows/${encodeURIComponent(id)}`).then((r) => r.json() as Promise<WorkflowDetail>),
+  saveWorkflow: (id: string, body: SaveWorkflowRequest): Promise<WorkflowDetail> =>
+    apiFetch(`/workflows/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<WorkflowDetail>),
+  createWorkflow: (body: CreateWorkflowRequest): Promise<WorkflowDetail> =>
+    apiFetch('/workflows', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<WorkflowDetail>),
+  deleteWorkflow: (id: string, deleteSchedules: boolean): Promise<DeleteWorkflowResponse> =>
+    apiFetch(`/workflows/${encodeURIComponent(id)}${deleteSchedules ? '?deleteSchedules=true' : ''}`, { method: 'DELETE' }).then((r) => r.json() as Promise<DeleteWorkflowResponse>),
   resumeRun: (id: string): Promise<{ runId: string }> =>
     apiFetch(`/runs/${encodeURIComponent(id)}/resume`, { method: 'POST' }).then((r) => r.json() as Promise<{ runId: string }>),
   dashboard: (): Promise<DashboardResponse> => apiFetch('/dashboard').then((r) => r.json() as Promise<DashboardResponse>),

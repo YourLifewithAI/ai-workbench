@@ -71,3 +71,10 @@ Everything an agent needs is in at most ten bounded files. Done is a command, no
 > `workbench run workflow coding-run --input brief=spec/runs/RUN-nn.md`, the handoff lands in `runlog/` as a
 > document, and the person's part is the merge. The first two briefs to go through it are the two already
 > written, which is also how RUN-17 is verified.
+
+> Amendment (owner decision, 2026-09-05, later the same day): RUN-13 and RUN-14 are built **here**, by the
+> coding harness, not dispatched through the workbench. The coding run (RUN-17) is merged and verified against
+> fixtures and stays parked for three to six months: the owner's call is to finish the buildout — functional and
+> then aesthetic — with the one model he trusts today, and to dogfood when model capability and price have moved.
+> The protocol is unchanged; only who executes the next briefs is.
+

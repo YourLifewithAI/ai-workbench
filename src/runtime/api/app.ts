@@ -6,7 +6,7 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import {
-  RerunRequest, ApprovalDecisionRequest, CompareRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetReposRequest, SetPriceRequest, SetEnabledRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
+  RerunRequest, ApprovalDecisionRequest, CompareRequest, CreateWorkflowRequest, SaveWorkflowRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetReposRequest, SetPriceRequest, SetEnabledRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type DeleteWorkflowResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
@@ -27,6 +27,7 @@ import type { Logger } from '../log/index.js';
 import type { BrokenAgent, Workspace } from '../workspace/loader.js';
 import type { LoadedAgent } from '../../shared/agent.js';
 import { validateWorkflow, type LoadedWorkflow } from '../../shared/workflow.js';
+import { WorkflowWriteError } from '../workspace/workflows.js';
 import { toolSpec } from '../../shared/tool.js';
 import { z } from 'zod';
 import { PushEventKind } from '../../shared/api/index.js';
@@ -52,6 +53,10 @@ export interface AppDeps {
   /** Writes an imported agent to disk as files, like any other agent. */
   writeAgent: (definition: unknown, sections: { name: string; text: string }[]) => { id: string };
   writeWorkflow: (workflow: unknown) => { id: string };
+  /** The editor's write path (RUN-13, D-62): validate, refuse a moved file, write, record the hash. */
+  saveWorkflow: (id: string, raw: unknown, baseVersion: string) => LoadedWorkflow;
+  createWorkflow: (body: CreateWorkflowRequest) => LoadedWorkflow;
+  deleteWorkflow: (id: string, deleteSchedules: boolean) => DeleteWorkflowResponse;
   /** Records that a human accepted "this code runs with full access" for one plugin *version* (D-32). */
   trustPlugin: (key: string) => void;
   /** Writes the 0600 credentials file. `null` removes one. The value is never read back out (SEC-05). */
@@ -112,6 +117,10 @@ export function createApp(deps: AppDeps): Hono {
     if (e instanceof ConflictError) return fail(c, 'conflict', e.message, 409);
     if (e instanceof ScheduleError) return fail(c, 'validation', e.message, 400);
     if (e instanceof RangeError) return fail(c, 'validation', e.message, 400);
+    if (e instanceof WorkflowWriteError) {
+      const status = e.code === 'validation' ? 400 : e.code === 'not_found' ? 404 : 409;
+      return fail(c, e.code === 'exists' ? 'conflict' : e.code, e.message, status, e.details);
+    }
     throw e;
   };
   const eventLine = (e: EventRecord): string => deps.redactor.redactJson(e);
@@ -566,16 +575,9 @@ export function createApp(deps: AppDeps): Hono {
   const compactBudget = (budget: Record<string, number | undefined>): Record<string, number> =>
     Object.fromEntries(Object.entries(budget).filter((entry): entry is [string, number] => typeof entry[1] === 'number'));
 
-  app.get('/api/v1/workflows/:id', (c) => {
-    const id = c.req.param('id');
-    const ws = deps.workspace();
-    const workflow = ws.workflows.get(id);
-    if (!workflow) {
-      const broken = ws.brokenWorkflows.find((b) => b.id === id);
-      return fail(c, 'not_found', broken ? `Workflow "${id}" failed to load: ${broken.message}` : `Workflow "${id}" does not exist in this workspace.`, 404);
-    }
+  const workflowDetail = (workflow: LoadedWorkflow): WorkflowDetail => {
     const validation = validateWorkflow(workflow.definition);
-    const body: WorkflowDetail = {
+    return {
       ...workflowSummary(workflow),
       definition: workflow.definition as unknown as Record<string, unknown>,
       smells: validation.smells,
@@ -584,8 +586,61 @@ export function createApp(deps: AppDeps): Hono {
         workflow: workflow.definition.budgets ? compactBudget(workflow.definition.budgets) : null,
         steps: workflow.definition.steps.filter((s) => s.budget).map((s) => ({ stepId: s.id, budget: compactBudget(s.budget!) })),
       },
+      schedules: deps.scheduler.list().filter((s) => s.workflowId === workflow.definition.id).length,
     };
-    return json(c, body);
+  };
+
+  app.get('/api/v1/workflows/:id', (c) => {
+    const id = c.req.param('id');
+    const ws = deps.workspace();
+    const workflow = ws.workflows.get(id);
+    if (!workflow) {
+      const broken = ws.brokenWorkflows.find((b) => b.id === id);
+      return fail(c, 'not_found', broken ? `Workflow "${id}" failed to load: ${broken.message}` : `Workflow "${id}" does not exist in this workspace.`, 404);
+    }
+    return json(c, workflowDetail(workflow));
+  });
+
+  // The editor's write path (RUN-13, D-62). Only a human reaches these: they sit behind the token like every
+  // other route, and no tool can write under `workflows/` whatever its grant (SEC-11).
+  app.post('/api/v1/workflows', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = CreateWorkflowRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'A new workflow is { id, name, copyOf? }: the id is lowercase letters, digits and hyphens.', 400, parsed.error.issues);
+    try {
+      return json(c, workflowDetail(deps.createWorkflow(parsed.data)), 201);
+    } catch (e) {
+      return mapError(c, e);
+    }
+  });
+
+  app.put('/api/v1/workflows/:id', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = SaveWorkflowRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'A save is { definition, baseVersion }: the whole definition, and the version it was loaded at.', 400, parsed.error.issues);
+    try {
+      return json(c, workflowDetail(deps.saveWorkflow(c.req.param('id'), parsed.data.definition, parsed.data.baseVersion)));
+    } catch (e) {
+      return mapError(c, e);
+    }
+  });
+
+  app.delete('/api/v1/workflows/:id', (c) => {
+    try {
+      return json(c, deps.deleteWorkflow(c.req.param('id'), c.req.query('deleteSchedules') === 'true'));
+    } catch (e) {
+      return mapError(c, e);
+    }
   });
 
   // ---- the Library (D-16) ---------------------------------------------------------------------
