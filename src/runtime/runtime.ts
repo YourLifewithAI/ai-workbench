@@ -11,6 +11,8 @@ import { packagePaths, type PackagePaths } from './paths.js';
 import type { Bootstrap } from './bootstrap.js';
 import { loadAgents, loadWorkflows, loadWorkspace, type BrokenAgent, type Workspace } from './workspace/loader.js';
 import { createWorkflow, deleteWorkflowFile, saveWorkflow, WorkflowWriteError } from './workspace/workflows.js';
+import { diskState, loadSpaces, NO_FILE, saveSpace, spaceFile, type LoadedSpace } from './workspace/spaces.js';
+import { EMPTY_SPACE } from '../shared/project.js';
 import { FindingStore, logGrantChange } from './permissions/store.js';
 import { applyProposal, DEFAULT_THRESHOLDS, gatherFacts, recordCatalogSeen, type PermissionFacts, type ReviewThresholds } from './permissions/review.js';
 import { proposeFindings } from './permissions/propose.js';
@@ -47,7 +49,7 @@ import { createApp } from './api/app.js';
 import { ArtifactStore } from './artifacts/store.js';
 import { listModels, pollLocalEndpoints, providerOf, type PollResult } from './models/availability.js';
 import { applyFinding, diffProvider, pinsFor } from './models/discovery.js';
-import type { CatalogFinding, CreateWorkflowRequest, DeleteWorkflowResponse, DiscoveryReport, EstimateRequest, EstimateResponse, PermissionFinding } from '../shared/api/index.js';
+import type { CatalogFinding, CreateWorkflowRequest, DeleteWorkflowResponse, DiscoveryReport, EstimateRequest, EstimateResponse, PermissionFinding, ProjectSpaceResponse } from '../shared/api/index.js';
 import { estimateAgentRun, estimateWorkflowRun } from './engine/estimate.js';
 import { Workflow, type LoadedWorkflow } from '../shared/workflow.js';
 import { ModelsFile, type CatalogEntry } from '../shared/model.js';
@@ -177,6 +179,7 @@ export class Runtime {
       writeAgent: (definition, sections) => this.writeAgent(definition, sections),
       writeWorkflow: (workflow) => this.writeWorkflow(workflow),
       saveWorkflow: (id, raw, baseVersion) => this.saveWorkflow(id, raw, baseVersion),
+      spaces: { get: (slug) => this.spaceOf(slug), save: (slug, raw, baseVersion) => { this.saveSpace(slug, raw, baseVersion); return this.spaceOf(slug)!; } },
       createWorkflow: (body) => this.createWorkflow(body),
       deleteWorkflow: (id, deleteSchedules) => this.deleteWorkflow(id, deleteSchedules),
       trustPlugin: (key) => this.trustPlugin(key),
@@ -497,6 +500,32 @@ export class Runtime {
    * the conflict diff is drawn against is whatever this runtime still knows for that hash — the copy in
    * memory when nothing reloaded in between, else the row a run pinned — and the draft when it knows neither.
    */
+  /** What a project's space reads as (D-69): the file with its version, or the defaults with `none` to pin. */
+  spaceOf(slug: string): ProjectSpaceResponse | null {
+    const project = this.artifacts.findProject(slug);
+    if (!project) return null;
+    const file = spaceFile(this.workspace.paths.projects, slug);
+    const documents = this.artifacts.listDocuments(slug).map((d) => d.path).sort();
+    const loaded = this.workspace.spaces.get(slug);
+    if (loaded) return { slug, space: loaded.definition, version: loaded.version, exists: true, file, documents, error: null };
+    const broken = this.workspace.brokenSpaces.find((b) => b.slug === slug);
+    const disk = diskState(file);
+    return {
+      slug, space: EMPTY_SPACE, version: disk.exists ? disk.version : NO_FILE, exists: disk.exists, file, documents,
+      error: broken?.message ?? null,
+    };
+  }
+
+  /** A project's space, saved from its Library page (D-69): hash-pinned like a workflow, reloaded at once. */
+  saveSpace(slug: string, raw: unknown, baseVersion: string): LoadedSpace {
+    const loaded = saveSpace({ projectsDir: this.workspace.paths.projects, slug, raw, baseVersion });
+    const spaces = loadSpaces(this.workspace.paths.projects);
+    this.workspace.spaces = spaces.spaces;
+    this.workspace.brokenSpaces = spaces.broken;
+    this.log.info({ project: slug, version: loaded.version }, 'a project space was saved');
+    return loaded;
+  }
+
   saveWorkflow(id: string, raw: unknown, baseVersion: string): LoadedWorkflow {
     const loaded = saveWorkflow({
       workflowsDir: this.workspace.paths.workflows, id, raw, baseVersion,
@@ -723,6 +752,9 @@ export class Runtime {
     const workflows = loadWorkflows(this.workspace.paths.workflows);
     this.workspace.workflows = workflows.workflows;
     this.workspace.brokenWorkflows = workflows.broken;
+    const spaces = loadSpaces(this.workspace.paths.projects);
+    this.workspace.spaces = spaces.spaces;
+    this.workspace.brokenSpaces = spaces.broken;
     (this.registry.get('mock') as MockAdapter | undefined)?.reload();
     this.log.info({ loaded: agents.size, errors: broken.length, workflows: workflows.workflows.size }, 'agents and workflows reloaded');
     return { loaded: agents.size, errors: broken };

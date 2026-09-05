@@ -170,7 +170,7 @@ export function Review() {
 }
 
 const KIND_LABEL: Record<PermissionFinding['kind'], string> = {
-  unused: 'never used', unjustified: 'instructions moved on', reach: 'wider than the need', fatigue: 'approval fatigue', undecided: 'undecided',
+  unused: 'never used', unjustified: 'instructions moved on', reach: 'wider than the need', fatigue: 'approval fatigue', undecided: 'undecided', nowhere: 'allowed nowhere',
 };
 
 /**

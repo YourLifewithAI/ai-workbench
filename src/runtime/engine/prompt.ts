@@ -28,11 +28,19 @@ export interface AssembleOptions {
   knowledge?: KnowledgeDocument[] | undefined;
   /** Retrieved memory, already split by trust. Trusted is context; untrusted is fenced as data (SEC-14). */
   memory?: { trusted: MemorySnippet[]; untrusted: MemorySnippet[] } | undefined;
+  /** The project's goals document (D-69): the owner's word, an instruction section after the agent's own. */
+  goals?: { source: string; text: string } | undefined;
 }
 
 export function assemblePrompt(agent: LoadedAgent, task: string, harness: string, options: AssembleOptions = {}): AssembledPrompt {
   const identity = `${agent.definition.name}: ${agent.definition.description}`;
-  const stable = [{ name: 'identity', text: identity }, ...agent.sections.map((s) => ({ name: s.name, text: s.text }))];
+  const stable = [
+    { name: 'identity', text: identity },
+    ...agent.sections.map((s) => ({ name: s.name, text: s.text })),
+    // Goals are instructions, not data: they are the owner's own, in the owner's workspace (D-69). They sit in
+    // the stable prefix but outside promptVersion, which hashes the agent and only the agent.
+    ...(options.goals ? [{ name: 'goals', text: options.goals.text }] : []),
+  ];
   // promptVersion covers the authored part only, so it moves when someone edits the agent, not on every call.
   const promptVersion = contentHash({ identity, instructions: agent.sections });
 

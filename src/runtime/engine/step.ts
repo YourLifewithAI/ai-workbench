@@ -21,13 +21,14 @@ import { WRAP_UP_INSTRUCTION } from './budget.js';
 import type { BudgetKind, BudgetStop, RunBudget } from './budget.js';
 import { parseJsonOutput, validateJson } from '../../shared/jsonschema.js';
 import { toolSpec } from '../../shared/tool.js';
-import type { ExecutedCall, ToolExecutor } from '../tools/executor.js';
+import type { ExecutedCall, ProjectCeiling, ToolExecutor } from '../tools/executor.js';
 import type { RunTaint } from './taint.js';
 import type { MemoryHit, MemoryStore } from '../memory/store.js';
 import { ownerFor } from '../tools/builtin/memory.js';
 import type { CatalogEntry, CompiledRequest, ContentBlock, JsonSchema, Message, ModelErrorShape, ModelResponse } from '../../shared/model.js';
 import type { Permissions } from '../../shared/permissions.js';
 import type { LoadedAgent } from '../../shared/agent.js';
+import type { MemoryScope } from '../memory/store.js';
 
 /** Two retries after the first attempt, per model, when the error says `retry` (model-layer.md §Errors). */
 export const MAX_ATTEMPTS_PER_MODEL = 3;
@@ -162,7 +163,8 @@ export class StepRunner {
   private async loop(input: AgentStepInput, candidates: Candidate[]): Promise<StepOutcome> {
     const { agent, budget, signal } = input;
     const schema = input.outputSchema ?? agent.definition.output.schema;
-    const knowledge = this.knowledgeFor(agent, input.project);
+    const goals = this.goalsFor(input);
+    const knowledge = this.knowledgeFor(agent, input.project, goals ? this.deps.workspace().spaces.get(input.project!)?.definition.goals : undefined);
     if (knowledge.length) input.taint?.markPrivate('the prompt carried a knowledge section');
     // Retrieval happens once per step, not once per call: the same memory in front of the model all the way
     // through, and one `memory-retrieved` event a human can read as "this is what it was working from".
@@ -176,7 +178,8 @@ export class StepRunner {
       ? `${input.task}\n\n---\nA human reviewed your previous attempt and asked for this instead:\n\n${input.feedback}`
       : input.task;
     const transcript: Message[] = [{ role: 'user', content: [{ type: 'text', text: task }] }];
-    const available = this.deps.tools?.availableTo(agent, input.workflowCeiling) ?? [];
+    const projectCeiling = this.ceilingFor(input.project ?? null);
+    const available = this.deps.tools?.availableTo(agent, input.workflowCeiling, projectCeiling) ?? [];
     const specs = available.map(toolSpec);
     // Rounds of tool results, oldest first: past `keepRecentToolResults` the older ones are masked (D-47).
     const rounds: ExecutedCall[][] = [];
@@ -206,7 +209,7 @@ export class StepRunner {
         }
       }
 
-      const prompt = assemblePrompt(agent, task, this.harnessFor(input, wrapUp !== null, available.map((t) => t.id)), { knowledge, memory });
+      const prompt = assemblePrompt(agent, task, this.harnessFor(input, wrapUp !== null, available.map((t) => t.id)), { knowledge, memory, goals });
       const request: CompiledRequest = {
         ...prompt.compiled,
         // The wrap-up turn always sends none: its whole point is that nothing new starts (D-14).
@@ -287,6 +290,7 @@ export class StepRunner {
       project: input.project ?? null,
       scratchDir: input.scratchDir ?? `${ws.paths.runs}/${input.runId}`,
       ...(input.workflowCeiling ? { workflowCeiling: input.workflowCeiling } : {}),
+      ...(() => { const projectCeiling = this.ceilingFor(input.project ?? null); return projectCeiling ? { projectCeiling } : {}; })(),
       ...(input.taint ? { taint: input.taint } : {}),
       signal: input.signal,
       timeoutMs: input.budget.limits.toolCallTimeoutMs,
@@ -570,7 +574,7 @@ export class StepRunner {
     const limit = this.deps.workspace().config.context.memoryItems;
     if (limit <= 0) return empty;
 
-    const scopes = scopesFor(input.agent.definition.id, input.project ?? null);
+    const scopes = scopesFor(input.agent.definition.id, input.project ?? null, this.allowedScopes(input.project ?? null));
     const hits = this.deps.memory.retrieve({ scopes, query: input.task, limit });
     if (!hits.length) return empty;
 
@@ -584,8 +588,40 @@ export class StepRunner {
     return { trusted, untrusted };
   }
 
-  private knowledgeFor(agent: LoadedAgent, project: string | undefined): KnowledgeDocument[] {
-    const wanted = agent.definition.documents;
+  /** The project's tool ceiling (D-69), when its space has one: the only layer that can say "not here". */
+  ceilingFor(project: string | null): ProjectCeiling | undefined {
+    if (!project) return undefined;
+    const tools = this.deps.workspace().spaces.get(project)?.definition.tools;
+    return tools ? { project, tools } : undefined;
+  }
+
+  /** The memory scopes a run in this project retrieves and may write (D-69); every scope when it has no space. */
+  allowedScopes(project: string | null): MemoryScope[] | undefined {
+    if (!project) return undefined;
+    return this.deps.workspace().spaces.get(project)?.definition.memory;
+  }
+
+  /**
+   * The project's goals document (D-69), read whole. A project that names one that does not exist warns in the
+   * trace and the run goes on: a missing page is a gap, not a reason to refuse the work.
+   */
+  private goalsFor(input: AgentStepInput): { source: string; text: string } | undefined {
+    const project = input.project;
+    if (!project || !this.deps.artifacts) return undefined;
+    const goals = this.deps.workspace().spaces.get(project)?.definition.goals;
+    if (!goals) return undefined;
+    const text = this.deps.artifacts.readDocument(project, goals);
+    if (text === null) {
+      this.deps.log.warn({ project, document: goals, runId: input.runId }, 'the project names a goals document that does not exist');
+      this.deps.events.append(input.runId, input.stepId, 'goals-missing', { project, document: goals });
+      return undefined;
+    }
+    return { source: `${project}/${goals}`, text };
+  }
+
+  private knowledgeFor(agent: LoadedAgent, project: string | undefined, goals?: string | undefined): KnowledgeDocument[] {
+    // A document that is both the agent's knowledge and the project's goals is injected once, as goals.
+    const wanted = agent.definition.documents.filter((d) => d !== goals);
     if (!wanted.length || !this.deps.artifacts || !project) return [];
     const out: KnowledgeDocument[] = [];
     for (const docPath of wanted) {
@@ -668,10 +704,11 @@ export function sleep(ms: number, signal: AbortSignal): Promise<void> {
  * the person. An agent never reads another agent's items — that is SEC-16, and it is enforced here by not asking
  * for them rather than by filtering them out afterwards.
  */
-export function scopesFor(agentId: string, project: string | null): { scope: 'agent' | 'user' | 'workspace' | 'project'; ownerId: string }[] {
+export function scopesFor(agentId: string, project: string | null, allowed?: MemoryScope[] | undefined): { scope: 'agent' | 'user' | 'workspace' | 'project'; ownerId: string }[] {
   const scopes: { scope: 'agent' | 'user' | 'workspace' | 'project'; ownerId: string }[] = [{ scope: 'agent', ownerId: agentId }];
   if (project) scopes.push({ scope: 'project', ownerId: project });
   scopes.push({ scope: 'workspace', ownerId: ownerFor('workspace', agentId, project)! });
   scopes.push({ scope: 'user', ownerId: ownerFor('user', agentId, project)! });
-  return scopes;
+  // A project's space lists the scopes a run there retrieves (D-69); the list only removes, never adds.
+  return allowed ? scopes.filter((s) => allowed.includes(s.scope)) : scopes;
 }

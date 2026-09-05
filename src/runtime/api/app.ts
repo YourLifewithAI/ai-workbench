@@ -6,7 +6,7 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import {
-  RerunRequest, ApprovalDecisionRequest, CompareRequest, CreateWorkflowRequest, EstimateRequest, FindingDecisionRequest, SaveWorkflowRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetReposRequest, SetPriceRequest, SetEnabledRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type DeleteWorkflowResponse, type EstimateResponse, type SpendResponse, type PermissionFinding, type PermissionFindingsResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
+  RerunRequest, ApprovalDecisionRequest, CompareRequest, CreateWorkflowRequest, EstimateRequest, FindingDecisionRequest, SaveWorkflowRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetReposRequest, SetPriceRequest, SetEnabledRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type DeleteWorkflowResponse, type EstimateResponse, type SpendResponse, type PermissionFinding, type PermissionFindingsResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary, SaveProjectSpaceRequest, type ProjectSpaceResponse } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
@@ -32,6 +32,7 @@ import { toolSpec } from '../../shared/tool.js';
 import { z } from 'zod';
 import { PushEventKind } from '../../shared/api/index.js';
 import type { BudgetOverride } from '../engine/budget.js';
+import { SpaceWriteError } from '../workspace/spaces.js';
 
 export interface AppDeps {
   engine: Engine;
@@ -55,6 +56,11 @@ export interface AppDeps {
   writeWorkflow: (workflow: unknown) => { id: string };
   /** The editor's write path (RUN-13, D-62): validate, refuse a moved file, write, record the hash. */
   saveWorkflow: (id: string, raw: unknown, baseVersion: string) => LoadedWorkflow;
+  /** A project's space (D-69, RUN-18): read with its version, saved hash-pinned. */
+  spaces: {
+    get: (slug: string) => ProjectSpaceResponse | null;
+    save: (slug: string, raw: unknown, baseVersion: string) => ProjectSpaceResponse;
+  };
   createWorkflow: (body: CreateWorkflowRequest) => LoadedWorkflow;
   deleteWorkflow: (id: string, deleteSchedules: boolean) => DeleteWorkflowResponse;
   /** Records that a human accepted "this code runs with full access" for one plugin *version* (D-32). */
@@ -132,6 +138,10 @@ export function createApp(deps: AppDeps): Hono {
     if (e instanceof WorkflowWriteError) {
       const status = e.code === 'validation' ? 400 : e.code === 'not_found' ? 404 : 409;
       return fail(c, e.code === 'exists' ? 'conflict' : e.code, e.message, status, e.details);
+    }
+    if (e instanceof SpaceWriteError) {
+      const status = e.code === 'validation' ? 400 : e.code === 'not_found' ? 404 : 409;
+      return fail(c, e.code, e.message, status, e.currentVersion ? { currentVersion: e.currentVersion } : undefined);
     }
     throw e;
   };
@@ -730,6 +740,28 @@ export function createApp(deps: AppDeps): Hono {
     } catch (e) {
       if (e instanceof WorkspaceError) return fail(c, 'conflict', e.message, 409);
       throw e;
+    }
+  });
+
+  // A project's space (D-69): what it reads as, and the hash-pinned save from its Library page.
+  app.get('/api/v1/projects/:slug/space', (c) => {
+    const body = deps.spaces.get(c.req.param('slug'));
+    return body ? json(c, body) : fail(c, 'not_found', `Project "${c.req.param('slug')}" does not exist.`, 404);
+  });
+
+  app.put('/api/v1/projects/:slug/space', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = SaveProjectSpaceRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'A save is { space, baseVersion }: the whole space, and the version it was loaded at ("none" for a project with no file yet).', 400, parsed.error.issues);
+    try {
+      return json(c, deps.spaces.save(c.req.param('slug'), parsed.data.space, parsed.data.baseVersion));
+    } catch (e) {
+      return mapError(c, e);
     }
   });
 

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "name": "Companion",
+  "description": "The owner's own: the page about the owner, and the notes the companion keeps.",
+  "goals": "about.md",
+  "agents": [
+    "companion"
+  ],
+  "tools": [
+    "memory.remember",
+    "memory.search"
+  ],
+  "memory": [
+    "agent",
+    "project",
+    "user"
+  ]
+}

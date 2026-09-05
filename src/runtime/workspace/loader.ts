@@ -10,6 +10,7 @@ import { loadConfig, readJsonFile } from './config.js';
 import { WorkspaceError, formatZodError } from '../util/errors.js';
 import { contentHash } from '../util/canonical.js';
 import { ensureVapidKeys } from '../push/vapid.js';
+import { loadSpaces, type BrokenSpace, type LoadedSpace } from './spaces.js';
 
 export interface BrokenAgent { id: string; file: string; message: string }
 export interface BrokenWorkflow { id: string; file: string; message: string }
@@ -23,6 +24,9 @@ export interface Workspace {
   brokenAgents: BrokenAgent[];
   workflows: Map<string, LoadedWorkflow>;
   brokenWorkflows: BrokenWorkflow[];
+  /** Project spaces (D-69): the projects that carry a `project.json`, by slug. */
+  spaces: Map<string, LoadedSpace>;
+  brokenSpaces: BrokenSpace[];
 }
 
 export function loadWorkspace(dir: string, defaultsDir: string): Workspace {
@@ -45,9 +49,11 @@ export function loadWorkspace(dir: string, defaultsDir: string): Workspace {
 
   const { agents, broken } = loadAgents(paths.agents);
   const workflows = loadWorkflows(paths.workflows);
+  const spaces = loadSpaces(paths.projects);
   return {
     paths, file: wsParsed.data, config, catalog: catalogParsed.data,
     agents, brokenAgents: broken, workflows: workflows.workflows, brokenWorkflows: workflows.broken,
+    spaces: spaces.spaces, brokenSpaces: spaces.broken,
   };
 }
 
