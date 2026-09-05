@@ -1,7 +1,7 @@
 // `workbench review` and `workbench schedules`: every queue has a screen and a CLI command (ui.md §UX rules).
 import type { Command } from 'commander';
 import type { Bootstrap } from '../../bootstrap.js';
-import type { RatingSummary, ReviewItem, ScheduleSummary } from '../../../shared/api/index.js';
+import type { PermissionFinding, PermissionFindingsResponse, RatingSummary, ReviewItem, ScheduleSummary } from '../../../shared/api/index.js';
 import { CliError, connect } from '../client.js';
 import { guarded, out, outJson, resolveWorkspace, wantsJson } from '../context.js';
 
@@ -33,6 +33,48 @@ export function registerReview(program: Command, bootstrap: Bootstrap): void {
         }
       }),
     );
+
+  // The permissions review's findings (D-63, RUN-14): proposals, and the two things a person can do with one.
+  const findings = review.command('findings').description('what the permissions review proposed about the grant matrix');
+  findings
+    .command('list')
+    .description('open findings, with the evidence each rests on')
+    .option('--state <state>', 'open (default), applied, dismissed, all')
+    .action(async (opts: ListOptions, cmd: Command) =>
+      guarded(async () => {
+        const handle = await connect({ workspaceDir: resolveWorkspace(cmd, bootstrap), bootstrap });
+        try {
+          const res = await handle.request<PermissionFindingsResponse>('GET', `/permissions/findings?state=${encodeURIComponent(opts.state ?? 'open')}`);
+          if (wantsJson(cmd)) return outJson(res);
+          if (!res.findings.length) return out('No findings. The review runs when its schedule is enabled on the Workflows screen, or now with: workbench run workflow permissions-review');
+          for (const f of res.findings) {
+            out(`${f.id}  ${f.kind.padEnd(11)} ${f.headline}`);
+            for (const line of f.evidence) out(`    ${line}`);
+            if (f.note) out(`    The auditor adds: ${f.note}`);
+            out(f.proposal ? `    apply: ${f.proposal.label}   (workbench review findings apply ${f.id})` : '    nothing to flip; dismiss when read');
+          }
+        } finally {
+          await handle.close();
+        }
+      }),
+    );
+  for (const [verb, description] of [['apply', 'make the change the finding proposes — your matrix write, the same as on the Tools screen'], ['dismiss', 'set the finding aside until the facts it rests on change']] as const) {
+    findings
+      .command(`${verb} <findingId>`)
+      .description(description)
+      .action(async (findingId: string, _o: unknown, cmd: Command) =>
+        guarded(async () => {
+          const handle = await connect({ workspaceDir: resolveWorkspace(cmd, bootstrap), bootstrap });
+          try {
+            const f = await handle.request<PermissionFinding>('POST', `/permissions/findings/${encodeURIComponent(findingId)}`, { decision: verb });
+            if (wantsJson(cmd)) return outJson(f);
+            out(verb === 'apply' ? `Applied: ${f.proposal?.label ?? 'the change'}.` : `Dismissed: ${f.headline}`);
+          } finally {
+            await handle.close();
+          }
+        }),
+      );
+  }
 
   review
     .command('show <reviewId>')

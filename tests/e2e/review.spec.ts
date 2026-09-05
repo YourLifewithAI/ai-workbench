@@ -66,3 +66,35 @@ test('@run-05 the Review queue rates an output and the rating sticks', async ({ 
   await expect(mine(page)).toBeVisible({ timeout: 20_000 });
   await expect(mine(page).getByText(/Rated 4\/5/)).toBeVisible({ timeout: 20_000 });
 });
+
+test('@run-14 the permissions review lands in the queue; one finding is applied, one dismissed', async ({ page, request }) => {
+  const auth = { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' };
+  // The mock auditor raises two findings of its own reading; the runtime attaches the numbers.
+  const started = await request.post(base() + '/api/v1/runs', { headers: auth, data: { kind: 'workflow', id: 'permissions-review', inputs: {}, provider: 'mock' } });
+  expect(started.status()).toBe(202);
+  const { runId } = (await started.json()) as { runId: string };
+  await expect.poll(async () => ((await (await request.get(base() + `/api/v1/runs/${runId}`, { headers: auth })).json()) as { state: string }).state, { timeout: 60_000 }).toBe('completed');
+
+  await page.goto(base() + '/review#token=' + token());
+  await expect(page.getByRole('heading', { name: 'Permissions review' })).toBeVisible();
+  const reviewer = page.getByTestId('finding-unjustified:reviewer:memory.remember');
+  await expect(reviewer.getByRole('heading', { name: 'reviewer holds memory.remember; the auditor reads its instructions as no longer needing it.' })).toBeVisible();
+  await expect(reviewer.getByText(/^Held since the workspace was created/)).toBeVisible();
+  await expectNoA11yViolations(page, 'Review with findings');
+
+  // Applying is this click and nothing else: the matrix moves, the card goes.
+  await reviewer.getByRole('button', { name: 'Take back memory.remember from reviewer' }).click();
+  await expect(reviewer).toHaveCount(0);
+  const cellOf = async (agentId: string, toolId: string): Promise<string> => {
+    const tools = (await (await request.get(base() + '/api/v1/tools', { headers: auth })).json()) as { matrix: { agentId: string; toolId: string; granted: string }[] };
+    return tools.matrix.find((c) => c.agentId === agentId && c.toolId === toolId)!.granted;
+  };
+  expect(await cellOf('reviewer', 'memory.remember')).toBe('unset');
+
+  // Dismissing changes nothing but the queue.
+  const researcher = page.getByTestId('finding-unjustified:researcher:http.fetch');
+  await researcher.getByRole('button', { name: /^Dismiss/ }).click();
+  await expect(researcher).toHaveCount(0);
+  expect(await cellOf('researcher', 'http.fetch')).toBe('allow');
+  await expect(page.getByRole('heading', { name: 'Permissions review' })).toHaveCount(0);
+});

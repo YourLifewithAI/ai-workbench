@@ -45,6 +45,12 @@
           "projects/"
         ]
       }
+    },
+    "auditor": {
+      "tools": {
+        "permissions.facts": "allow",
+        "permissions.propose": "allow"
+      }
     }
   },
   "search": {

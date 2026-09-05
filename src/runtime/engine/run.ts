@@ -16,6 +16,7 @@ import { MAX_REJECTIONS, ReviewStore, type ReviewDecision } from '../review/stor
 import { ApprovalStore, type ApprovalDecision } from '../approvals/store.js';
 import { ToolExecutor, type ApprovalHost } from '../tools/executor.js';
 import { builtinTools } from '../tools/registry.js';
+import type { PermissionsToolDeps } from '../tools/builtin/permissions.js';
 import { gitExec } from '../repos/git.js';
 import { searchProvider, type MockSearchFixture } from '../search/index.js';
 import { RunTaint } from './taint.js';
@@ -64,6 +65,8 @@ export interface EngineDeps {
   } | undefined;
   /** The sandbox (RUN-09). The runtime finds Deno once and hands it in; absent disables the execute tier. */
   sandbox?: Sandbox | undefined;
+  /** The permissions review's tools (RUN-14): grant metadata in, findings out, never a matrix write. */
+  permissionsReview?: PermissionsToolDeps | undefined;
   /** MCP servers (RUN-09). Their tools join the catalogue after `start()`, through `Engine.addTools`. */
   mcp?: McpHost | undefined;
   /** PATH HOME TMPDIR LANG LC_* TZ — the only variables a child of this runtime inherits (D-33). */
@@ -175,6 +178,7 @@ export class Engine {
       tools: builtinTools({
         artifacts,
         workspaceDir: deps.workspace().paths.dir,
+        permissionsReview: deps.permissionsReview,
         delegate: this.delegateHost(),
         permissions: this.permissionRequestHost(),
         files: {

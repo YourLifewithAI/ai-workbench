@@ -328,6 +328,52 @@ export type WorkflowConflict = z.infer<typeof WorkflowConflict>;
 export const DeleteWorkflowResponse = z.object({ deleted: z.literal(true), schedules: z.number().int() });
 export type DeleteWorkflowResponse = z.infer<typeof DeleteWorkflowResponse>;
 
+// ---- the permissions review (D-63, RUN-14) -------------------------------------------------------
+
+export const FindingKind = z.enum(['unused', 'unjustified', 'reach', 'fatigue', 'undecided']);
+export type FindingKind = z.infer<typeof FindingKind>;
+
+/**
+ * The one change a finding proposes, in the matrix's own terms. `set` is a tool decision; `netAllow` replaces
+ * the agent's allowed hosts. Absent means the finding is worth reading and has nothing to flip.
+ */
+export const FindingProposal = z.object({
+  agentId: z.string(),
+  tool: z.string().optional(),
+  set: z.enum(['allow', 'deny', 'unset']).optional(),
+  netAllow: z.array(z.string()).optional(),
+  /** The proposal in words, exactly what the Apply button says. */
+  label: z.string(),
+});
+export type FindingProposal = z.infer<typeof FindingProposal>;
+
+export const PermissionFinding = z.object({
+  id: z.string(),
+  key: z.string(),
+  kind: FindingKind,
+  agentId: z.string().nullable(),
+  tool: z.string().nullable(),
+  /** One sentence naming what is wrong, from the runtime's numbers, never the model's. */
+  headline: z.string(),
+  /** The facts the finding rests on, one line each. */
+  evidence: z.array(z.string()),
+  /** What the auditor added, if anything. Untrusted text: rendered, never executed or templated. */
+  note: z.string().nullable(),
+  proposal: FindingProposal.nullable(),
+  state: z.enum(['open', 'applied', 'dismissed']),
+  runId: z.string().nullable(),
+  createdAt: z.string(),
+  decidedAt: z.string().nullable(),
+});
+export type PermissionFinding = z.infer<typeof PermissionFinding>;
+
+export const PermissionFindingsResponse = z.object({ findings: z.array(PermissionFinding) });
+export type PermissionFindingsResponse = z.infer<typeof PermissionFindingsResponse>;
+
+/** The person deciding: apply is an ordinary matrix write by the human; dismiss holds until the facts change. */
+export const FindingDecisionRequest = z.object({ decision: z.enum(['apply', 'dismiss']) });
+export type FindingDecisionRequest = z.infer<typeof FindingDecisionRequest>;
+
 export const WorkflowListResponse = z.object({
   workflows: z.array(WorkflowSummary),
   errors: z.array(z.object({ id: z.string(), file: z.string(), message: z.string() })),

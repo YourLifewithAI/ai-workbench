@@ -24,6 +24,7 @@ Order of checks: `Host`/`Origin` (403) before token (401). Requests without an `
 | knowledge (RUN-08) | `POST /projects/:slug/knowledge?filename=<name>` takes the file as the raw request body (`application/octet-stream`); the extension decides the format |
 | knowledge | `POST /projects/:slug/knowledge` (ingest) · `GET /knowledge/search?q=` |
 | schedules | `GET /schedules` · `POST /schedules` (upsert; pass an id to replace) |
+| permissions review | `GET /permissions/findings?state=open` (what the auditor proposed, with the runtime's evidence, D-63) · `POST /permissions/findings/:id` `{ decision: 'apply' | 'dismiss' }` (apply is the human's matrix write, the same as the Tools screen's; dismiss holds until the facts change) |
 | tools | `GET /tools` (built-ins, MCP, sandbox status, grant matrix) · `PUT /tools/grants` · `PUT /tools/repos` (a repository grant from the Tools screen: the whole list for one agent, replaced; paths must be absolute, D-66) |
 | experiments | `GET/POST /datasets` · `GET /datasets/:id/export` · `POST /datasets/import` · `GET/POST /experiments` · `GET /experiments/:id/results` · `POST /compare` |
 | export / import | `GET /export/agent/:id` · `GET /export/workflow/:id` · `GET /export/memory?scope=` · `GET /export/runs?ids=` · `POST /import/agent` · `POST /import/workflow` · `POST /import/memory` (project export/import are under projects) |
@@ -165,3 +166,17 @@ One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` �
 > child allowlist plus the terminal and display variables; when the editor closes the file is validated exactly
 > as the loader validates it, left as written either way, exit 1 with the reason when it would not load, and a
 > running workbench is told to reload when it is valid. A batch-file `EDITOR` is refused on Windows by name.
+
+> Amendment (RUN-14, 2026-09-05): the permissions review. `GET /permissions/findings?state=open|applied|dismissed|all`
+> answers `{ findings: [{ id, key, kind, agentId, tool, headline, evidence[], note, proposal, state, runId,
+> createdAt, decidedAt }] }`, where `kind` is one of `unused`, `unjustified`, `reach`, `fatigue`, `undecided`,
+> and `proposal` is `{ agentId, tool?, set?: allow|deny|unset, netAllow?, label }` or null. `POST
+> /permissions/findings/:id` `{ decision: 'apply' | 'dismiss' }`: apply performs the proposal through the same
+> `setGrant` the Tools screen uses and is logged the same way (`grant_log`, source `human`); dismiss records the
+> finding's facts hash so the same finding on the same numbers stays quiet; `409` when already decided, `400`
+> when there is nothing to apply. Two tools join the catalogue, granted to the auditor only: `permissions.facts`
+> (read tier; a brief of grant metadata with the candidate findings first, cut to fit under the tool-result
+> limit) and `permissions.propose` (write tier; files candidates by id, or an `unjustified` finding of the
+> auditor's own with the agent, the tool and a note). Neither can touch a path, a host or a credential, and no
+> tool anywhere sets a grant. CLI: `workbench review findings list | apply <id> | dismiss <id>`. A workflow's
+> `schedule` block may say `enabled: false`; the row is seeded paused.

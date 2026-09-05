@@ -62,7 +62,7 @@ export class Scheduler {
       if (existing) continue;
       this.upsert({
         workflowId: workflow.definition.id, cron: schedule.cron, inputs: schedule.inputs,
-        catchUp: schedule.catchUp, ...(workflow.definition.defaultProject ? { project: workflow.definition.defaultProject } : {}),
+        catchUp: schedule.catchUp, enabled: schedule.enabled, ...(workflow.definition.defaultProject ? { project: workflow.definition.defaultProject } : {}),
       }, true);
       seeded += 1;
     }
