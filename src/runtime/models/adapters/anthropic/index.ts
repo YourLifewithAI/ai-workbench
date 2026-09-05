@@ -15,7 +15,7 @@ export class AnthropicAdapter extends AiSdkAdapter {
 
   protected languageModel(model: CatalogEntry, ctx: AdapterContext): LanguageModel {
     if (!ctx.apiKey) {
-      throw modelError('Authentication', 'No credential named "anthropic" is configured. Add it to config/credentials.json (mode 0600) or set WORKBENCH_CRED_ANTHROPIC, then restart the runtime.', { action: 'abort' });
+      throw modelError('Authentication', 'No credential named "anthropic" is configured. Add it in Settings → Credentials (it takes effect at once), or set WORKBENCH_CRED_ANTHROPIC before starting.', { action: 'abort' });
     }
     return createAnthropic({
       apiKey: ctx.apiKey,

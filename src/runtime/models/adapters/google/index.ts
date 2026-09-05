@@ -15,7 +15,7 @@ export class GoogleAdapter extends AiSdkAdapter {
 
   protected languageModel(model: CatalogEntry, ctx: AdapterContext): LanguageModel {
     if (!ctx.apiKey) {
-      throw modelError('Authentication', 'No credential named "google" is configured. Add it to config/credentials.json (mode 0600) or set WORKBENCH_CRED_GOOGLE, then restart the runtime.', { action: 'abort' });
+      throw modelError('Authentication', 'No credential named "google" is configured. Add it in Settings → Credentials (it takes effect at once), or set WORKBENCH_CRED_GOOGLE before starting.', { action: 'abort' });
     }
     return createGoogle({
       apiKey: ctx.apiKey,

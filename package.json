@@ -26,7 +26,8 @@
     "e2e": "playwright test",
     "dod": "tsx scripts/dod.ts",
     "contract": "tsx scripts/contract.ts",
-    "route-drift": "tsx scripts/route-drift.ts"
+    "route-drift": "tsx scripts/route-drift.ts",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "4.0.49",
