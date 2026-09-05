@@ -56,6 +56,7 @@ test('Runs lists the seeded run, updates live when the CLI starts another, and o
 test('Welcome runs the example and reaches its trace; Settings is read-only and reachable', async ({ page }) => {
   await page.goto(base() + '/welcome#token=' + token());
   await expectNoA11yViolations(page, 'Welcome');
+  await expect(page.getByRole('link', { name: 'The first hour on Windows' })).toHaveAttribute('href', /docs\/first-hour-windows\.md$/);
   await page.getByRole('button', { name: 'Try it with the mock' }).click();
   await page.getByRole('button', { name: 'Run the echo agent' }).click();
   await page.getByRole('button', { name: 'Open the trace' }).click();

@@ -12,6 +12,7 @@ every capability it has is denied until you grant it.
 ## Ten minutes
 
 Requires Node 22. Deno is optional and unlocks the code-execution tools; the workbench says so if it is missing.
+On Windows, [the first hour on Windows](docs/first-hour-windows.md) is this section as a walk, with the detours.
 
 Install, then build:
 
