@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { Button } from './ui/button.js';
 import { Card } from './ui/card.js';
 import { setToken } from '../lib/auth.js';
+import { ScreenTitle } from './ui/text.js';
 
 export function TokenRequired() {
   const [value, setValue] = useState('');
   return (
     <main id="main" className="mx-auto flex min-h-full max-w-lg flex-col justify-center p-6">
       <Card>
-        <h1 className="text-xl font-semibold">Runtime token required</h1>
+        <ScreenTitle>Runtime token required</ScreenTitle>
         <p className="mt-2 text-gray-700 dark:text-gray-300">
           This page talks to your workbench runtime, and the runtime only answers callers that present its token. The token travels in the URL that <code className="font-mono text-sm">workbench start</code> prints, and this tab no longer has it (a refresh drops it on purpose).
         </p>

@@ -6,6 +6,7 @@ import { EmptyState } from '../components/EmptyState.js';
 import { Estimate } from '../components/Estimate.js';
 import { Button } from '../components/ui/button.js';
 import { Badge, Card } from '../components/ui/card.js';
+import { CardTitle, Prose, ScreenTitle } from '../components/ui/text.js';
 
 export function Agents() {
   const q = useQuery({ queryKey: ['agents'], queryFn: api.agents });
@@ -15,14 +16,14 @@ export function Agents() {
   return (
     <section aria-labelledby="screen-title">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 id="screen-title" className="text-2xl font-semibold">Agents</h1>
+        <ScreenTitle>Agents</ScreenTitle>
         <Button variant="secondary" size="sm" onClick={() => reload.mutate()} disabled={reload.isPending}>
           {reload.isPending ? 'Reloading…' : 'Reload from disk'}
         </Button>
       </div>
-      <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+      <Prose className="mt-1">
         Agents are files in <code className="font-mono">agents/</code> in your workspace. Edit one and reload; the version hash changes with it.
-      </p>
+      </Prose>
 
       {q.isPending ? <p className="mt-4" role="status">Loading agents…</p> : null}
       {q.isError ? <p className="mt-4 text-red-700 dark:text-red-300" role="alert">Could not load agents: {q.error.message}</p> : null}
@@ -34,7 +35,7 @@ export function Agents() {
               <p className="font-medium">{e.id} did not load.</p>
               <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{e.message}</p>
               <p className="mt-1 break-all font-mono text-xs text-gray-600 dark:text-gray-400">{e.file}</p>
-              <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">Fix the file, then <button type="button" className="underline underline-offset-4" onClick={() => reload.mutate()}>reload</button>.</p>
+              <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">Fix the file, then <Button variant="link" size="inline" className="underline" onClick={() => reload.mutate()}>reload</Button>.</p>
             </Card>
           ))}
         </div>
@@ -53,9 +54,9 @@ export function Agents() {
               <Card>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <h2 className="font-medium">
+                    <CardTitle>
                       <Link to={`/agents/${a.id}`} className="underline-offset-4 hover:underline">{a.name}</Link>
-                    </h2>
+                    </CardTitle>
                     <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{a.description}</p>
                   </div>
                   <Badge>{a.id}</Badge>
@@ -113,13 +114,13 @@ export function AgentDetail() {
     <section aria-labelledby="screen-title">
       <p className="text-sm"><Link to="/agents" className="text-blue-700 underline underline-offset-4 dark:text-sky-300">← All agents</Link></p>
       {q.isError ? <p role="alert" className="mt-3 text-red-700 dark:text-red-300">{q.error.message}</p> : null}
-      <h1 id="screen-title" className="mt-2 text-2xl font-semibold">{q.data?.name ?? id}</h1>
+      <ScreenTitle className="mt-2">{q.data?.name ?? id}</ScreenTitle>
       {q.data ? (
         <>
-          <p className="mt-1 text-gray-700 dark:text-gray-300">{q.data.description}</p>
+          <Prose className="mt-1">{q.data.description}</Prose>
 
           <Card className="mt-4">
-            <h2 className="font-medium">Run it</h2>
+            <CardTitle>Run it</CardTitle>
             <form
               className="mt-3 space-y-3"
               onSubmit={(e) => { e.preventDefault(); if (input.trim()) start.mutate(); }}
@@ -154,7 +155,7 @@ export function AgentDetail() {
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <Card>
-              <h2 className="font-medium">Definition</h2>
+              <CardTitle>Definition</CardTitle>
               <dl className="mt-2 text-sm">
                 <Row k="Primary model" v={q.data.modelPolicy.primary} mono />
                 <Row k="Would run on" v={q.data.modelPolicy.now.length ? q.data.modelPolicy.now.join(', ') : 'nothing is ready: add a key in Settings, or change the role there'} mono />
@@ -168,7 +169,7 @@ export function AgentDetail() {
               </dl>
             </Card>
             <Card>
-              <h2 className="font-medium">Instruction sections</h2>
+              <CardTitle>Instruction sections</CardTitle>
               <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">Rendered in this order at the top of every system prompt. The version hash covers exactly this.</p>
               <div className="mt-2 space-y-3">
                 {q.data.sections.map((s) => (

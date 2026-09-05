@@ -136,3 +136,12 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > Amendment (F6, 2026-09-05): **Welcome** gains a fifth step, *Meet your companion*, which opens the shipped
 > companion agent with the companion project chosen (`/agents/companion?project=companion`); an agent's run form
 > reads `?project=` as its initial target project.
+
+> Amendment (L1 + L2, 2026-09-05): **the type scale and the button family are named once**, in
+> `src/ui/components/ui/text.tsx` and `button.tsx`, and every screen uses them. Four heading sizes by role —
+> `ScreenTitle` (h1, one per screen), `SectionTitle` (h2, the first `mt-6` under the title and `mt-8` after),
+> `CardTitle` (a card or block), `Subheading` (a group inside a card or form) — and two tones, `Prose` for what is
+> read and `Hint` for a note; `text-xs` is always the hint tone. Buttons are one family with variants by role,
+> not by mood (default moves the screen forward; secondary is the alternative; ghost is a toolbar action; link is
+> an action in a sentence), and `asChild` puts the same classes on a `<Link>` so a navigation that looks like a
+> button is one. Tabs and the phone's bottom bar are not buttons and keep their own shapes.

@@ -11,6 +11,7 @@ import { api } from '../lib/api.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { Button } from '../components/ui/button.js';
 import { Badge, Card } from '../components/ui/card.js';
+import { Prose, ScreenTitle, SectionTitle, Subheading } from '../components/ui/text.js';
 
 const money = (n: number): string => (n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`);
 
@@ -54,14 +55,14 @@ export function Evaluate() {
 
   return (
     <section aria-labelledby="screen-title">
-      <h1 id="screen-title" className="text-2xl font-semibold">Evaluate</h1>
-      <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+      <ScreenTitle>Evaluate</ScreenTitle>
+      <Prose className="mt-1">
         Compare models on your own work, and keep the numbers honest. Nothing here chooses a model for you: a score
         is evidence, and a judge model's opinion is an estimate.
-      </p>
+      </Prose>
       <p aria-live="polite" className="sr-only">{said}</p>
 
-      <h2 className="mt-6 text-lg font-medium">Compare</h2>
+      <SectionTitle className="mt-6">Compare</SectionTitle>
       <form
         className="mt-2 space-y-3"
         onSubmit={(e) => { e.preventDefault(); if (agentId && input.trim() && picked.length >= 2) compare.mutate(); }}
@@ -135,7 +136,7 @@ export function Evaluate() {
         </div>
       ) : null}
 
-      <h2 className="mt-8 text-lg font-medium">Datasets</h2>
+      <SectionTitle className="mt-8">Datasets</SectionTitle>
       {datasets.data?.length ? (
         <table className="mt-2 w-full text-left text-sm">
           <caption className="sr-only">Datasets, with how many cases each has</caption>
@@ -168,7 +169,7 @@ export function Evaluate() {
         </div>
       )}
 
-      <h2 className="mt-8 text-lg font-medium">Experiments</h2>
+      <SectionTitle className="mt-8">Experiments</SectionTitle>
       {experiments.data?.length ? (
         <ul className="mt-2 space-y-2">
           {experiments.data.map((experiment) => (
@@ -209,7 +210,7 @@ function ResultsTable({ results }: { results: ExperimentResults }) {
 
   return (
     <div className="mt-3">
-      <h3 className="text-sm font-medium">Per model</h3>
+      <Subheading>Per model</Subheading>
       <div className="mt-1 overflow-x-auto" tabIndex={0}>
         <table className="w-full text-left text-sm" data-testid="results-totals">
           <caption className="sr-only">Each model over every case, with pass^k beside the mean</caption>
@@ -250,7 +251,7 @@ function ResultsTable({ results }: { results: ExperimentResults }) {
         </table>
       </div>
 
-      <h3 className="mt-4 text-sm font-medium">Case by case</h3>
+      <Subheading className="mt-4">Case by case</Subheading>
       <div className="mt-1 overflow-x-auto" tabIndex={0}>
         <table className="w-full text-left text-sm" data-testid="results-cells">
           <caption className="sr-only">Every case on every model</caption>

@@ -6,6 +6,7 @@ import { EmptyState } from '../components/EmptyState.js';
 import { Button } from '../components/ui/button.js';
 import { Badge, Card } from '../components/ui/card.js';
 import { cn } from '../lib/cn.js';
+import { Prose, ScreenTitle, SectionTitle, Subheading } from '../components/ui/text.js';
 
 const AVAILABILITY: Record<ModelStatus['availability'], { label: string; tone: 'good' | 'bad' | 'busy' | 'neutral' }> = {
   ready: { label: 'ready', tone: 'good' },
@@ -37,14 +38,14 @@ export function Models() {
   return (
     <section aria-labelledby="screen-title">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 id="screen-title" className="text-2xl font-semibold">Models</h1>
+        <ScreenTitle>Models</ScreenTitle>
         <Button variant="secondary" size="sm" onClick={() => refresh.mutate()} disabled={refresh.isPending}>
           {refresh.isPending ? 'Checking…' : 'Check for changes'}
         </Button>
       </div>
-      <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+      <Prose className="mt-1">
         The catalog is <code className="font-mono">config/models.json</code> in your workspace. Availability is checked, not assumed: local endpoints are polled, cloud models need a credential, and <em>Check for changes</em> asks each provider you hold a key for what it offers now. Nothing it finds is applied until you accept it.
-      </p>
+      </Prose>
 
       {discovery?.errors.length ? (
         <ul className="mt-3 space-y-1 text-sm text-red-700 dark:text-red-300" role="alert">
@@ -58,17 +59,17 @@ export function Models() {
       ) : null}
 
       {findings.length ? (
-        <section aria-labelledby="findings-title" className="mt-4">
-          <h2 id="findings-title" className="text-lg font-medium">What changed at the provider</h2>
+        <section aria-labelledby="findings-title" className="mt-6">
+          <SectionTitle id="findings-title">What changed at the provider</SectionTitle>
           <ul className="mt-2 space-y-3" aria-label="Findings">
             {findings.map((f) => (
               <li key={f.id}>
                 <Card>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <h3 className="font-mono text-sm font-medium">{f.modelId}</h3>
+                      <Subheading className="font-mono">{f.modelId}</Subheading>
                       {/* The provider's own name for it is data: rendered as text, never written to the catalog. */}
-                      {f.displayName ? <p className="mt-1 text-xs text-gray-700 dark:text-gray-300">Provider calls it: {f.displayName}</p> : null}
+                      {f.displayName ? <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">Provider calls it: {f.displayName}</p> : null}
                     </div>
                     <Badge tone={KIND[f.kind].tone}>{KIND[f.kind].label}</Badge>
                   </div>
@@ -133,8 +134,8 @@ function ModelCard({ model, pulled, retiredPinned, onChanged }: { model: ModelSt
     <Card className={cn(unavailable && 'border-dashed bg-gray-50 dark:bg-gray-950')}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="font-mono text-sm font-medium">{model.id}</h2>
-          <p className="mt-1 text-xs text-gray-700 dark:text-gray-300">{model.adapter} · {model.locality}{model.baseUrl ? ` · ${model.baseUrl}` : ''}</p>
+          <Subheading as="h2" className="font-mono">{model.id}</Subheading>
+          <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">{model.adapter} · {model.locality}{model.baseUrl ? ` · ${model.baseUrl}` : ''}</p>
         </div>
         <div className="flex items-center gap-2">
           {retiredPinned ? <Badge tone="bad">pinned but retired</Badge> : null}
@@ -177,7 +178,7 @@ function ModelCard({ model, pulled, retiredPinned, onChanged }: { model: ModelSt
         <Row k="Trains on your content" v={policy.trainsOnContent ?? 'unknown'} />
         {policy.retentionDays !== undefined ? <Row k="Retention" v={`${policy.retentionDays} days`} /> : null}
       </dl>
-      {pulled?.length ? <p className="mt-2 text-xs text-gray-700 dark:text-gray-300">Pulled on this endpoint: {pulled.join(', ')}</p> : null}
+      {pulled?.length ? <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">Pulled on this endpoint: {pulled.join(', ')}</p> : null}
       {policy.policyUrl ? (
         <p className="mt-2 text-xs"><a href={policy.policyUrl} target="_blank" rel="noreferrer" className="text-blue-700 underline underline-offset-4 dark:text-sky-300">Provider data policy</a></p>
       ) : null}

@@ -6,6 +6,7 @@ import { api } from '../lib/api.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { Button } from '../components/ui/button.js';
 import { Badge, Card } from '../components/ui/card.js';
+import { CardTitle, Prose, ScreenTitle, SectionTitle } from '../components/ui/text.js';
 
 export function Library() {
   const q = useQuery({ queryKey: ['projects'], queryFn: api.projects });
@@ -20,10 +21,10 @@ export function Library() {
   return (
     <section aria-labelledby="screen-title">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 id="screen-title" className="text-2xl font-semibold">Library</h1>
+        <ScreenTitle>Library</ScreenTitle>
         <Button variant="secondary" size="sm" onClick={() => setCreating((v) => !v)}>{creating ? 'Cancel' : 'New project'}</Button>
       </div>
-      <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">Projects hold what your agents make. Every version is kept, with the run and model that produced it.</p>
+      <Prose className="mt-1">Projects hold what your agents make. Every version is kept, with the run and model that produced it.</Prose>
 
       {creating ? (
         <Card className="mt-4">
@@ -52,8 +53,8 @@ export function Library() {
           {q.data.map((p) => (
             <li key={p.id}>
               <Card>
-                <h2 className="font-medium"><Link to={`/library/${p.slug}`} className="underline-offset-4 hover:underline">{p.name}</Link></h2>
-                <p className="mt-1 font-mono text-xs text-gray-700 dark:text-gray-300">{p.slug}</p>
+                <CardTitle><Link to={`/library/${p.slug}`} className="underline-offset-4 hover:underline">{p.name}</Link></CardTitle>
+                <p className="mt-1 font-mono text-xs text-gray-600 dark:text-gray-400">{p.slug}</p>
                 {p.description ? <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">{p.description}</p> : null}
                 <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">{p.documents} document{p.documents === 1 ? '' : 's'}</p>
               </Card>
@@ -72,10 +73,10 @@ export function ProjectDetail() {
   return (
     <section aria-labelledby="screen-title">
       <p className="text-sm"><Link to="/library" className="text-blue-700 underline underline-offset-4 dark:text-sky-300">← All projects</Link></p>
-      <h1 id="screen-title" className="mt-2 text-2xl font-semibold">{slug}</h1>
-      <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+      <ScreenTitle className="mt-2">{slug}</ScreenTitle>
+      <Prose className="mt-1">
         Export it from the command line: <code className="font-mono text-xs">workbench export project {slug} --out ./somewhere</code>
-      </p>
+      </Prose>
       {q.isError ? <p role="alert" className="mt-3 text-red-700 dark:text-red-300">{q.error.message}</p> : null}
       {q.data && q.data.length === 0 ? <div className="mt-6"><EmptyState title="Nothing here yet. Run an agent with this project as its target and its output lands here." /></div> : null}
       {q.data?.length ? (
@@ -129,14 +130,14 @@ export function DocumentView() {
   return (
     <section aria-labelledby="screen-title">
       <p className="text-sm"><Link to={`/library/${slug}`} className="text-blue-700 underline underline-offset-4 dark:text-sky-300">← {slug}</Link></p>
-      <h1 id="screen-title" className="mt-2 font-mono text-xl font-semibold">{q.data?.path ?? id}</h1>
+      <ScreenTitle className="mt-2"><span className="break-all font-mono text-lg">{q.data?.path ?? id}</span></ScreenTitle>
       {q.isError ? <p role="alert" className="mt-3 text-red-700 dark:text-red-300">{q.error.message}</p> : null}
 
       {q.data ? (
         <div className="mt-4 grid gap-4 lg:grid-cols-[2fr_1fr]">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="font-medium">{draft === null ? 'Content' : 'Editing'}</h2>
+              <CardTitle>{draft === null ? 'Content' : 'Editing'}</CardTitle>
               {draft === null ? (
                 <Button size="sm" variant="secondary" onClick={() => setDraft(q.data.content)}>Edit</Button>
               ) : (
@@ -159,7 +160,7 @@ export function DocumentView() {
           </div>
 
           <div>
-            <h2 className="font-medium">Versions</h2>
+            <CardTitle>Versions</CardTitle>
             <ol className="mt-2 space-y-2">
               {[...q.data.history].reverse().map((v, i, all) => (
                 <li key={v.id}>
@@ -179,7 +180,7 @@ export function DocumentView() {
       {compare ? (
         <div className="mt-6">
           <div className="flex items-center gap-3">
-            <h2 className="text-lg font-medium">Diff</h2>
+            <SectionTitle>Diff</SectionTitle>
             <Button size="sm" variant="ghost" onClick={() => setCompare(null)}>Close</Button>
           </div>
           {diff.isPending ? <p role="status">Comparing…</p> : null}
@@ -217,7 +218,7 @@ function VersionRow({ version, isLatest, onCompare }: { version: DocumentVersion
         {isLatest ? <Badge tone="good">latest</Badge> : null}
         <time dateTime={version.createdAt} className="text-gray-700 dark:text-gray-300">{new Date(version.createdAt).toLocaleString()}</time>
       </div>
-      {version.modelId ? <p className="mt-1 font-mono text-xs text-gray-700 dark:text-gray-300">{version.modelId}</p> : null}
+      {version.modelId ? <p className="mt-1 font-mono text-xs text-gray-600 dark:text-gray-400">{version.modelId}</p> : null}
       {version.runId ? (
         <p className="mt-1 text-xs"><Link to={`/runs/${version.runId}`} className="text-blue-700 underline underline-offset-4 dark:text-sky-300">the run that made it</Link></p>
       ) : null}
