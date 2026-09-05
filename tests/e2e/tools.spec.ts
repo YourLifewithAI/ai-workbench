@@ -79,8 +79,9 @@ test('@run-07 the Tools screen says where each agent may actually go', async ({ 
   await expect(page.getByText('only the hosts listed below')).toBeVisible();
   await expect(page.getByText('refused, including anything DNS resolves to one')).toBeVisible();
 
-  // And the row for the agent that has the network tools, showing the mode the fetch path would compute.
-  const row = page.getByRole('row').filter({ has: page.getByRole('rowheader', { name: 'researcher' }) });
+  // And the row for the agent that has the network tools, showing the mode the fetch path would compute. Scoped
+  // to the network table: the disk-grants table below it (RUN-16) has a row for every agent too.
+  const row = page.getByTestId('network-agents').getByRole('row').filter({ has: page.getByRole('rowheader', { name: 'researcher' }) });
   await expect(row).toContainText('allowlist');
   await expectNoA11yViolations(page, 'Tools — network policy');
 });
@@ -137,6 +138,27 @@ test('@run-09 the Tools screen says whether code can run at all', async ({ page 
     await expect(card.getByText('There is no unsandboxed fallback')).toBeVisible();
   }
   await expectNoA11yViolations(page, 'Tools — sandbox');
+});
+
+test('@run-16 the Tools screen shows a repository grant and the branches it may push to', async ({ page }) => {
+  await page.goto(base() + '/tools#token=' + token());
+  await expect(page.getByRole('heading', { name: 'What they may reach on disk' })).toBeVisible();
+  await expect(page.getByText('nothing an agent does there reaches')).toBeVisible();
+
+  // The Mechanic's row: the checkout global setup granted it, and the pattern, in the words the checker uses.
+  const table = page.getByTestId('disk-grants');
+  const row = table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: 'mechanic' }) });
+  await expect(row).toContainText(process.env['WB_E2E_REPO']!);
+  await expect(row).toContainText('may push to');
+  await expect(row).toContainText('run/*');
+  // An agent with no repository says so rather than showing an empty cell.
+  const echo = table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: 'echo' }) });
+  await expect(echo).toContainText('none');
+
+  // And the matrix lists the repository tools like any other, granted to nobody until a person says so.
+  await expect(page.getByLabel('git.push for mechanic')).toHaveValue('unset');
+  await expect(page.getByLabel('check for mechanic')).toHaveValue('unset');
+  await expectNoA11yViolations(page, 'Tools — repositories');
 });
 
 test('@run-10 Compare runs two models side by side, and the pick is stored on both', async ({ page }) => {

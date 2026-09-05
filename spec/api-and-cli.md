@@ -58,7 +58,7 @@ Parity with the UI, `--json` everywhere, exit 0 on success, `--workspace <path>`
 workbench init <path>                      copy examples/workspace, seed config/, write workspace.json; refuses if one exists
 workbench start [--open] [--port n|0] [--bind host] [--provider mock] [--expose <origin>]     blocks; prints the tokened URL once; SIGTERM closes cleanly; --provider mock mocks every run the runtime starts (UI, schedules, e2e); --expose adds <origin> to the accepted Host/Origin sets
 workbench dev                              start + Vite dev server with proxy (CSP relaxed for HMR) — from RUN-01
-workbench doctor                           workspace validity, FTS5, Deno, credentials present per provider, disabled tools — whichever checks exist at the current run; exit 1 on invalid workspace
+workbench doctor                           workspace validity, FTS5, Deno, credentials present per provider, disabled tools, granted repositories (path, checkout, gate, branch pattern) — whichever checks exist at the current run; exit 1 on invalid workspace
 workbench run agent <id> --input <text> [--project slug] [--provider mock] [--model id] [--detach] [--json]
 workbench run workflow <id> --inputs-file f.json [--project slug] [--provider mock] [--detach] [--json]
 workbench runs list|show|cancel|resume|rerun <id>
@@ -91,7 +91,7 @@ The secret scan is a small in-repo scanner over tracked files plus `dist/` (excl
 
 ## JSONL trace
 
-One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` — the `events` row with `payload` parsed. Types: `run-started, run-queued, step-started, step-completed, step-failed, step-skipped, model-started, model-completed, model-aborted, fallback-selected, provider-meta-dropped, tool-requested, permission-decided, approval-requested, approval-decided, tool-completed, egress-denied, memory-retrieved, memory-written, memory-redacted, artifact-written, review-decided, budget-warning, run-cancelled, run-completed, run-failed, run-interrupted`. Payloads are in `data-model.md`. Debugging a run is reading this file.
+One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` — the `events` row with `payload` parsed. Types: `run-started, run-queued, step-started, step-completed, step-failed, step-skipped, model-started, model-completed, model-aborted, fallback-selected, provider-meta-dropped, tool-requested, permission-decided, approval-requested, approval-decided, tool-completed, repo-decided, egress-denied, memory-retrieved, memory-written, memory-redacted, artifact-written, review-decided, budget-warning, run-cancelled, run-completed, run-failed, run-interrupted`. Payloads are in `data-model.md`. Debugging a run is reading this file.
 
 
 > Amendment (RUN-04, 2026-09-03): the workflow surface.
@@ -136,3 +136,10 @@ One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` �
 > belongs in a run of its own. Project and workspace export/import are CLI operations, not routes: they
 > write directories, which is why they were never implemented as HTTP and should not have been listed.
 > `npm run route-drift` now fails the check gate whenever this table and `app.ts` disagree.
+
+> Amendment (RUN-16, 2026-09-05): `GET /api/v1/tools` also returns `grants`, one entry per agent —
+> `{ agentId, fs: { read, write }, repos: [{ path, branches }] }` — the half of a grant that is not a tool,
+> as a person wrote it in `config/workbench.json`. Read-only: `PUT /tools/grants` edits tools, and a
+> repository grant is written by hand on purpose (D-66). `workbench doctor` gains a `repositories` check.
+> The trace gains `repo-decided`.
+

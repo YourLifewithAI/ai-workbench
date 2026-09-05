@@ -1,5 +1,6 @@
 // Permissions and budgets (spec/tools-and-security.md, spec/workflows-and-execution.md).
 import { z } from 'zod';
+import { RepoGrant } from './repo.js';
 
 export const NetworkMode = z.enum(['offline', 'local-only', 'allowlist', 'unrestricted']);
 export type NetworkMode = z.infer<typeof NetworkMode>;
@@ -14,6 +15,8 @@ export const Permissions = z.object({
   }).default({ allow: [], allowLocalAddresses: false, approvalExempt: [] }),
   tools: z.record(z.string(), z.enum(['allow', 'deny'])).default({}),
   approvalRequired: z.array(z.string()).default([]),
+  /** Repositories outside the workspace this agent may edit on a branch (D-66). Only a human writes one. */
+  repos: z.array(RepoGrant).default([]),
 });
 export type Permissions = z.infer<typeof Permissions>;
 

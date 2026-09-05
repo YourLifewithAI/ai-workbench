@@ -518,9 +518,22 @@ export const McpServerSummary = z.object({
 });
 export type McpServerSummary = z.infer<typeof McpServerSummary>;
 
+/**
+ * The half of an agent's grant that is not a tool: the paths it may read and write, and the repositories it may
+ * edit on a branch (D-66). Shown beside the matrix; written only by a person, in `config/workbench.json`.
+ */
+export const AgentGrantSummary = z.object({
+  agentId: z.string(),
+  fs: z.object({ read: z.array(z.string()), write: z.array(z.string()) }),
+  repos: z.array(z.object({ path: z.string(), branches: z.string() })),
+});
+export type AgentGrantSummary = z.infer<typeof AgentGrantSummary>;
+
 export const ToolsResponse = z.object({
   tools: z.array(ToolSummary),
   matrix: z.array(GrantCell),
+  /** Per agent: paths and repositories, from `grants.<agentId>` as a person wrote it. */
+  grants: z.array(AgentGrantSummary),
   denials: z.array(ToolDenial),
   /** Approvals a human agreed to remember, so they can be seen and taken back. */
   remembered: z.array(RememberRule),

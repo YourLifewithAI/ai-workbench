@@ -6,7 +6,7 @@ import type { Db } from '../db/index.js';
 const URL_PATTERN = /https?:\/\/[^\s<>"'`)\]}]+/gi;
 
 /** Tools whose output is private content. Fetched web content is not private and does not taint (D-29). */
-export const PRIVATE_TOOLS = new Set(['artifact.read', 'fs.read', 'memory.search', 'knowledge.search']);
+export const PRIVATE_TOOLS = new Set(['artifact.read', 'fs.read', 'memory.search', 'knowledge.search', 'repo.read', 'git.diff']);
 
 /**
  * Tools whose output is *external* content: something from outside the workspace, or something imported into it

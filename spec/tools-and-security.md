@@ -176,3 +176,40 @@ Import trust is defined in `agents-and-prompts.md` (D-34) and exports in `data-m
 > and gets `childEnv()` like any child (SEC-35). `git.push` and `repo.write` are refused by name outside the
 > grant's branch pattern and root (SEC-33, SEC-34). The Tools screen lists repository grants beside path grants
 > and says which branches each may push to.
+
+> Amendment (RUN-16, 2026-09-05): what the repository tools settled.
+>
+> - **`ctx.repo` joins the tool context** beside `fs` and `net`: `grants()` and `open(path?)`, where the handle
+>   `open` answers with is policy-checked on every call and never exists for a checkout nobody granted. A tool
+>   in `tools/builtin/repo.ts` is one call on that handle; the grant decides in `repos/access.ts`, the policy
+>   lives in `security/repoPolicy.ts`, and git is spawned in `repos/git.ts` — directly, never through a shell,
+>   with every agent-supplied name validated before it is an argument. Paths in and out are repository-relative
+>   with forward slashes; `repo` may be omitted when exactly one repository is granted.
+> - **Writes, commits and pushes happen only on a branch the grant covers.** `repo.write` on a checkout that
+>   is on `main` is refused with "create a run branch first", so an agent cannot dirty the owner's own branch
+>   and the order of operations — read, branch, edit, check, commit, push — is enforced rather than advised.
+>   `main` and `master` are refused under every pattern, `*` included: the pattern names run branches, not the
+>   branch a person merges into.
+> - **The deny-list, exactly:** every path under `.git/` (the internals named by what they are: configuration,
+>   hooks, the object store, refs, HEAD); any basename the secret scanner's *file-name* patterns match
+>   (`credentials.json`, `.env` and variants but not `.env.example`, private keys, ssh keys, `.netrc`,
+>   registry auth files, `secrets.*`, service accounts); `.workbench/` for writing, because the gate declaration
+>   is the owner's (SEC-35); and, when a grant happens to cover the workspace, the workspace's own hard
+>   deny-list (SEC-11). A credentials-shaped file already lying in the tree is unstaged before a commit and
+>   named in the result's `skipped`.
+> - **`check` runs the declared line through the platform shell**, with `2>&1` so the transcript reads in
+>   order, `CI=true` and no colour, `childEnv()` and nothing else. The shell is the one place in the runtime a
+>   command line is executed, and it is safe here for exactly one reason: the line comes from a file no tool
+>   can write. The result carries the *end* of a long transcript — that is where the verdict is — and the
+>   whole of it lands in the run's scratch as `scratch/check-<ts>.log` (D-47). `check` is execute-tier and
+>   `runsOnHost`, so it exists without Deno; the sandbox's "what is switched off" list does not include it.
+> - **A commit is the agent's, with the run in trailers:** author `<agentId> <<agentId>@workbench.noreply>`,
+>   message as given plus `Workbench-Run:` and `Workbench-Agent:` trailers, rather than a prefix on the subject
+>   line — `git log --oneline` stays readable and the run id is still in every commit.
+> - **Every decision is in the trace** as `repo-decided` `{ tool, repo, path, mode, allowed, reason }`, beside
+>   the `permission-decided` the matrix already writes. A machine with no `git` on PATH refuses the git tools
+>   by name, and `doctor` says so.
+> - The trust model is as D-66 states it and no wider: `check` runs whatever `package.json` says, and the
+>   agent can edit `package.json`. What the agent cannot do is name a command, touch `main`, or ship anything
+>   a person has not read. The boundary is the branch.
+

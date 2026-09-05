@@ -51,8 +51,13 @@ export default async function globalSetup(): Promise<void> {
   }, null, 2));
 
   const configFile = path.join(ws, 'config', 'workbench.json');
-  const config = JSON.parse(fs.readFileSync(configFile, 'utf8')) as { grants?: Record<string, unknown> };
-  config.grants = { ...(config.grants ?? {}), weaver: { tools: { 'permission.request': 'allow' } } };
+  const config = JSON.parse(fs.readFileSync(configFile, 'utf8')) as { grants?: Record<string, Record<string, unknown>> };
+  // A repository grant on this very checkout (RUN-16), so the Tools screen has one to show beside the paths.
+  config.grants = {
+    ...(config.grants ?? {}),
+    weaver: { tools: { 'permission.request': 'allow' } },
+    mechanic: { ...(config.grants?.['mechanic'] ?? {}), repos: [{ path: root, branches: 'run/*' }] },
+  };
   fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
 
   // A stand-in for Ollama's management API, so the Models screen can be seen polling a local endpoint that
@@ -97,4 +102,5 @@ export default async function globalSetup(): Promise<void> {
   process.env['WB_E2E_RUN_ID'] = runId;
   process.env['WB_E2E_WS'] = ws;
   process.env['WB_E2E_CLI'] = cli;
+  process.env['WB_E2E_REPO'] = root;
 }

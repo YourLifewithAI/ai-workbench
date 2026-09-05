@@ -3,6 +3,7 @@
 import { z } from 'zod';
 import type { Permissions } from './permissions.js';
 import type { JsonSchema, ToolSpec } from './model.js';
+import type { CheckResult, GitLogEntry, GitStatus, RepoGrant } from './repo.js';
 
 export const ToolTier = z.enum(['read', 'write', 'execute']);
 export type ToolTier = z.infer<typeof ToolTier>;
@@ -48,10 +49,37 @@ export interface ToolContext {
     can(path: string, mode: 'read' | 'write'): { allowed: boolean; reason: string; hint?: string | undefined };
   };
   net: { fetch(url: string, init?: RequestInit): Promise<Response> };
+  /**
+   * Repositories the agent was granted (D-66). `open` answers with a handle whose every call is policy-checked
+   * — the repository root, the `.git/` deny-list, the credentials-shaped names, the branch pattern — or throws
+   * the refusal by name. A handle never exists for a repository nobody granted.
+   */
+  repo: { grants(): RepoGrant[]; open(path?: string): Promise<RepoAccess> };
   credentials: { get(name: string): string | undefined };
   log(message: string): void;
   /** Aborts when the run is cancelled or the tool call times out. */
   signal: AbortSignal;
+}
+
+/** One granted checkout, from the inside. Paths are repository-relative; the answers use forward slashes. */
+export interface RepoAccess {
+  /** The granted root, canonical. */
+  readonly root: string;
+  /** The branch pattern this grant allows. */
+  readonly branches: string;
+  read(file: string): Promise<string>;
+  list(dir: string): Promise<FsEntry[]>;
+  write(file: string, data: string): Promise<void>;
+  git: {
+    status(): Promise<GitStatus>;
+    diff(input: { staged?: boolean | undefined; path?: string | undefined }): Promise<string>;
+    log(count: number): Promise<GitLogEntry[]>;
+    branch(name: string): Promise<{ branch: string; created: boolean }>;
+    commit(message: string): Promise<{ sha: string; branch: string; files: string[]; skipped: string[] }>;
+    push(remote?: string): Promise<{ branch: string; remote: string; output: string }>;
+  };
+  /** The repository's own gate, from `.workbench/repo.json`. Nothing the agent says reaches the command line. */
+  check(): Promise<CheckResult>;
 }
 
 export interface ToolDefinition<I = unknown, O = unknown> {
@@ -76,6 +104,11 @@ export interface ToolDefinition<I = unknown, O = unknown> {
   inputSchemaOverride?: JsonSchema | undefined;
   /** Where the tool came from, for the Tools screen. Absent means a built-in. */
   origin?: { kind: 'mcp'; server: string } | undefined;
+  /**
+   * An execute-tier tool that runs on the host rather than in the sandbox, so it exists whether or not Deno
+   * does. Exactly one: `check`, a repository's own gate, which spawns what a sandbox cannot (D-66, SEC-35).
+   */
+  runsOnHost?: boolean | undefined;
   execute(input: I, ctx: ToolContext): Promise<ToolResult<O>>;
 }
 
