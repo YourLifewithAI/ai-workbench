@@ -1,0 +1,123 @@
+{
+  "schemaVersion": 1,
+  "id": "coding-run",
+  "name": "Coding run",
+  "description": "A brief in spec/runs/ becomes a branch a person merges and a handoff in runlog/: the run protocol, executed by the Mechanic. Nothing here merges; the person does.",
+  "defaultProject": "coding",
+  "inputs": {
+    "type": "object",
+    "properties": {
+      "brief": {
+        "type": "string",
+        "title": "Brief",
+        "description": "The brief's path inside the repository, e.g. spec/runs/RUN-13.md."
+      },
+      "repo": {
+        "type": "string",
+        "title": "Repository",
+        "description": "The absolute path of the checkout the Mechanic has been granted."
+      }
+    },
+    "required": ["brief", "repo"]
+  },
+  "permissions": {
+    "tools": {
+      "repo.read": "allow", "repo.list": "allow", "repo.write": "allow",
+      "git.status": "allow", "git.diff": "allow", "git.log": "allow",
+      "git.branch": "allow", "git.commit": "allow", "git.push": "allow",
+      "check": "allow"
+    },
+    "repos": [{ "path": "/", "branches": "run/*", "deny": ["spec/runs"] }]
+  },
+  "steps": [
+    {
+      "id": "read",
+      "kind": "agent",
+      "agent": "mechanic",
+      "input": "Repository: {{inputs.repo}}\nBrief: {{inputs.brief}}\n\nRead AGENTS.md, STATUS.md and the brief with repo.read, then every file the brief's *Reads* list names. Do not edit anything yet.\n\nAnswer with JSON only, no prose around it: {\"run\": \"<the brief's number, e.g. 13>\", \"name\": \"<a short kebab-case name>\", \"branch\": \"run/<number>-<name>\", \"items\": [\"<each definition-of-done item, in order, one line each>\"], \"files\": [\"<paths you expect to touch>\"], \"plan\": \"<how you will take the items, one paragraph>\"}",
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "run": { "type": "string" },
+          "name": { "type": "string" },
+          "branch": { "type": "string" },
+          "items": { "type": "array", "items": { "type": "string" } },
+          "files": { "type": "array", "items": { "type": "string" } },
+          "plan": { "type": "string" }
+        },
+        "required": ["run", "branch", "items", "plan"],
+        "additionalProperties": false
+      },
+      "output": { "document": "{{runId}}/plan.json" },
+      "budget": { "maxModelCalls": 12, "maxToolCalls": 40 }
+    },
+    {
+      "id": "implement",
+      "kind": "agent",
+      "agent": "mechanic",
+      "input": "Repository: {{inputs.repo}}\nBrief: {{inputs.brief}}\nBranch: {{steps.read.output.branch}}\n\nThe plan:\n{{steps.read.output.plan}}\n\nThe definition of done, in order:\n{{steps.read.output.items}}\n\nImplement the brief. Create the branch with git.branch first. Edit with repo.write, run check, read the end of its output, edit again, until check answers ok: true. Commit with git.commit when it is green; if you are told this is your last turn, say plainly what is done and what is not. Answer with what you changed, what check said, and which definition-of-done items are not met, by number.",
+      "output": { "document": null },
+      "budget": { "maxModelCalls": 120, "maxToolCalls": 400, "maxCostUsd": 10, "maxWallClockMs": 5400000 }
+    },
+    {
+      "id": "verify",
+      "kind": "tool",
+      "tool": "check",
+      "agent": "mechanic",
+      "dependsOn": ["implement"],
+      "input": { "repo": "{{inputs.repo}}" }
+    },
+    {
+      "id": "handoff",
+      "kind": "agent",
+      "agent": "mechanic",
+      "input": "Repository: {{inputs.repo}}\nBrief: {{inputs.brief}}\nBranch: {{steps.read.output.branch}}\n\nWhat the implement step reported:\n{{steps.implement.output}}\n\nThe workflow ran check again after that step: ok = {{steps.verify.output.ok}}, exit {{steps.verify.output.exitCode}}. The end of its output:\n{{steps.verify.output.output}}\n\nWrite the handoff for RUN-{{steps.read.output.run}} from spec/runs/TEMPLATE-handoff.md (read it with repo.read): every section, the verification transcript quoting the check output above, and Known gaps naming each unmet definition-of-done item by number. Then update STATUS.md in the repository with repo.write so its current-run line reads RUN-{{steps.read.output.run}}: awaiting verification @ <sha>, where <sha> is the newest commit git.log shows. Answer with the handoff document itself, as Markdown, and nothing else.",
+      "output": { "document": "{{runId}}/RUN-{{steps.read.output.run}}.md" },
+      "budget": { "maxModelCalls": 12, "maxToolCalls": 40 }
+    },
+    {
+      "id": "file-handoff",
+      "kind": "tool",
+      "tool": "repo.write",
+      "agent": "mechanic",
+      "input": {
+        "repo": "{{inputs.repo}}",
+        "path": "runlog/RUN-{{steps.read.output.run}}.md",
+        "content": "{{steps.handoff.output}}\n\n## Verification transcript (recorded by the workflow)\n\n```\n$ {{steps.verify.output.command}}\n{{steps.verify.output.output}}\n```\n\nok: {{steps.verify.output.ok}} · exit {{steps.verify.output.exitCode}} · {{steps.verify.output.durationMs}} ms\n"
+      }
+    },
+    {
+      "id": "commit",
+      "kind": "tool",
+      "tool": "git.commit",
+      "agent": "mechanic",
+      "dependsOn": ["file-handoff"],
+      "input": { "repo": "{{inputs.repo}}", "message": "RUN-{{steps.read.output.run}} handoff and STATUS" }
+    },
+    {
+      "id": "push",
+      "kind": "tool",
+      "tool": "git.push",
+      "agent": "mechanic",
+      "dependsOn": ["commit"],
+      "input": { "repo": "{{inputs.repo}}" }
+    },
+    {
+      "id": "hand-to-human",
+      "kind": "agent",
+      "agent": "mechanic",
+      "review": "blocking",
+      "onReject": "implement",
+      "dependsOn": ["push"],
+      "input": "Branch: {{steps.read.output.branch}}\nPushed: {{steps.push.output.branch}} to {{steps.push.output.remote}}\nCheck: ok = {{steps.verify.output.ok}} (exit {{steps.verify.output.exitCode}})\n\nWhat the implement step reported:\n{{steps.implement.output}}\n\nWrite the note the person reads before opening the pull request. The first line is exactly: Branch: {{steps.read.output.branch}}. The second line is the check result. Then the definition-of-done items that are not met, by number, or the words: every item met. Nothing else; call no tools.",
+      "output": { "document": null },
+      "budget": { "maxModelCalls": 3 }
+    }
+  ],
+  "outputs": {
+    "branch": "{{steps.read.output.branch}}",
+    "plan": "{{steps.read.output}}",
+    "handoff": "{{steps.handoff.output}}",
+    "summary": "{{steps[\"hand-to-human\"].output}}"
+  }
+}

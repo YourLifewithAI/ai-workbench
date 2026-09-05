@@ -4,8 +4,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { ALL_REPO_TOOLS, fixtureRepo as makeRepo, git, grant, script } from '../helpers/repo.js';
 import { describe, it, expect, beforeAll } from 'vitest';
-import { CLI_DIST, cleanEnv, runCli, startRuntime, tempDir, tempWorkspace, waitFor, type Started } from '../helpers/workspace.js';
+import { CLI_DIST, cleanEnv, runCli, startRuntime, tempWorkspace, waitFor, type Started } from '../helpers/workspace.js';
 import type { EventRecord } from '../../src/shared/events.js';
 import type { RunDetail, ToolsResponse } from '../../src/shared/api/index.js';
 
@@ -14,66 +15,6 @@ beforeAll(() => {
 });
 
 const headers = (rt: Started): Record<string, string> => ({ Authorization: `Bearer ${rt.token}`, 'Content-Type': 'application/json' });
-
-function git(cwd: string, ...args: string[]): string {
-  const result = spawnSync('git', args, { cwd, env: cleanEnv(), encoding: 'utf8' });
-  if (result.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
-  return result.stdout.trim();
-}
-
-/** A checkout on `main` with a gate that fails until src/app.js says "fixed", and a bare remote beside it. */
-function fixtureRepo(prefix: string, withGate = true): { root: string; remote: string } {
-  const dir = tempDir(prefix);
-  const root = path.join(dir, 'repo');
-  const remote = path.join(dir, 'remote.git');
-  fs.mkdirSync(path.join(root, 'src'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'README.md'), '# fixture\n\nA repository for the Mechanic to work on.\n');
-  fs.writeFileSync(path.join(root, 'src', 'app.js'), 'export const state = "broken";\n');
-  fs.writeFileSync(path.join(root, 'check.js'), [
-    'const fs = require("node:fs");',
-    'const creds = Object.keys(process.env).filter((k) => k.startsWith("WORKBENCH_CRED_"));',
-    'console.log("credential variables seen: " + creds.length);',
-    'const src = fs.readFileSync("src/app.js", "utf8");',
-    'if (!src.includes("fixed")) { console.error("FAIL: app is not fixed"); process.exit(1); }',
-    'console.log("PASS: app is fixed");',
-  ].join('\n'));
-  if (withGate) {
-    fs.mkdirSync(path.join(root, '.workbench'));
-    fs.writeFileSync(path.join(root, '.workbench', 'repo.json'), JSON.stringify({ check: `"${process.execPath}" check.js`, timeoutMs: 60_000 }, null, 2));
-  }
-  git(root, 'init', '-q', '-b', 'main');
-  git(root, '-c', 'user.name=owner', '-c', 'user.email=owner@example.test', 'add', '-A');
-  git(root, '-c', 'user.name=owner', '-c', 'user.email=owner@example.test', 'commit', '-q', '-m', 'fixture');
-  git(dir, 'init', '-q', '--bare', 'remote.git');
-  git(root, 'remote', 'add', 'origin', remote);
-  return { root, remote };
-}
-
-function grant(ws: string, agentId: string, permissions: Record<string, unknown>): void {
-  const file = path.join(ws, 'config', 'workbench.json');
-  const config = JSON.parse(fs.readFileSync(file, 'utf8')) as { grants?: Record<string, unknown> };
-  config.grants = { ...(config.grants ?? {}), [agentId]: permissions };
-  fs.writeFileSync(file, JSON.stringify(config, null, 2));
-}
-
-const ALL_REPO_TOOLS = Object.fromEntries(['repo.read', 'repo.list', 'repo.write', 'git.status', 'git.diff', 'git.log', 'git.branch', 'git.commit', 'git.push', 'check'].map((t) => [t, 'allow']));
-
-interface Turn { after?: string; calls?: { name: string; input: unknown }[]; text: string }
-
-/**
- * A scripted conversation for one agent and one run. The mock picks the first fixture whose `afterTool` has
- * been called, so later turns are written to sort first; `tag` keeps runs in one workspace apart.
- */
-function script(ws: string, agent: string, tag: string, turns: Turn[]): void {
-  turns.forEach((turn, i) => {
-    // The agent is part of the name: two scripts for one tag and two agents must not overwrite each other.
-    const name = `${tag}-${agent.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${String(turns.length - i).padStart(2, '0')}.json`;
-    fs.writeFileSync(path.join(ws, 'fixtures', name), JSON.stringify({
-      match: { systemIncludes: agent, lastUserIncludes: tag, ...(turn.after ? { afterTool: turn.after } : {}) },
-      respond: { text: turn.text, ...(turn.calls ? { toolCalls: turn.calls } : {}) },
-    }, null, 2));
-  });
-}
 
 const traceOf = async (rt: Started, runId: string): Promise<EventRecord[]> =>
   (await (await fetch(`${rt.baseUrl}/api/v1/runs/${runId}/trace.jsonl`, { headers: headers(rt) })).text())
@@ -113,7 +54,7 @@ const output = (trace: EventRecord[], tool: string, nth = 0): Record<string, unk
 describe('DoD 1: a granted agent reads, lists and writes; an ungranted one is refused by name', () => {
   it('and the trace shows each decision', async () => {
     const ws = tempWorkspace('dod16-1');
-    const { root } = fixtureRepo('dod16-1');
+    const { root } = makeRepo('dod16-1');
     grant(ws, 'mechanic', { tools: ALL_REPO_TOOLS, repos: [{ path: root, branches: 'run/*' }] });
     // The Weaver has every tool granted and no repository: the tools exist for it and open nothing.
     grant(ws, 'weaver', { tools: ALL_REPO_TOOLS });
@@ -161,7 +102,7 @@ describe('DoD 1: a granted agent reads, lists and writes; an ungranted one is re
       }
       // And the Tools screen's data says what was granted, in words a person wrote.
       const tools = (await (await fetch(`${rt.baseUrl}/api/v1/tools`, { headers: headers(rt) })).json()) as ToolsResponse;
-      expect(tools.grants.find((g) => g.agentId === 'mechanic')?.repos).toEqual([{ path: root, branches: 'run/*' }]);
+      expect(tools.grants.find((g) => g.agentId === 'mechanic')?.repos).toEqual([{ path: root, branches: 'run/*', deny: [] }]);
       expect(tools.grants.find((g) => g.agentId === 'weaver')?.repos).toEqual([]);
       expect(tools.tools.find((t) => t.id === 'check')?.available, 'check needs no sandbox').toBe(true);
     } finally {
@@ -173,7 +114,7 @@ describe('DoD 1: a granted agent reads, lists and writes; an ungranted one is re
 describe('DoD 2: the repository deny-list (SEC-33)', () => {
   it('refuses .git/config, .git/hooks, a path outside the root and credentials.json, each by name', async () => {
     const ws = tempWorkspace('dod16-2');
-    const { root } = fixtureRepo('dod16-2');
+    const { root } = makeRepo('dod16-2');
     grant(ws, 'mechanic', { tools: ALL_REPO_TOOLS, repos: [{ path: root, branches: 'run/*' }] });
     const before = fs.readFileSync(path.join(root, '.git', 'config'), 'utf8');
     script(ws, 'The Mechanic', 'DOD2', [
@@ -226,7 +167,7 @@ describe('DoD 2: the repository deny-list (SEC-33)', () => {
 describe('DoD 3: branch, commit and push, inside the pattern and not outside it (SEC-34)', () => {
   it('run/16-test is created, main and feature/x are refused, the commit is the agent\'s, the push reaches the remote', async () => {
     const ws = tempWorkspace('dod16-3');
-    const { root, remote } = fixtureRepo('dod16-3');
+    const { root, remote } = makeRepo('dod16-3');
     grant(ws, 'mechanic', { tools: ALL_REPO_TOOLS, repos: [{ path: root, branches: 'run/*' }] });
     script(ws, 'The Mechanic', 'DOD3-WORK', [
       { text: 'Branching.', calls: [{ name: 'git.branch', input: { name: 'run/16-test' } }] },
@@ -290,8 +231,8 @@ describe('DoD 3: branch, commit and push, inside the pattern and not outside it 
 describe('DoD 4: check runs the declared gate and nothing else (SEC-35)', () => {
   it('fails on the broken fixture, passes after the fix, and a repository with no declaration has no check', async () => {
     const ws = tempWorkspace('dod16-4');
-    const { root } = fixtureRepo('dod16-4');
-    const bare = fixtureRepo('dod16-4-nogate', false);
+    const { root } = makeRepo('dod16-4');
+    const bare = makeRepo('dod16-4-nogate', { gate: false });
     grant(ws, 'mechanic', { tools: ALL_REPO_TOOLS, repos: [{ path: root, branches: 'run/*' }, { path: bare.root, branches: 'run/*' }] });
     script(ws, 'The Mechanic', 'DOD4-BROKEN', [
       { text: 'Checking as it is.', calls: [{ name: 'check', input: { repo: root } }, { name: 'check', input: { repo: bare.root } }, { name: 'check', input: {} }] },
@@ -340,7 +281,7 @@ describe('DoD 4: check runs the declared gate and nothing else (SEC-35)', () => 
 
   it('a long transcript comes back from its end, with the whole thing in scratch', async () => {
     const ws = tempWorkspace('dod16-4b');
-    const { root } = fixtureRepo('dod16-4b');
+    const { root } = makeRepo('dod16-4b');
     fs.writeFileSync(path.join(root, 'check.js'), 'for (let i = 0; i < 4000; i++) console.log("line " + i + " of a very long transcript"); console.log("VERDICT at the end");');
     grant(ws, 'mechanic', { tools: ALL_REPO_TOOLS, repos: [{ path: root, branches: 'run/*' }] });
     script(ws, 'The Mechanic', 'DOD4-LONG', [
@@ -368,7 +309,7 @@ describe('DoD 4: check runs the declared gate and nothing else (SEC-35)', () => 
 describe('DoD 5: doctor lists the granted repository, its pattern and its gate', () => {
   it('and says when a path is not a checkout', async () => {
     const ws = tempWorkspace('dod16-5');
-    const { root } = fixtureRepo('dod16-5');
+    const { root } = makeRepo('dod16-5');
     const missing = path.join(root, '..', 'nowhere');
     grant(ws, 'mechanic', { tools: ALL_REPO_TOOLS, repos: [{ path: root, branches: 'run/*' }] });
     let report = await runCli(['doctor', '--json', '--workspace', ws], { dist: true });

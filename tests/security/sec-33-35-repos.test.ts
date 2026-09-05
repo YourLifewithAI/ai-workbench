@@ -103,10 +103,16 @@ describe('SEC-33 a repository grant never opens git\'s internals, a credentials-
   it('the intersection keeps the narrower root and the narrower pattern, and nothing widens', () => {
     const tool = Permissions.parse({ repos: [{ path: '/', branches: '**' }] });
     const granted = Permissions.parse({ repos: [{ path: root, branches: 'run/*' }] });
-    expect(intersect(tool, granted).repos).toEqual([{ path: root, branches: 'run/*' }]);
+    expect(intersect(tool, granted).repos).toEqual([{ path: root, branches: 'run/*', deny: [] }]);
     // A ceiling that names a narrower pattern narrows; one that names an unrelated one leaves nothing.
     const narrower = Permissions.parse({ repos: [{ path: root, branches: 'run/16-*' }] });
-    expect(intersect(granted, narrower).repos).toEqual([{ path: root, branches: 'run/16-*' }]);
+    expect(intersect(granted, narrower).repos).toEqual([{ path: root, branches: 'run/16-*', deny: [] }]);
+    // Denies add up across layers: a directory either layer refuses stays refused (RUN-17).
+    const briefs = Permissions.parse({ repos: [{ path: '/', branches: '**', deny: ['spec/runs'] }] });
+    expect(intersect(granted, briefs).repos).toEqual([{ path: root, branches: 'run/*', deny: ['spec/runs'] }]);
+    expect(checkRepoPath('spec/runs/RUN-99.md', { root, workspaceDir: ws, deny: ['spec/runs'] }, 'write').allowed).toBe(false);
+    expect(checkRepoPath('spec/runs/RUN-99.md', { root, workspaceDir: ws, deny: ['spec/runs'] }, 'read').allowed).toBe(true);
+    expect(checkRepoPath('spec/runs-notes.md', { root, workspaceDir: ws, deny: ['spec/runs'] }, 'write').allowed, 'a sibling whose name is a prefix is not under it').toBe(true);
     const unrelated = Permissions.parse({ repos: [{ path: root, branches: 'feature/*' }] });
     expect(intersect(granted, unrelated).repos).toEqual([]);
     // A different repository is not this one.
@@ -153,7 +159,7 @@ describe('SEC-34 push is refused outside the pattern, main first; no merge tool 
       return { ok: true, code: 0, stdout: '', stderr: '' };
     };
     const handle = repoHandle({
-      grants: [{ path: root, branches: 'run/*' }], workspaceDir: tempWorkspace('sec34'), env: {}, git: exec,
+      grants: [{ path: root, branches: 'run/*', deny: [] }], workspaceDir: tempWorkspace('sec34'), env: {}, git: exec,
       agentId: 'mechanic', runId: 'r1', signal: new AbortController().signal, maxOutputChars: () => 1000,
       writeScratch: async (name) => `scratch/${name}`,
     });

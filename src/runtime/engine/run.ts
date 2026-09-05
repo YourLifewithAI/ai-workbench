@@ -948,9 +948,10 @@ export class Engine {
   private agentsOf(workflow: LoadedWorkflow): LoadedAgent[] {
     const ws = this.deps.workspace();
     const ids = new Set<string>();
-    const walk = (step: { kind: string; agent?: string; step?: unknown }): void => {
-      if (step.kind === 'agent' && step.agent) ids.add(step.agent);
-      if (step.kind === 'map' && step.step) walk(step.step as { kind: string; agent?: string });
+    const walk = (step: { kind: string; agent?: string | undefined; step?: unknown }): void => {
+      // A tool step under a named agent's grant runs as that agent, so its version is recorded too (RUN-17).
+      if ((step.kind === 'agent' || step.kind === 'tool') && step.agent) ids.add(step.agent);
+      if (step.kind === 'map' && step.step) walk(step.step as { kind: string; agent?: string | undefined });
     };
     for (const step of workflow.definition.steps) walk(step);
     return [...ids].map((id) => ws.agents.get(id)).filter((a): a is LoadedAgent => a !== undefined);

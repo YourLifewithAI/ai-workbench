@@ -14,6 +14,11 @@ export interface BudgetStop {
   message: string;
   /** Soft budgets end with a wrap-up turn; wall clock and the daily cap are hard stops (D-14). */
   allowWrapUp: boolean;
+  /**
+   * Whose limit it was. A step's own budget ends the step with its wrap-up as a partial output and the
+   * workflow carries on; the run's ends the run (RUN-17, workflows-and-execution.md §Budgets).
+   */
+  scope: 'run' | 'step';
 }
 
 const WARN_AT = 0.8;
@@ -86,30 +91,34 @@ export class RunBudget {
   checkBeforeModelCall(): BudgetStop | null {
     const fromParent = this.parent?.checkBeforeModelCall();
     if (fromParent) return fromParent;
+    const scope = this.parent ? 'step' : 'run';
     if (this.wallClockMs >= this.limits.maxWallClockMs) {
-      return { reason: 'wall_clock_exceeded', budget: 'maxWallClockMs', allowWrapUp: false, message: `This run reached its time limit (${Math.round(this.limits.maxWallClockMs / 1000)}s). Nothing further was sent. Raise maxWallClockMs in Settings, or split the work into smaller runs.` };
+      return { reason: 'wall_clock_exceeded', budget: 'maxWallClockMs', allowWrapUp: false, scope, message: `This run reached its time limit (${Math.round(this.limits.maxWallClockMs / 1000)}s). Nothing further was sent. Raise maxWallClockMs in Settings, or split the work into smaller runs.` };
     }
     const today = this.spentTodayUsd();
     if (this.limits.dailySpendCapUsd > 0 && today >= this.limits.dailySpendCapUsd) {
-      return { reason: 'daily_cap_reached', budget: 'dailySpendCapUsd', allowWrapUp: false, message: `Today's spending cap ($${this.limits.dailySpendCapUsd.toFixed(2)}) is already used up ($${today.toFixed(2)} so far). Raise dailySpendCapUsd in Settings, or wait until tomorrow.` };
+      return { reason: 'daily_cap_reached', budget: 'dailySpendCapUsd', allowWrapUp: false, scope, message: `Today's spending cap ($${this.limits.dailySpendCapUsd.toFixed(2)}) is already used up ($${today.toFixed(2)} so far). Raise dailySpendCapUsd in Settings, or wait until tomorrow.` };
     }
     if (this.spent.costUsd >= this.limits.maxCostUsd) {
-      return { reason: 'budget_exceeded', budget: 'maxCostUsd', allowWrapUp: true, message: `This run reached its cost budget ($${this.limits.maxCostUsd.toFixed(2)}).` };
+      return { reason: 'budget_exceeded', budget: 'maxCostUsd', allowWrapUp: true, scope, message: `This ${scope} reached its cost budget ($${this.limits.maxCostUsd.toFixed(2)}).` };
     }
     // One call is held back so a bounded run can still say what it produced: with a budget of six, five calls do
     // the work and the sixth is the wrap-up. Cost cannot be reserved this way — a call's price is not known
     // until it returns — so the wrap-up after a cost stop may carry the total slightly past the limit.
     const productive = this.wrapUpUsed ? this.limits.maxModelCalls : Math.max(0, this.limits.maxModelCalls - 1);
     if (this.spent.modelCalls >= productive) {
-      return { reason: 'budget_exceeded', budget: 'maxModelCalls', allowWrapUp: true, message: `This run reached its model-call budget (${this.limits.maxModelCalls} calls).` };
+      return { reason: 'budget_exceeded', budget: 'maxModelCalls', allowWrapUp: true, scope, message: `This ${scope} reached its model-call budget (${this.limits.maxModelCalls} calls).` };
     }
     return null;
   }
 
-  /** The last permitted call: tools removed, an instruction to summarise. Offered once per run. */
-  takeWrapUp(): boolean {
+  /**
+   * The last permitted call: tools removed, an instruction to summarise. Offered once per budget: a step's own
+   * wrap-up does not spend the run's, so a run whose step ran out can still say its own last word later.
+   */
+  takeWrapUp(scope: 'run' | 'step' = 'run'): boolean {
     if (this.wrapUpUsed) return false;
-    if (this.parent && !this.parent.takeWrapUp()) return false;
+    if (scope === 'run' && this.parent && !this.parent.takeWrapUp('run')) return false;
     this.wrapUpUsed = true;
     return true;
   }

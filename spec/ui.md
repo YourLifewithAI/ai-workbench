@@ -76,3 +76,9 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > pin a retired one, and two buttons: accept (a catalog write, a new model landing disabled) and dismiss. A model
 > an agent pins that the provider no longer offers wears a *pinned but retired* badge; one with no price on
 > record wears *price unknown* and is not selectable.
+
+> Amendment (RUN-17, 2026-09-05): the Workflows run form shows **Budgets** — the workflow's own caps and each
+> step's — under the inputs, in words (`120 model calls · 400 tool calls · $10.00 · 90 min`), with the rule
+> that a step's cap ends the step with a summary and the run's cap ends the run. The Tools screen's disk table
+> shows a repository grant's `deny` prefixes beside the branches it may push to.
+

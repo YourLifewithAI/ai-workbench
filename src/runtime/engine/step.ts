@@ -40,7 +40,11 @@ export type StepFailureReason =
 
 /** A step that ended without an output. `outcome` is set when a wrap-up turn produced a partial one. */
 export class StepFailure extends Error {
-  constructor(readonly reason: StepFailureReason, readonly detail: unknown, message: string, readonly outcome?: StepOutcome) {
+  constructor(
+    readonly reason: StepFailureReason, readonly detail: unknown, message: string, readonly outcome?: StepOutcome,
+    /** Whose budget stopped it: a step's own ends the step with a partial output; the run's ends the run. */
+    readonly scope: 'run' | 'step' = 'run',
+  ) {
     super(message);
     this.name = 'StepFailure';
   }
@@ -132,6 +136,13 @@ export class StepRunner {
       return outcome;
     } catch (e) {
       if (e instanceof StepFailure) {
+        // A step's *own* budget ending it is the step's result, not the run's: its wrap-up is committed as a
+        // partial output and the workflow carries on to whatever reads it (RUN-17). The run's budget still
+        // ends the run below.
+        if (e.scope === 'step' && e.outcome) {
+          this.completeStepRow(input, e.outcome, 'completed');
+          return e.outcome;
+        }
         // A wrap-up turn still produced something; file it as partial before the step is called failed.
         if (e.outcome) e.outcome.versionId = this.commitDocument(input, e.outcome, true) ?? undefined;
         this.failStepRow(input, e);
@@ -176,8 +187,13 @@ export class StepRunner {
         const stop = budget.checkBeforeModelCall();
         if (stop) {
           // Soft budgets buy one last turn: no tools, summarise. Hard stops (time, daily cap) end it here.
-          if (!stop.allowWrapUp || !budget.takeWrapUp()) {
-            throw new StepFailure(stop.reason, { budget: stop.budget }, stop.message);
+          if (!stop.allowWrapUp || !budget.takeWrapUp(stop.scope)) {
+            // A step's hard stop still leaves the step with an output — the stop itself, in words — so the
+            // step after it can say what happened rather than the run ending in silence.
+            const stopped = stop.scope === 'step'
+              ? { output: `[stopped before finishing: ${stop.message}]`, value: `[stopped before finishing: ${stop.message}]`, modelId: candidates[0]?.entry.id ?? '', costUsd: 0, partial: true }
+              : undefined;
+            throw new StepFailure(stop.reason, { budget: stop.budget }, stop.message, stopped, stop.scope);
           }
           // One `budget-warning` per budget (D-14): if 80% already announced this one, the wrap-up is not a second.
           if (!budget.hasWarned(stop.budget as BudgetKind)) {
@@ -231,7 +247,7 @@ export class StepRunner {
       // and the run still fails on the budget that ended it (D-14).
       if (wrapUp) {
         const outcome: StepOutcome = { output: text, value: text, modelId: entry.id, costUsd: 0, partial: true };
-        throw new StepFailure(wrapUp.reason, { budget: wrapUp.budget, ...(problems ? { problems } : {}) }, wrapUp.message, outcome);
+        throw new StepFailure(wrapUp.reason, { budget: wrapUp.budget, ...(problems ? { problems } : {}) }, wrapUp.message, outcome, wrapUp.scope);
       }
       if (!problems) {
         if (!schema) return { output: text, value: text, modelId: entry.id, costUsd: 0, partial: false };

@@ -273,11 +273,20 @@ export const WorkflowSummary = z.object({
 });
 export type WorkflowSummary = z.infer<typeof WorkflowSummary>;
 
+/** A budget block as written: only the keys the author set. */
+export const BudgetLines = z.object({
+  maxModelCalls: z.number().optional(), maxToolCalls: z.number().optional(), maxCostUsd: z.number().optional(),
+  maxWallClockMs: z.number().optional(), toolCallTimeoutMs: z.number().optional(), dailySpendCapUsd: z.number().optional(),
+});
+export type BudgetLines = z.infer<typeof BudgetLines>;
+
 export const WorkflowDetail = WorkflowSummary.extend({
   definition: z.record(z.string(), z.unknown()),
   /** Advisory only (D-49): the Workflows screen shows them, nothing blocks on them. */
   smells: z.array(z.object({ stepId: z.string(), message: z.string() })),
   order: z.array(z.string()),
+  /** What the workflow and its steps cap themselves at, so the run form can say so before a run starts (RUN-17). */
+  budgets: z.object({ workflow: BudgetLines.nullable(), steps: z.array(z.object({ stepId: z.string(), budget: BudgetLines })) }),
 });
 export type WorkflowDetail = z.infer<typeof WorkflowDetail>;
 
@@ -525,7 +534,7 @@ export type McpServerSummary = z.infer<typeof McpServerSummary>;
 export const AgentGrantSummary = z.object({
   agentId: z.string(),
   fs: z.object({ read: z.array(z.string()), write: z.array(z.string()) }),
-  repos: z.array(z.object({ path: z.string(), branches: z.string() })),
+  repos: z.array(z.object({ path: z.string(), branches: z.string(), deny: z.array(z.string()).default([]) })),
 });
 export type AgentGrantSummary = z.infer<typeof AgentGrantSummary>;
 

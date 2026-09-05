@@ -83,3 +83,48 @@ test('@run-04 a running workflow can be cancelled from the Runs screen', async (
   // A cancelled run has nothing left to cancel.
   await expect(row.getByRole('button', { name: /Cancel run/ })).toHaveCount(0);
 });
+
+test('@run-17 the coding run: the form shows its inputs and budgets, and the parked review names the branch', async ({ page, request }) => {
+  await page.goto(base() + '/workflows/coding-run#token=' + token());
+  await expect(page.getByRole('heading', { name: 'Coding run' })).toBeVisible();
+  // The two inputs, from the schema, and the budgets the workflow sets on its implement step.
+  await expect(page.getByLabel('Brief')).toBeVisible();
+  await expect(page.getByLabel('Repository')).toBeVisible();
+  const budgets = page.getByTestId('run-budgets');
+  await expect(budgets).toContainText('implement');
+  await expect(budgets).toContainText('120 model calls · 400 tool calls · $10.00 · 90 min');
+  await expect(page.getByText('waits for you').first()).toBeVisible();
+  await expectNoA11yViolations(page, 'Coding run form');
+
+  // Driven through the API against the fixture checkout global setup granted the Mechanic: the screen is
+  // what is under test here, not the typing.
+  const started = await request.post(`${base()}/api/v1/runs`, {
+    headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' },
+    data: { kind: 'workflow', id: 'coding-run', inputs: { brief: 'spec/runs/RUN-99.md', repo: process.env['WB_E2E_REPO'] }, provider: 'mock' },
+  });
+  expect(started.ok(), await started.text()).toBe(true);
+  const { runId } = (await started.json()) as { runId: string };
+  // A failed run answers with its error, so a red CI log says what went wrong rather than only that it did.
+  await expect.poll(async () => {
+    const detail = (await (await request.get(`${base()}/api/v1/runs/${runId}`, { headers: { Authorization: `Bearer ${token()}` } })).json()) as { state: string; error?: unknown };
+    if (detail.state !== 'failed') return detail.state;
+    const trace = await (await request.get(`${base()}/api/v1/runs/${runId}/trace.jsonl`, { headers: { Authorization: `Bearer ${token()}` } })).text();
+    const failures = trace.split('\n').filter((l) => l.includes('"step-failed"') || l.includes('"run-failed"') || l.includes('"ok":false'));
+    return `failed: ${JSON.stringify(detail.error)} ${failures.join(' ')}`;
+  }, { timeout: 120_000 }).toBe('waiting_review');
+
+  await page.goto(base() + '/review#token=' + token());
+  const card = page.locator('li').filter({ has: page.getByRole('link', { name: `run ${runId.slice(-8)}` }) }).first();
+  await expect(card).toBeVisible({ timeout: 20_000 });
+  await expect(card).toContainText('holding the run still');
+  await expect(card).toContainText('Branch: run/99-fixture');
+  await expectNoA11yViolations(page, 'Review with a parked coding run');
+
+  // Let it finish, so the workspace is not left holding a run for the next suite.
+  await card.getByRole('button', { name: 'Continue the run' }).click();
+  await expect.poll(async () => {
+    const detail = (await (await request.get(`${base()}/api/v1/runs/${runId}`, { headers: { Authorization: `Bearer ${token()}` } })).json()) as { state: string };
+    return detail.state;
+  }, { timeout: 60_000 }).toBe('completed');
+});
+

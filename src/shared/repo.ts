@@ -7,6 +7,11 @@ export const RepoGrant = z.object({
   path: z.string().min(1),
   /** A branch glob: `*` matches within one segment, `**` across segments. The default is the run protocol's. */
   branches: z.string().min(1).default('run/*'),
+  /**
+   * Repository-relative paths a tool may not write under, on top of the deny-list every grant has. A workflow
+   * ceiling uses it to keep a coding agent out of `spec/runs/`: briefs are the human's (RUN-17).
+   */
+  deny: z.array(z.string()).default([]),
 });
 export type RepoGrant = z.infer<typeof RepoGrant>;
 

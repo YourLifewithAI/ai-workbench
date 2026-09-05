@@ -112,3 +112,21 @@ Schedules live in the `schedules` table and are edited in the Workflows screen. 
 **Review** is non-blocking by default: every completed step output appears in the Review screen as unreviewed. The human can rate 1–5, edit (a new artifact version with `createdBy: 'human'`), re-run downstream steps from an edited version, or reject with feedback, which re-runs the step with the feedback appended (at most twice). A step with `review: 'blocking'` parks the run in `waiting_review` with no timeout by default.
 
 **Approval** is the security queue: a tool call that policy marks sensitive parks the run in `waiting_approval`, and the decision returns to the agent as a tool result. Mechanics (timeout, "remember", batches) are in `tools-and-security.md` §Approvals.
+
+> Amendment (RUN-17, 2026-09-05): three things the coding run needed from the executor.
+>
+> - **`onReject`** on a `review: 'blocking'` step names the step a rejection re-runs — an ancestor, checked by
+>   the validator — with the feedback appended to *that* step's task. Everything downstream of it, the gate
+>   included, goes back to pending and runs again; the gate then parks a second time with `attempt: 2`. Without
+>   it a rejection re-runs the gate itself, which is right for a draft and wrong for a summary of work done
+>   three steps earlier. A rejection made before a restart is picked up the same way on resume.
+> - **A step's own `budget` ends the step, not the run.** A stop on a limit the step's block set (`scope:
+>   'step'`) takes the step's wrap-up turn — which does not spend the run's — and commits the summary as the
+>   step's output flagged `partial`; the workflow carries on to whatever reads it. A hard stop at the step's
+>   level (its own `maxWallClockMs`) ends the step with the stop's words as its output. The run's limits still
+>   end the run exactly as before (D-14): a step budget narrows the run's and never escapes it (D-20).
+> - **A `kind: 'tool'` step may name `agent`**, whose grant it runs under; without it the step runs as the
+>   workflow (`grants.<workflowId>`) as before. Naming an agent widens nothing — the call is one that agent
+>   could make itself — and it is how `coding-run` files the gate's real output into the handoff and commits
+>   and pushes whether or not the model remembers to.
+

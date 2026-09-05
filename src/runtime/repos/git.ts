@@ -43,6 +43,7 @@ export interface GitRepo {
   stageAll(): Promise<string[]>;
   unstage(files: string[]): Promise<void>;
   commit(message: string, author: { name: string; email: string }): Promise<string>;
+  head(): Promise<string>;
   push(remote: string, branch: string): Promise<string>;
 }
 
@@ -113,6 +114,9 @@ export function gitRepo(exec: GitExec, cwd: string, env: Record<string, string>,
     async unstage(files) {
       if (!files.length) return;
       await run(['reset', '-q', '--', ...files]);
+    },
+    async head() {
+      return (await run(['rev-parse', 'HEAD'])).trim();
     },
     async commit(message, author) {
       await run(['-c', `user.name=${author.name}`, '-c', `user.email=${author.email}`, 'commit', '-q', '-m', message]);

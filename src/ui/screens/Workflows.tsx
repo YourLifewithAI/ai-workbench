@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { describeCron } from '../lib/cron';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -126,6 +126,17 @@ function fieldsOf(schema: Record<string, unknown>): Field[] {
   }));
 }
 
+/** A budget block in words: only the caps the author wrote, in the order a person reads them. */
+function budgetLine(budget: { maxModelCalls?: number | undefined; maxToolCalls?: number | undefined; maxCostUsd?: number | undefined; maxWallClockMs?: number | undefined; toolCallTimeoutMs?: number | undefined }): string {
+  const parts: string[] = [];
+  if (budget.maxModelCalls !== undefined) parts.push(`${budget.maxModelCalls} model calls`);
+  if (budget.maxToolCalls !== undefined) parts.push(`${budget.maxToolCalls} tool calls`);
+  if (budget.maxCostUsd !== undefined) parts.push(`$${budget.maxCostUsd.toFixed(2)}`);
+  if (budget.maxWallClockMs !== undefined) parts.push(`${Math.round(budget.maxWallClockMs / 60_000)} min`);
+  if (budget.toolCallTimeoutMs !== undefined) parts.push(`${Math.round(budget.toolCallTimeoutMs / 60_000)} min per tool call`);
+  return parts.join(' · ') || 'no caps of its own';
+}
+
 function RunForm({ workflow }: { workflow: WorkflowDetailShape }) {
   const fields = useMemo(() => fieldsOf(workflow.inputs), [workflow.inputs]);
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(fields.map((f) => [f.name, f.initial])));
@@ -193,6 +204,28 @@ function RunForm({ workflow }: { workflow: WorkflowDetailShape }) {
           {(projects.data ?? []).map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
         </select>
       </div>
+      {workflow.budgets.workflow || workflow.budgets.steps.length ? (
+        <div data-testid="run-budgets">
+          <h3 className="text-sm font-medium">Budgets</h3>
+          <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">
+            What this workflow caps itself at. A step that reaches its own cap ends with a summary and the run carries on; the run's cap ends the run.
+          </p>
+          <dl className="mt-1 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
+            {workflow.budgets.workflow ? (
+              <>
+                <dt className="text-gray-700 dark:text-gray-300">the run</dt>
+                <dd>{budgetLine(workflow.budgets.workflow)}</dd>
+              </>
+            ) : null}
+            {workflow.budgets.steps.map((s) => (
+              <Fragment key={s.stepId}>
+                <dt className="font-mono text-xs text-gray-700 dark:text-gray-300">{s.stepId}</dt>
+                <dd>{budgetLine(s.budget)}</dd>
+              </Fragment>
+            ))}
+          </dl>
+        </div>
+      ) : null}
       <label className="flex items-center gap-2 text-sm">
         {/* 24px is the smallest target WCAG 2.2 accepts. */}
         <input type="checkbox" checked={mock} onChange={(e) => setUseMock(e.target.checked)} className="h-6 w-6" />

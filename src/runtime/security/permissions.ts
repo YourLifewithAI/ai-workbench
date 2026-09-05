@@ -42,7 +42,7 @@ export function intersect(a: Permissions, b: Permissions): Permissions {
 }
 
 /** The widest repository grant there is: a tool ceiling, or a ceiling that said nothing about repositories. */
-export const ANY_REPO: RepoGrant = { path: '/', branches: '**' };
+export const ANY_REPO: RepoGrant = { path: '/', branches: '**', deny: [] };
 
 /**
  * A repository survives only if both layers cover it — the narrower root, and the narrower branch pattern.
@@ -57,7 +57,9 @@ function intersectRepos(a: RepoGrant[] | undefined, b: RepoGrant[] | undefined):
       if (path === null) continue;
       const branches = narrowerBranches(left.branches, right.branches);
       if (branches === null) continue;
-      if (!out.some((r) => r.path === path && r.branches === branches)) out.push({ path, branches });
+      // Denies only ever add up: a path either layer refuses stays refused.
+      const deny = [...new Set([...(left.deny ?? []), ...(right.deny ?? [])])].sort();
+      if (!out.some((r) => r.path === path && r.branches === branches)) out.push({ path, branches, deny });
     }
   }
   return out.sort((x, y) => x.path.localeCompare(y.path) || x.branches.localeCompare(y.branches));

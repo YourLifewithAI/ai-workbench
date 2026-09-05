@@ -155,9 +155,11 @@ test('@run-16 the Tools screen shows a repository grant and the branches it may 
   const echo = table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: 'echo' }) });
   await expect(echo).toContainText('none');
 
-  // And the matrix lists the repository tools like any other, granted to nobody until a person says so.
-  await expect(page.getByLabel('git.push for mechanic')).toHaveValue('unset');
-  await expect(page.getByLabel('check for mechanic')).toHaveValue('unset');
+  // And the matrix lists the repository tools like any other: granted where setup granted them, nowhere else.
+  await expect(page.getByLabel('git.push for mechanic')).toHaveValue('allow');
+  await expect(page.getByLabel('check for mechanic')).toHaveValue('allow');
+  await expect(page.getByLabel('git.push for echo')).toHaveValue('unset');
+  await expect(page.getByLabel('check for echo')).toHaveValue('unset');
   await expectNoA11yViolations(page, 'Tools — repositories');
 });
 
@@ -211,5 +213,6 @@ test('@run-11 Settings edits what it says it edits, and never shows a key back',
 
   // And taking it away works from the same screen.
   await page.getByRole('button', { name: 'Remove' }).click();
-  await expect(page.getByText('None configured.')).toBeVisible();
+  // The credentials list's own words: the MCP card says "None configured." too, and a substring match sees both.
+  await expect(page.getByText('None configured. The mock provider needs none.')).toBeVisible();
 });
