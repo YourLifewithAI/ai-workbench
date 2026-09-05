@@ -9,6 +9,7 @@ import { api } from '../lib/api.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { Button } from '../components/ui/button.js';
 import { Badge, Card } from '../components/ui/card.js';
+import { Prose, ScreenTitle, SectionTitle } from '../components/ui/text.js';
 
 const SCOPE_NOTE: Record<string, string> = {
   agent: 'only this agent retrieves it',
@@ -60,12 +61,12 @@ export function Memory() {
 
   return (
     <section aria-labelledby="screen-title">
-      <h1 id="screen-title" className="text-2xl font-semibold">Memory</h1>
-      <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+      <ScreenTitle>Memory</ScreenTitle>
+      <Prose className="mt-1">
         What agents carry between runs. An item written by a run that had read anything from outside the workspace —
         a web page, a search, an imported file — is <em>untrusted</em>: it is still retrieved, and it reaches the
         model fenced as data rather than as an instruction.
-      </p>
+      </Prose>
       <p aria-live="polite" className="sr-only">{said}</p>
 
       <form
@@ -106,6 +107,7 @@ export function Memory() {
         <label className="block grow">
           <span className="block text-sm font-medium">Tell them something</span>
           <input
+            id="memory-draft"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="I write in British English and never use em dashes."
@@ -135,7 +137,9 @@ export function Memory() {
           <EmptyState title={query || scope
             ? 'No item in this scope matches those words.'
             : 'Nothing is remembered yet. Agents remember with the memory.remember tool, and you can write an item yourself above — nothing is extracted automatically.'}
-          />
+          >
+            {query || scope ? null : <Button variant="secondary" onClick={() => document.getElementById('memory-draft')?.focus()}>Write the first one</Button>}
+          </EmptyState>
         </div>
       ) : null}
 
@@ -173,7 +177,7 @@ export function Memory() {
       {pendingDelete ? (
         <div role="dialog" aria-modal="true" aria-labelledby="delete-title" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <Card className="max-w-lg">
-            <h2 id="delete-title" className="text-lg font-medium">Delete this memory?</h2>
+            <SectionTitle id="delete-title">Delete this memory?</SectionTitle>
             <p className="mt-2 text-sm">{pendingDelete.content}</p>
             <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">
               {traces.isPending

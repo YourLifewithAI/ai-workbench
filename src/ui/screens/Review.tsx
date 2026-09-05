@@ -9,6 +9,7 @@ import { EmptyState } from '../components/EmptyState.js';
 import { Button } from '../components/ui/button.js';
 import { Badge, Card } from '../components/ui/card.js';
 import { useLiveRuns } from './Runs.js';
+import { CardTitle, Prose, ScreenTitle, SectionTitle } from '../components/ui/text.js';
 
 export function Review() {
   const client = useQueryClient();
@@ -66,11 +67,11 @@ export function Review() {
 
   return (
     <section aria-labelledby="screen-title">
-      <h1 id="screen-title" className="text-2xl font-semibold">Review</h1>
-      <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+      <ScreenTitle>Review</ScreenTitle>
+      <Prose className="mt-1">
         Outputs wait here for your rating. Nothing is blocked unless a step asks.
         {' '}<span className="text-gray-600 dark:text-gray-400">Keys: <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> move · <kbd className="font-mono">1</kbd>–<kbd className="font-mono">5</kbd> rate · <kbd className="font-mono">c</kbd> continue · <kbd className="font-mono">r</kbd> reject.</span>
-      </p>
+      </Prose>
       <p role="status" aria-live="polite" className="sr-only">{said}</p>
 
       <Findings />
@@ -78,7 +79,11 @@ export function Review() {
       {q.isPending ? <p className="mt-4" role="status">Loading…</p> : null}
       {q.isError ? <p className="mt-4 text-red-700 dark:text-red-300" role="alert">Could not load the queue: {q.error.message}</p> : null}
       {q.data && items.length === 0 ? (
-        <div className="mt-6"><EmptyState title="Outputs wait here for your rating. Nothing is blocked unless a step asks." /></div>
+        <div className="mt-6">
+          <EmptyState title="Outputs wait here for your rating. Nothing is blocked unless a step asks.">
+            <Button asChild variant="secondary"><Link to="/workflows">Run a workflow</Link></Button>
+          </EmptyState>
+        </div>
       ) : null}
 
       <ul className="mt-4 space-y-3">
@@ -87,9 +92,9 @@ export function Review() {
             <Card className={index === cursor ? 'ring-2 ring-blue-700 dark:ring-sky-400' : undefined}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <h2 className="font-medium">
-                    {item.subject} <span className="font-mono text-xs text-gray-700 dark:text-gray-300">{item.stepId}</span>
-                  </h2>
+                  <CardTitle>
+                    {item.subject} <span className="font-mono text-xs text-gray-600 dark:text-gray-400">{item.stepId}</span>
+                  </CardTitle>
                   <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
                     <Link to={`/runs/${item.runId}`} className="underline underline-offset-4">run {item.runId.slice(-8)}</Link>
                     {item.modelId ? ` · ${item.modelId}` : ''}
@@ -157,7 +162,7 @@ export function Review() {
               ) : null}
 
               {item.ratings.length ? (
-                <p className="mt-2 text-xs text-gray-700 dark:text-gray-300">Rated {item.ratings.at(-1)!.value}/5{item.ratings.at(-1)!.note ? ` — ${item.ratings.at(-1)!.note}` : ''}</p>
+                <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">Rated {item.ratings.at(-1)!.value}/5{item.ratings.at(-1)!.note ? ` — ${item.ratings.at(-1)!.note}` : ''}</p>
               ) : null}
             </Card>
           </li>
@@ -192,8 +197,8 @@ function Findings() {
   const findings = q.data ?? [];
   if (!findings.length) return <p role="status" aria-live="polite" className="sr-only">{said}</p>;
   return (
-    <section aria-labelledby="findings-title" className="mt-6" data-testid="findings">
-      <h2 id="findings-title" className="text-lg font-semibold">Permissions review</h2>
+    <section aria-labelledby="findings-title" className="mt-8" data-testid="findings">
+      <SectionTitle id="findings-title">Permissions review</SectionTitle>
       <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
         What the auditor noticed about the grant matrix. It can only propose; a button here is you changing a grant, the same as on the Tools screen.
       </p>
@@ -204,7 +209,7 @@ function Findings() {
           <li key={f.id}>
             <Card className="border-l-4 border-l-amber-600 dark:border-l-amber-400" data-testid={`finding-${f.key}`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <h3 className="font-medium">{f.headline}</h3>
+                <CardTitle as="h3">{f.headline}</CardTitle>
                 <Badge>{KIND_LABEL[f.kind]}</Badge>
               </div>
               <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700 dark:text-gray-300">

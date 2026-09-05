@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { cn } from '../lib/cn.js';
 import { readTheme, saveTheme, type Theme } from '../lib/theme.js';
 import { NetworkBanner } from './NetworkBanner.js';
+import { Mark } from './ui/mark.js';
 
 export const SCREENS: { path: string; label: string; shipsIn: string; summary: string }[] = [
   { path: '/welcome', label: 'Welcome', shipsIn: 'RUN-00', summary: 'The first-run path.' },
@@ -38,7 +39,7 @@ export function Shell() {
       <a href="#main" className="skip-link">Skip to content</a>
       <header className="border-b border-gray-200 md:w-56 md:border-b-0 md:border-r dark:border-gray-800">
         <div className="flex items-center justify-between px-4 py-3">
-          <span className="text-base font-semibold">AI Workbench</span>
+          <span className="flex items-center gap-2 text-base font-semibold"><Mark />AI Workbench</span>
           <label className="text-xs text-gray-600 dark:text-gray-400">
             <span className="sr-only">Theme</span>
             <select aria-label="Theme" value={theme} onChange={(e) => setTheme(e.target.value as Theme)} className="min-h-11 rounded border border-gray-300 bg-white px-1 dark:border-gray-700 dark:bg-gray-950 md:min-h-0 md:py-0.5 md:text-xs">

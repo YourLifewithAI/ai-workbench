@@ -153,6 +153,8 @@ test('@run-13 a workflow is edited as forms: the graph follows the draft, the sa
 
   // Change a step's agent; the graph says so at once.
   const final = page.getByRole('group', { name: 'Step final' });
+  // One step is open at a time; the first is open by default, the rest are a heading with an Open button (L4).
+  await final.getByRole('button', { name: 'Open step final' }).click();
   await final.getByLabel('Agent', { exact: true }).selectOption('weaver');
   await final.getByLabel('Model', { exact: true }).fill('');
   await expect(page.getByText(/^final \(weaver\), after draft/)).toBeVisible();

@@ -7,6 +7,7 @@ import { setWelcomeDone } from '../lib/welcome.js';
 import { Button } from '../components/ui/button.js';
 import { Badge, Card } from '../components/ui/card.js';
 import { PushSettings } from '../components/PushSettings.js';
+import { CardTitle, Prose, ScreenTitle } from '../components/ui/text.js';
 
 export function Settings() {
   const q = useQuery({ queryKey: ['settings'], queryFn: api.settings });
@@ -14,18 +15,18 @@ export function Settings() {
   const [said, setSaid] = useState('');
   return (
     <section aria-labelledby="screen-title">
-      <h1 id="screen-title" className="text-2xl font-semibold">Settings</h1>
-      <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+      <ScreenTitle>Settings</ScreenTitle>
+      <Prose className="mt-1">
         What this workspace is configured to do. Credentials are written to a 0600 file and are never shown back —
         not here, not through the API, not in a trace.
-      </p>
+      </Prose>
       <p aria-live="polite" className="sr-only">{said}</p>
       {q.isPending ? <p className="mt-4" role="status">Loading settings…</p> : null}
       {q.isError ? <p className="mt-4 text-red-700 dark:text-red-300" role="alert">Could not load settings: {q.error.message}</p> : null}
       {q.data ? (
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <Card>
-            <h2 className="font-medium">Workspace</h2>
+            <CardTitle>Workspace</CardTitle>
             <dl className="mt-2 text-sm">
               <Row k="Name" v={q.data.workspaceName} />
               <Row k="Path" v={q.data.workspacePath} mono />
@@ -36,11 +37,11 @@ export function Settings() {
           </Card>
           <Caps budgets={q.data.budgets} onSaid={setSaid} onDone={() => { void client.invalidateQueries({ queryKey: ['settings'] }); void client.invalidateQueries({ queryKey: ['dashboard'] }); }} />
           <Card>
-            <h2 className="font-medium">Execution</h2>
+            <CardTitle>Execution</CardTitle>
             <dl className="mt-2 text-sm">{Object.entries(q.data.execution).map(([k, v]) => <Row key={k} k={k} v={String(v)} />)}</dl>
           </Card>
           <Card>
-            <h2 className="font-medium">Retention</h2>
+            <CardTitle>Retention</CardTitle>
             <dl className="mt-2 text-sm">{Object.entries(q.data.retention).map(([k, v]) => <Row key={k} k={k} v={String(v)} />)}</dl>
           </Card>
           <div className="md:col-span-2"><Credentials configured={q.data.providersConfigured} onSaid={setSaid} onDone={() => void client.invalidateQueries({ queryKey: ['settings'] })} /></div>
@@ -49,7 +50,7 @@ export function Settings() {
           <div className="md:col-span-2"><Plugins plugins={q.data.plugins} onSaid={setSaid} onDone={() => void client.invalidateQueries({ queryKey: ['settings'] })} /></div>
           <div className="md:col-span-2">
             <Card>
-              <h2 className="font-medium">MCP servers</h2>
+              <CardTitle>MCP servers</CardTitle>
               <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
                 Configured in <code className="font-mono">config/workbench.json</code> under <code className="font-mono">mcp.servers</code>.
                 Their tools appear in the Tools screen, and a tool a server did not mark read-only asks you every time.
@@ -57,7 +58,7 @@ export function Settings() {
               {q.data.mcpServers.length ? (
                 <pre tabIndex={0} className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-2 font-mono text-xs dark:bg-gray-950">{JSON.stringify(q.data.mcpServers, null, 2)}</pre>
               ) : (
-                <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">None configured.</p>
+                <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">None configured. Add one below.</p>
               )}
             </Card>
           </div>
@@ -98,14 +99,14 @@ function Credentials({ configured, onSaid, onDone }: { configured: string[]; onS
 
   return (
     <Card>
-      <h2 className="font-medium">Credentials</h2>
+      <CardTitle>Credentials</CardTitle>
       <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
         Written to <code className="font-mono">config/credentials.json</code> at mode 0600. Nothing reads them back out:
         what you see below is which names are set, and that is all this workbench can tell you.
       </p>
 
       <ul className="mt-3 space-y-1 text-sm">
-        {configured.length === 0 ? <li className="text-gray-700 dark:text-gray-300">None configured. The mock provider needs none.</li> : null}
+        {configured.length === 0 ? <li className="text-gray-700 dark:text-gray-300">None yet. The mock provider needs none; a real one is a key pasted below.</li> : null}
         {configured.map((provider) => (
           <li key={provider} className="flex flex-wrap items-center gap-3">
             <span className="font-mono text-xs">{provider}</span>
@@ -156,13 +157,13 @@ function Plugins({ plugins, onSaid, onDone }: { plugins: PluginStatusSummary[]; 
 
   return (
     <Card>
-      <h2 className="font-medium">Plugins</h2>
+      <CardTitle>Plugins</CardTitle>
       <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
         Code in <code className="font-mono">plugins/</code> that runs inside the workbench itself — not in the sandbox.
         Nothing loads until you have said so for that exact version.
       </p>
       {plugins.length === 0 ? (
-        <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">No plugins in this workspace.</p>
+        <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">No plugins in this workspace. One is a directory under plugins/; it shows here on the next start, untrusted until you say otherwise.</p>
       ) : (
         <ul className="mt-3 space-y-3">
           {plugins.map((plugin) => (
@@ -176,7 +177,7 @@ function Plugins({ plugins, onSaid, onDone }: { plugins: PluginStatusSummary[]; 
               </p>
               {plugin.description ? <p className="mt-1 text-sm">{plugin.description}</p> : null}
               {plugin.capabilities.length ? (
-                <p className="mt-1 text-xs text-gray-700 dark:text-gray-300">it says it needs: <span className="font-mono">{plugin.capabilities.join(', ')}</span></p>
+                <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">it says it needs: <span className="font-mono">{plugin.capabilities.join(', ')}</span></p>
               ) : null}
               {plugin.error ? <p className="mt-1 text-sm text-red-700 dark:text-red-300">{plugin.error}</p> : null}
               {!plugin.acknowledged && plugin.version !== '?' ? (
@@ -228,7 +229,7 @@ function ModelRoles({ models, onSaid, onDone }: { models: NonNullable<SettingsRe
 
   return (
     <Card data-testid="model-roles">
-      <h2 className="font-medium">Which models do the work</h2>
+      <CardTitle>Which models do the work</CardTitle>
       <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
         An agent names a role — <code className="font-mono">role:capable</code>, <code className="font-mono">role:fast</code>, <code className="font-mono">role:cheap</code> — instead of a model.
         The first model in the role&apos;s list that is ready is the one that runs, so the order here is the whole decision. A model pinned by id in an agent or a step still wins.
@@ -240,7 +241,7 @@ function ModelRoles({ models, onSaid, onDone }: { models: NonNullable<SettingsRe
           return (
             <fieldset key={name} className="rounded-md border border-gray-200 p-3 dark:border-gray-800" data-testid={`role-${name}`}>
               <legend className="px-1 text-sm font-semibold"><span className="font-mono">role:{name}</span></legend>
-              <p className="text-xs text-gray-700 dark:text-gray-300">
+              <p className="text-xs text-gray-600 dark:text-gray-400">
                 {models.undefinedRoles.includes(name) && !list.length ? 'Named by an agent; no list yet. ' : ''}
                 Now: <span className="font-mono">{now ?? 'nothing ready'}</span>
               </p>
@@ -257,7 +258,7 @@ function ModelRoles({ models, onSaid, onDone }: { models: NonNullable<SettingsRe
                     </li>
                   ))}
                 </ol>
-              ) : <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">No models yet.</p>}
+              ) : <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">No models yet. Pick one below; a role with none stops every agent that names it.</p>}
               <label htmlFor={`role-${name}-add`} className="mt-2 block text-xs font-medium">Add a model to {name}</label>
               <select id={`role-${name}-add`} value="" className="mt-1 w-full rounded-md border border-gray-300 bg-white p-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
                 onChange={(e) => { if (e.target.value) set(name, [...list, e.target.value]); }}>
@@ -298,7 +299,7 @@ function Caps({ budgets, onSaid, onDone }: { budgets: Record<string, number>; on
   );
   return (
     <Card data-testid="caps">
-      <h2 className="font-medium">Budgets</h2>
+      <CardTitle>Budgets</CardTitle>
       <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">Dollars. A run past its cap ends with a summary; a day or a month past its cap starts nothing new, and a used-up month pauses every schedule.</p>
       <form className="mt-3 space-y-3" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
         {field('maxCostUsd', 'Per run', 'The most one run may spend.')}

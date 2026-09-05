@@ -10,7 +10,7 @@ export function Badge({ className, tone = 'neutral', ...props }: React.HTMLAttri
     neutral: 'bg-gray-200 text-gray-900 dark:bg-gray-700 dark:text-gray-100',
     good: 'bg-green-100 text-green-900 dark:bg-green-900 dark:text-green-100',
     bad: 'bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100',
-    busy: 'bg-amber-200 text-amber-950 dark:bg-amber-800 dark:text-amber-50',
+    busy: 'bg-amber-200 text-amber-950 dark:bg-amber-900 dark:text-amber-100',
   };
   return <span className={cn('inline-flex items-center rounded px-2 py-0.5 text-xs font-medium', tones[tone], className)} {...props} />;
 }

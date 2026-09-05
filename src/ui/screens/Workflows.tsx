@@ -9,6 +9,7 @@ import { RunGraph } from '../components/RunGraph.js';
 import { Estimate } from '../components/Estimate.js';
 import { Button } from '../components/ui/button.js';
 import { Badge, Card } from '../components/ui/card.js';
+import { CardTitle, Prose, ScreenTitle, SectionTitle, Subheading } from '../components/ui/text.js';
 
 export function Workflows() {
   const q = useQuery({ queryKey: ['workflows'], queryFn: api.workflows });
@@ -18,17 +19,17 @@ export function Workflows() {
   return (
     <section aria-labelledby="screen-title">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h1 id="screen-title" className="text-2xl font-semibold">Workflows</h1>
+        <ScreenTitle>Workflows</ScreenTitle>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" size="sm" onClick={() => reload.mutate()} disabled={reload.isPending}>
             {reload.isPending ? 'Reloading…' : 'Reload from disk'}
           </Button>
-          <Link to="/workflows/new" className={LINK_BUTTON}>New workflow</Link>
+          <Button asChild variant="secondary" size="sm"><Link to="/workflows/new">New workflow</Link></Button>
         </div>
       </div>
-      <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+      <Prose className="mt-1">
         Workflows are <code className="font-mono">.workflow.json</code> files in <code className="font-mono">workflows/</code>. Each one is a graph of steps; a step names an agent and the model to run it on.
-      </p>
+      </Prose>
 
       {q.isPending ? <p className="mt-4" role="status">Loading workflows…</p> : null}
       {q.isError ? <p className="mt-4 text-red-700 dark:text-red-300" role="alert">Could not load workflows: {q.error.message}</p> : null}
@@ -48,7 +49,11 @@ export function Workflows() {
       ) : null}
 
       {q.data && q.data.workflows.length === 0 && q.data.errors.length === 0 ? (
-        <div className="mt-6"><EmptyState title="No workflows in this workspace yet. A workflow is one JSON file naming the steps and what each one gets." /></div>
+        <div className="mt-6">
+          <EmptyState title="No workflows in this workspace yet. A workflow is one JSON file naming the steps and what each one gets.">
+            <Button asChild><Link to="/workflows/new">New workflow</Link></Button>
+          </EmptyState>
+        </div>
       ) : null}
 
       {q.data?.workflows.length ? (
@@ -58,9 +63,9 @@ export function Workflows() {
               <Card>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <h2 className="font-medium">
+                    <CardTitle>
                       <Link to={`/workflows/${w.id}`} className="underline-offset-4 hover:underline">{w.name}</Link>
-                    </h2>
+                    </CardTitle>
                     <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{w.description}</p>
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
@@ -93,12 +98,12 @@ export function WorkflowDetail() {
         <>
           <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
-              <h1 id="screen-title" className="text-2xl font-semibold">{q.data.name}</h1>
-              <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{q.data.description}</p>
+              <ScreenTitle>{q.data.name}</ScreenTitle>
+              <Prose className="mt-1">{q.data.description}</Prose>
               <p className="mt-1 font-mono text-xs text-gray-600 dark:text-gray-400">{q.data.file} · {q.data.version.replace('sha256:', '').slice(0, 16)}</p>
             </div>
             <div className="flex shrink-0 flex-wrap items-start gap-2">
-              <Link to={`/workflows/${q.data.id}/edit`} className={LINK_BUTTON}>Edit</Link>
+              <Button asChild variant="secondary" size="sm"><Link to={`/workflows/${q.data.id}/edit`}>Edit</Link></Button>
               <DeleteWorkflow id={q.data.id} name={q.data.name} schedules={q.data.schedules} />
             </div>
           </div>
@@ -110,7 +115,7 @@ export function WorkflowDetail() {
 
           {q.data.smells.length ? (
             <div className="mt-4 space-y-2">
-              <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Worth a look</h2>
+              <Subheading as="h2">Worth a look</Subheading>
               {q.data.smells.map((s) => (
                 <Card key={`${s.stepId}-${s.message}`} className="border-l-4 border-l-amber-600 dark:border-l-amber-400">
                   <p className="text-sm"><span className="font-mono text-xs">{s.stepId}</span> — {s.message}</p>
@@ -128,7 +133,6 @@ export function WorkflowDetail() {
   );
 }
 
-const LINK_BUTTON = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-gray-100 px-3 text-sm font-medium text-gray-900 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700 md:min-h-8';
 
 /**
  * Deleting asks, and says how many schedules point at the workflow before it goes (RUN-13). When the count is
@@ -233,7 +237,7 @@ function RunForm({ workflow }: { workflow: WorkflowDetailShape }) {
       onSubmit={(e) => { e.preventDefault(); start.mutate(); }}
       aria-labelledby="run-form-title"
     >
-      <h2 id="run-form-title" className="text-lg font-semibold">Run it</h2>
+      <SectionTitle id="run-form-title">Run it</SectionTitle>
       {fields.map((field) => (
         <div key={field.name}>
           <label htmlFor={`in-${field.name}`} className="block text-sm font-medium">
@@ -268,7 +272,7 @@ function RunForm({ workflow }: { workflow: WorkflowDetailShape }) {
       </div>
       {workflow.budgets.workflow || workflow.budgets.steps.length ? (
         <div data-testid="run-budgets">
-          <h3 className="text-sm font-medium">Budgets</h3>
+          <Subheading>Budgets</Subheading>
           <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">
             What this workflow caps itself at. A step that reaches its own cap ends with a summary and the run carries on; the run's cap ends the run.
           </p>
@@ -281,7 +285,7 @@ function RunForm({ workflow }: { workflow: WorkflowDetailShape }) {
             ) : null}
             {workflow.budgets.steps.map((s) => (
               <Fragment key={s.stepId}>
-                <dt className="font-mono text-xs text-gray-700 dark:text-gray-300">{s.stepId}</dt>
+                <dt className="font-mono text-xs text-gray-600 dark:text-gray-400">{s.stepId}</dt>
                 <dd>{budgetLine(s.budget)}</dd>
               </Fragment>
             ))}
@@ -334,7 +338,7 @@ function Schedules({ workflow }: { workflow: WorkflowDetailShape }) {
 
   return (
     <section className="mt-8 max-w-2xl" aria-labelledby="schedule-title">
-      <h2 id="schedule-title" className="text-lg font-semibold">Schedule it</h2>
+      <SectionTitle id="schedule-title">Schedule it</SectionTitle>
       <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
         A scheduled run is an ordinary run: it appears on the Dashboard and in Runs, and it is bounded by the same budgets.
       </p>
@@ -347,7 +351,7 @@ function Schedules({ workflow }: { workflow: WorkflowDetailShape }) {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="text-sm"><span title={s.cron}>{describeCron(s.cron)}</span> {s.enabled ? '' : '(paused)'}</p>
-                    <p className="mt-0.5 text-xs text-gray-700 dark:text-gray-300">
+                    <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-400">
                       Next {s.nextFireAt ? new Date(s.nextFireAt).toLocaleString() : 'never'} · missed windows: {s.catchUp === 'once' ? 'one catch-up run' : 'skipped'}
                       {s.seededFromFile ? ' · first set by the workflow file' : ''}
                     </p>
@@ -366,7 +370,7 @@ function Schedules({ workflow }: { workflow: WorkflowDetailShape }) {
           ))}
         </ul>
       ) : (
-        <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">Not scheduled.</p>
+        <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">Not scheduled. Set one below.</p>
       )}
 
       <form className="mt-4 space-y-3" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>

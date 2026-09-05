@@ -6,6 +6,7 @@ import { setWelcomeDone } from '../lib/welcome.js';
 import { Button } from '../components/ui/button.js';
 import { Card } from '../components/ui/card.js';
 import { useRunExample } from './Runs.js';
+import { CardTitle, Prose, ScreenTitle } from '../components/ui/text.js';
 
 /** The guided first run (D-56): four steps, one action each, each with a "why" line. */
 export function Welcome() {
@@ -17,8 +18,8 @@ export function Welcome() {
 
   return (
     <section aria-labelledby="screen-title">
-      <h1 id="screen-title" className="text-2xl font-semibold">Welcome</h1>
-      <p className="mt-1 text-gray-700 dark:text-gray-300">Four steps and you will have watched an agent run and read exactly what it was told. Nothing here needs a key or a network connection.</p>
+      <ScreenTitle>Welcome</ScreenTitle>
+      <Prose className="mt-1">Four steps and you will have watched an agent run and read exactly what it was told. Nothing here needs a key or a network connection.</Prose>
 
       <ol className="mt-6 space-y-4">
         <Step n={1} title="Your workspace" done={settings.isSuccess} why="Everything private (config, agents, runs, memory) lives in one directory you own. Back it up like any other folder.">
@@ -90,10 +91,10 @@ function Step({ n, title, why, done, children }: { n: number; title: string; why
         <div className="flex items-start gap-3">
           <span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-100 text-sm font-semibold dark:bg-gray-800">{done ? '✓' : n}</span>
           <div className="min-w-0 flex-1">
-            <h2 className="font-medium">
+            <CardTitle>
               <span className="sr-only">Step {n}{done ? ', done' : ''}: </span>
               {title}
-            </h2>
+            </CardTitle>
             <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{why}</p>
             <div className="mt-3">{children}</div>
           </div>
