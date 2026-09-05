@@ -179,8 +179,14 @@ describe('DoD 3: rejecting the review re-runs implement with the feedback; conti
       expect(tasks[0]).not.toContain(feedback);
       expect(trace.filter((e) => e.type === 'step-completed' && e.payload['stepId'] === 'implement')).toHaveLength(2);
       expect(trace.filter((e) => e.type === 'review-requested')).toHaveLength(2);
-      // The second push carried the extra commit and a re-recorded handoff; nothing between re-runs failed.
-      expect(git(root, 'log', '--format=%s', 'main..run/99-fixture').split('\n')).toEqual(['RUN-99 handoff and STATUS', 'Explain the fixed state', 'RUN-99 handoff and STATUS', 'Fix the app state']);
+      // The second push carried the extra commit; nothing between re-runs failed. The re-recorded handoff is a
+      // second commit only when its transcript differs — on a fast machine two identical gate runs can take the
+      // same number of milliseconds, and then the commit step rightly answers "nothing to commit".
+      const log = git(root, 'log', '--format=%s', 'main..run/99-fixture').split('\n');
+      expect(log.at(-1)).toBe('Fix the app state');
+      expect(log.slice(-3)).toEqual(['Explain the fixed state', 'RUN-99 handoff and STATUS', 'Fix the app state']);
+      expect(log.length, 'one re-recorded handoff at most').toBeLessThanOrEqual(4);
+      expect(log.slice(0, -3).every((s) => s === 'RUN-99 handoff and STATUS')).toBe(true);
       expect(git(remote, 'rev-parse', 'refs/heads/run/99-fixture')).toBe(git(root, 'rev-parse', 'HEAD'));
       expect(trace.some((e) => e.type === 'step-failed')).toBe(false);
 
