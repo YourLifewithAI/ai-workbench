@@ -1,9 +1,9 @@
 import { Fragment, useMemo, useState } from 'react';
 import { describeCron } from '../lib/cron';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import type { ScheduleSummary, WorkflowDetail as WorkflowDetailShape } from '../../shared/api/index.js';
-import { api } from '../lib/api.js';
+import { api, ApiRequestError } from '../lib/api.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { RunGraph } from '../components/RunGraph.js';
 import { Button } from '../components/ui/button.js';
@@ -18,9 +18,12 @@ export function Workflows() {
     <section aria-labelledby="screen-title">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <h1 id="screen-title" className="text-2xl font-semibold">Workflows</h1>
-        <Button variant="secondary" size="sm" onClick={() => reload.mutate()} disabled={reload.isPending}>
-          {reload.isPending ? 'Reloading…' : 'Reload from disk'}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" size="sm" onClick={() => reload.mutate()} disabled={reload.isPending}>
+            {reload.isPending ? 'Reloading…' : 'Reload from disk'}
+          </Button>
+          <Link to="/workflows/new" className={LINK_BUTTON}>New workflow</Link>
+        </div>
       </div>
       <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
         Workflows are <code className="font-mono">.workflow.json</code> files in <code className="font-mono">workflows/</code>. Each one is a graph of steps; a step names an agent and the model to run it on.
@@ -36,6 +39,8 @@ export function Workflows() {
               <p className="font-medium">{e.id} did not load.</p>
               <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{e.message}</p>
               <p className="mt-1 break-all font-mono text-xs text-gray-600 dark:text-gray-400">{e.file}</p>
+              <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">Fix the file in your editor, or from a terminal: <code className="font-mono">workbench workflows edit {e.id}</code>.</p>
+              <DeleteWorkflow id={e.id} name={e.id} className="mt-2" />
             </Card>
           ))}
         </div>
@@ -76,6 +81,7 @@ export function Workflows() {
 export function WorkflowDetail() {
   const { id = '' } = useParams();
   const q = useQuery({ queryKey: ['workflow', id], queryFn: () => api.workflow(id), enabled: id !== '' });
+  const saved = (useLocation().state as { saved?: string } | null)?.saved;
 
   return (
     <section aria-labelledby="screen-title">
@@ -84,9 +90,20 @@ export function WorkflowDetail() {
       {q.isError ? <p className="mt-4 text-red-700 dark:text-red-300" role="alert">Could not load this workflow: {q.error.message}</p> : null}
       {q.data ? (
         <>
-          <h1 id="screen-title" className="mt-2 text-2xl font-semibold">{q.data.name}</h1>
-          <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{q.data.description}</p>
-          <p className="mt-1 font-mono text-xs text-gray-600 dark:text-gray-400">{q.data.file} · {q.data.version.replace('sha256:', '').slice(0, 16)}</p>
+          <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h1 id="screen-title" className="text-2xl font-semibold">{q.data.name}</h1>
+              <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{q.data.description}</p>
+              <p className="mt-1 font-mono text-xs text-gray-600 dark:text-gray-400">{q.data.file} · {q.data.version.replace('sha256:', '').slice(0, 16)}</p>
+            </div>
+            <div className="flex shrink-0 flex-wrap items-start gap-2">
+              <Link to={`/workflows/${q.data.id}/edit`} className={LINK_BUTTON}>Edit</Link>
+              <DeleteWorkflow id={q.data.id} name={q.data.name} schedules={q.data.schedules} />
+            </div>
+          </div>
+          {saved && saved === q.data.version ? (
+            <p role="status" className="mt-2 text-sm text-green-800 dark:text-green-300">Saved. Runs started from now on use this version.</p>
+          ) : null}
 
           <Card className="mt-4"><RunGraph workflow={q.data} /></Card>
 
@@ -107,6 +124,49 @@ export function WorkflowDetail() {
         </>
       ) : null}
     </section>
+  );
+}
+
+const LINK_BUTTON = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-gray-100 px-3 text-sm font-medium text-gray-900 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700 md:min-h-8';
+
+/**
+ * Deleting asks, and says how many schedules point at the workflow before it goes (RUN-13). When the count is
+ * not known up front (a file that did not load), the first attempt is refused with it and the panel shows that.
+ */
+function DeleteWorkflow({ id, name, schedules, className }: { id: string; name: string; schedules?: number | undefined; className?: string | undefined }) {
+  const navigate = useNavigate();
+  const client = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [count, setCount] = useState<number | null>(schedules ?? null);
+  const remove = useMutation({
+    mutationFn: (withSchedules: boolean) => api.deleteWorkflow(id, withSchedules),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['workflows'] });
+      void client.invalidateQueries({ queryKey: ['schedules'] });
+      client.removeQueries({ queryKey: ['workflow', id] });
+      navigate('/workflows');
+    },
+    onError: (e) => {
+      const details = e instanceof ApiRequestError ? (e.details as { schedules?: number } | undefined) : undefined;
+      if (typeof details?.schedules === 'number') setCount(details.schedules);
+    },
+  });
+  if (!open) return <Button variant="ghost" size="sm" className={className} onClick={() => setOpen(true)}>Delete…<span className="sr-only"> {name}</span></Button>;
+  return (
+    <div role="alertdialog" aria-labelledby={`del-${id}-title`} className={`rounded-md border border-red-300 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950 ${className ?? ''}`}>
+      <p id={`del-${id}-title`} className="text-sm font-medium">Delete {name}?</p>
+      <p className="mt-1 text-sm">
+        The file is removed from the workspace. Past runs keep the version they ran on.
+        {count === null ? '' : count === 0 ? ' No schedule points at it.' : ` ${count} schedule${count === 1 ? '' : 's'} point${count === 1 ? 's' : ''} at it and will be deleted too.`}
+      </p>
+      {remove.isError && count === null ? <p role="alert" className="mt-1 text-sm text-red-700 dark:text-red-300">{remove.error.message}</p> : null}
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Button size="sm" disabled={remove.isPending} onClick={() => remove.mutate((count ?? 0) > 0)}>
+          {count ? `Delete workflow and ${count} schedule${count === 1 ? '' : 's'}` : 'Delete workflow'}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Keep it</Button>
+      </div>
+    </div>
   );
 }
 

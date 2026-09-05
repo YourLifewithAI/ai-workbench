@@ -149,3 +149,19 @@ One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` â
 > coding-run --input brief=spec/runs/RUN-13.md --input repo=/abs/checkout` starts a coding run, and the parked
 > review is decided in Review or with `workbench review continue|reject`.
 
+> Amendment (RUN-13, 2026-09-05): the workflow write path. `GET /workflows/:id` also returns `schedules`, the
+> number of schedule rows pointing at it. `PUT /workflows/:id` takes `{ definition, baseVersion }` and answers
+> the detail; a draft that would not run is `400 validation` with `details.issues: [{ path, stepId, message }]`
+> (the same verdict the editor shows live â€” `src/shared/workflow-check.ts` is one function for both); a file
+> whose hash moved since `baseVersion` is `409 conflict` with `details.conflict: { baseVersion, currentVersion,
+> against: 'loaded' | 'draft', diff }`, the diff drawn against the opened version when the runtime still knows
+> it (in memory, or a `workflow_versions` row) and against the draft otherwise; nothing is written in either
+> case. `POST /workflows` `{ id, name, copyOf? }` writes a blank one-step file or a copy without its schedule
+> block. `DELETE /workflows/:id` is `409 conflict` with `details.schedules` while schedules point at it;
+> `?deleteSchedules=true` removes them with the file. The file is written compacted: keys in reading order,
+> schema defaults left out; the hash is over the parsed form, so that changes nothing a run sees. CLI:
+> `workbench workflows list | show <id> | new <id> --name <name> [--copy-of <id>] | edit <id> | delete <id>
+> [--with-schedules]`. `edit` opens the file in `$VISUAL`, else `$EDITOR`, else `notepad` or `vi`, with the
+> child allowlist plus the terminal and display variables; when the editor closes the file is validated exactly
+> as the loader validates it, left as written either way, exit 1 with the reason when it would not load, and a
+> running workbench is told to reload when it is valid. A batch-file `EDITOR` is refused on Windows by name.
