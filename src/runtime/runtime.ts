@@ -47,7 +47,8 @@ import { createApp } from './api/app.js';
 import { ArtifactStore } from './artifacts/store.js';
 import { listModels, pollLocalEndpoints, providerOf, type PollResult } from './models/availability.js';
 import { applyFinding, diffProvider, pinsFor } from './models/discovery.js';
-import type { CatalogFinding, CreateWorkflowRequest, DeleteWorkflowResponse, DiscoveryReport, PermissionFinding } from '../shared/api/index.js';
+import type { CatalogFinding, CreateWorkflowRequest, DeleteWorkflowResponse, DiscoveryReport, EstimateRequest, EstimateResponse, PermissionFinding } from '../shared/api/index.js';
+import { estimateAgentRun, estimateWorkflowRun } from './engine/estimate.js';
 import { Workflow, type LoadedWorkflow } from '../shared/workflow.js';
 import { ModelsFile, type CatalogEntry } from '../shared/model.js';
 import { EgressDeniedError } from './security/egress.js';
@@ -185,6 +186,7 @@ export class Runtime {
       artifacts,
       setNetworkMode: (mode) => this.setNetworkMode(mode),
       setGrant: (agentId, permissions) => this.setGrant(agentId, permissions),
+      estimate: (req) => this.estimate(req),
       modelsNow: (policy) => this.modelsNow(policy),
       modelRoles: () => this.modelRoles(),
       findings: { list: (state) => this.reviewFindings.list(state), decide: (id, decision) => this.decideFinding(id, decision) },
@@ -644,6 +646,23 @@ export class Runtime {
     });
     if (status.availability === 'unreachable' && this.polled === null) return true;
     return status.availability === 'ready';
+  }
+
+  /** What a run would cost before it runs (F2): the prompts it would compile, at today's prices, against the cap. */
+  estimate(req: EstimateRequest): EstimateResponse {
+    const ws = this.workspace;
+    const override = typeof req.overrides?.['model'] === 'string' ? (req.overrides['model'] as string) : undefined;
+    const deps = { catalog: ws.catalog, modelsNow: (policy: { primary: string; fallbacks: string[] }) => this.modelsNow(policy), maxCostUsd: ws.config.budgets.maxCostUsd };
+    if (req.kind === 'agent') {
+      const agent = ws.agents.get(req.id);
+      if (!agent) throw new NotFoundError(`There is no agent called "${req.id}".`);
+      const task = typeof req.inputs['input'] === 'string' ? req.inputs['input'] : JSON.stringify(req.inputs);
+      return estimateAgentRun(deps, agent, task, override);
+    }
+    const workflow = ws.workflows.get(req.id);
+    if (!workflow) throw new NotFoundError(`There is no workflow called "${req.id}".`);
+    const cap = workflow.definition.budgets?.maxCostUsd;
+    return estimateWorkflowRun({ ...deps, maxCostUsd: cap !== undefined ? Math.min(cap, deps.maxCostUsd) : deps.maxCostUsd }, workflow, ws.agents, req.inputs);
   }
 
   /** The ids an agent's policy comes to right now: roles expanded, and only what is ready (D-68). */

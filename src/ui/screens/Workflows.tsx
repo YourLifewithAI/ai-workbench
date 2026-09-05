@@ -6,6 +6,7 @@ import type { ScheduleSummary, WorkflowDetail as WorkflowDetailShape } from '../
 import { api, ApiRequestError } from '../lib/api.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { RunGraph } from '../components/RunGraph.js';
+import { Estimate } from '../components/Estimate.js';
 import { Button } from '../components/ui/button.js';
 import { Badge, Card } from '../components/ui/card.js';
 
@@ -210,18 +211,19 @@ function RunForm({ workflow }: { workflow: WorkflowDetailShape }) {
   const [useMock, setUseMock] = useState<boolean | null>(null);
   const mock = useMock ?? !hasKey;
 
+  const inputsNow = (): Record<string, unknown> => {
+    const inputs: Record<string, unknown> = {};
+    for (const field of fields) {
+      const raw = values[field.name] ?? '';
+      if (raw === '' && !field.required) continue;
+      // A string field is sent as typed; anything else is JSON, which is what the schema asked for.
+      if (field.type === 'string') { inputs[field.name] = raw; continue; }
+      try { inputs[field.name] = JSON.parse(raw); } catch { inputs[field.name] = raw; }
+    }
+    return inputs;
+  };
   const start = useMutation({
-    mutationFn: () => {
-      const inputs: Record<string, unknown> = {};
-      for (const field of fields) {
-        const raw = values[field.name] ?? '';
-        if (raw === '' && !field.required) continue;
-        // A string field is sent as typed; anything else is JSON, which is what the schema asked for.
-        if (field.type === 'string') { inputs[field.name] = raw; continue; }
-        try { inputs[field.name] = JSON.parse(raw); } catch { inputs[field.name] = raw; }
-      }
-      return api.createRun({ kind: 'workflow', id: workflow.id, inputs, ...(project ? { project } : {}), ...(mock ? { provider: 'mock' as const } : {}) });
-    },
+    mutationFn: () => api.createRun({ kind: 'workflow', id: workflow.id, inputs: inputsNow(), ...(project ? { project } : {}), ...(mock ? { provider: 'mock' as const } : {}) }),
     onSuccess: ({ runId }) => navigate(`/runs/${runId}`),
   });
 
@@ -297,6 +299,7 @@ function RunForm({ workflow }: { workflow: WorkflowDetailShape }) {
           <Link to="/settings" className="underline underline-offset-4">Settings</Link>, or leave the mock ticked.
         </p>
       ) : null}
+      <Estimate request={{ kind: 'workflow', id: workflow.id, inputs: inputsNow() }} mock={mock} />
       {start.isError ? <p role="alert" className="text-sm text-red-700 dark:text-red-300">{start.error.message}</p> : null}
       <Button type="submit" disabled={start.isPending}>{start.isPending ? 'Starting…' : 'Start run'}</Button>
     </form>

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import { EmptyState } from '../components/EmptyState.js';
+import { Estimate } from '../components/Estimate.js';
 import { Button } from '../components/ui/button.js';
 import { Badge, Card } from '../components/ui/card.js';
 
@@ -126,6 +127,7 @@ export function AgentDetail() {
                 <p className="text-xs text-gray-600 dark:text-gray-400">Sent as the first user message. Everything above it is the agent&apos;s own instructions.</p>
                 <textarea id="task" rows={4} value={input} onChange={(e) => setInput(e.target.value)} className="mt-1 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950" placeholder="A dentist finds binary in his patients' tooth decay." />
               </div>
+              <Estimate request={{ kind: 'agent', id: q.data.id, inputs: { input }, ...(model ? { overrides: { model } } : {}) }} mock={mock} />
               <div className="flex flex-wrap items-end gap-4">
                 <div className="min-w-56 flex-1">
                   <label htmlFor="model" className="block text-sm font-medium">Model override</label>

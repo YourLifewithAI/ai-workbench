@@ -54,9 +54,15 @@ test('@run-14 a workflow can be run with no provider key, and the form says so',
   // No credential is configured in the test workspace, so the tick defaults on: a real run could only fail.
   await expect(mock).toBeChecked();
 
+  // The estimate line: nothing to pay on the mock; off the mock, with no key, it names what is not ready.
+  await expect(page.getByTestId('estimate')).toContainText('On the mock: no bill.');
   // Unticking it warns rather than letting the run fail at its first model call.
   await mock.uncheck();
   await expect(page.getByText('No provider key is configured')).toBeVisible();
+  // The e2e workspace has a local model answering, so the roles come to it: tokens counted, nothing to pay.
+  await expect(page.getByTestId('estimate')).toContainText('tokens in', { timeout: 10_000 });
+  await expect(page.getByTestId('estimate')).toContainText('ollama/qwen3:14b');
+  await expect(page.getByTestId('estimate')).toContainText('No bill');
   await mock.check();
 
   await page.getByLabel('Premise').fill('A lighthouse keeper finds the light is answering someone.');
