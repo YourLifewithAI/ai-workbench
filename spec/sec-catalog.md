@@ -38,6 +38,9 @@ Every run reads this file for the ids its brief lists (D-38). Each entry is a te
 | SEC-30 | CSP is strict on HTML and API responses; `dist/` loads nothing from another origin — no `<script src>`, `<link href>`, `fetch`, `XMLHttpRequest`, `EventSource`, `WebSocket`, or `import()` to a non-self origin (XML namespaces and documentation URL strings are not loads) | 00 |
 | SEC-31 | Secret scan in the check gate catches a planted key | 00 |
 | SEC-32 | Push notification payloads carry ids and kinds only, never prompt, output, or document content | 12 |
+| SEC-33 | A repository grant never covers `.git/` internals (`config`, `hooks`, `objects`, `refs`), any credentials-shaped file, or a path that resolves outside the granted root — each refused by name (D-66) | 16 |
+| SEC-34 | `git.push` to a branch outside the grant's pattern is refused, `main` first among them; no merge tool exists; a coding agent cannot move `main` (D-66) | 16 |
+| SEC-35 | `check` runs only the command declared in the repository's `.workbench/repo.json`; an agent-supplied command is not an input; the child gets `childEnv()` and no credential (D-66) | 16 |
 
 > Amendment (RUN-19, 2026-09-04): SEC-05 and SEC-07 are written in POSIX terms, and Windows CI showed both
 > asserting the platform rather than the promise.
