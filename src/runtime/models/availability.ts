@@ -48,7 +48,7 @@ export function statusFor(entry: CatalogEntry, input: AvailabilityInput): { avai
   }
   const provider = providerOf(entry.id);
   if (!input.hasCredential(provider)) {
-    return { availability: 'no-credential', reason: `No credential named "${provider}". Add one to config/credentials.json (mode 0600), then restart.` };
+    return { availability: 'no-credential', reason: `No credential named "${provider}". Add one in Settings → Credentials; it takes effect at once.` };
   }
   return { availability: 'ready', reason: null };
 }

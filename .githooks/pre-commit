@@ -1,0 +1,8 @@
+#!/bin/sh
+# Refuses a commit that carries a key-shaped string. `npm install` enables this by pointing core.hooksPath
+# here (the "prepare" script); on Windows the documented `--ignore-scripts` install runs `npm run prepare`
+# by name for the same reason.
+#
+# Staged content only, so it is fast and judges what is actually being committed. `git commit --no-verify`
+# skips it — sometimes right, and the reason it is not the only gate: `npm run check` scans every file.
+exec npx tsx scripts/secret-scan.ts --staged
