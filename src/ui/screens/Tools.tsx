@@ -1,10 +1,12 @@
 // Built-ins, the tool × agent grant matrix, and the denials that have actually happened (ui.md §Tools). The
 // matrix is the authority: what an agent's own file asks for is shown next to it, and is not the same thing.
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import type { GrantCell } from '../../shared/api/index.js';
+import type { AgentGrantSummary, GrantCell } from '../../shared/api/index.js';
 import { api } from '../lib/api.js';
 import { Badge, Card } from '../components/ui/card.js';
+import { Button } from '../components/ui/button.js';
 
 const NET_MODE_NOTE: Record<string, string> = {
   offline: 'no tool reaches the network',
@@ -242,17 +244,7 @@ export function Tools() {
                       {grant.fs.write.length ? <span className="font-mono text-xs break-all">{grant.fs.write.join(', ')}</span> : <span className="text-gray-700 dark:text-gray-300">its project only</span>}
                     </td>
                     <td className="py-2 pr-3">
-                      {grant.repos.length ? (
-                        <ul className="space-y-1">
-                          {grant.repos.map((repo) => (
-                            <li key={`${repo.path}:${repo.branches}`}>
-                              <span className="font-mono text-xs break-all">{repo.path}</span>
-                              <span className="ml-2 text-xs text-gray-700 dark:text-gray-300">may push to <span className="font-mono">{repo.branches}</span></span>
-                              {repo.deny.length ? <span className="ml-2 text-xs text-gray-700 dark:text-gray-300">may not write <span className="font-mono">{repo.deny.join(', ')}</span></span> : null}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : <span className="text-gray-700 dark:text-gray-300">none</span>}
+                      <RepoGrants grant={grant} onChanged={() => client.invalidateQueries({ queryKey: ['tools'] })} />
                     </td>
                   </tr>
                 ))}
@@ -317,3 +309,57 @@ export function Tools() {
     </section>
   );
 }
+
+/**
+ * One agent's repository grants, with the form that writes one (D-66). A person is still the one granting;
+ * the form only spares them the text editor. The whole list is sent back each time, so the screen is the truth.
+ */
+function RepoGrants({ grant, onChanged }: { grant: AgentGrantSummary; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [repoPath, setRepoPath] = useState('');
+  const [branches, setBranches] = useState('run/*');
+  const save = useMutation({
+    mutationFn: (repos: { path: string; branches: string; deny?: string[] }[]) => api.setRepos(grant.agentId, repos),
+    onSuccess: () => { setOpen(false); setRepoPath(''); setBranches('run/*'); onChanged(); },
+  });
+  const current = grant.repos.map((r) => ({ path: r.path, branches: r.branches, deny: r.deny }));
+
+  return (
+    <div>
+      {grant.repos.length ? (
+        <ul className="space-y-1">
+          {grant.repos.map((repo) => (
+            <li key={`${repo.path}:${repo.branches}`} className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-xs break-all">{repo.path}</span>
+              <span className="text-xs text-gray-700 dark:text-gray-300">may push to <span className="font-mono">{repo.branches}</span></span>
+              {repo.deny.length ? <span className="text-xs text-gray-700 dark:text-gray-300">may not write <span className="font-mono">{repo.deny.join(', ')}</span></span> : null}
+              <Button size="sm" variant="ghost" onClick={() => save.mutate(current.filter((r) => r.path !== repo.path || r.branches !== repo.branches))} disabled={save.isPending} aria-label={`Remove repository ${repo.path} from ${grant.agentId}`}>Remove</Button>
+            </li>
+          ))}
+        </ul>
+      ) : <span className="text-gray-700 dark:text-gray-300">none</span>}
+      {open ? (
+        <form
+          className="mt-2 flex flex-wrap items-end gap-2"
+          aria-label={`Grant a repository to ${grant.agentId}`}
+          onSubmit={(e) => { e.preventDefault(); if (repoPath.trim()) save.mutate([...current, { path: repoPath.trim(), branches: branches.trim() || 'run/*' }]); }}
+        >
+          <label className="block grow">
+            <span className="block text-xs font-medium">Checkout path</span>
+            <input value={repoPath} onChange={(e) => setRepoPath(e.target.value)} placeholder="C:/Users/you/project" required className="mt-1 w-full rounded border border-gray-300 bg-white px-2 py-1 font-mono text-xs dark:border-gray-700 dark:bg-gray-950" />
+          </label>
+          <label className="block">
+            <span className="block text-xs font-medium">Branches it may push to</span>
+            <input value={branches} onChange={(e) => setBranches(e.target.value)} className="mt-1 w-28 rounded border border-gray-300 bg-white px-2 py-1 font-mono text-xs dark:border-gray-700 dark:bg-gray-950" />
+          </label>
+          <Button type="submit" size="sm" disabled={save.isPending}>Grant</Button>
+          <Button type="button" size="sm" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+        </form>
+      ) : (
+        <Button size="sm" variant="secondary" className="mt-2" onClick={() => setOpen(true)} aria-label={`Grant a repository: ${grant.agentId}`}>Grant a repository…</Button>
+      )}
+      {save.isError ? <p role="alert" className="mt-1 text-xs text-red-700 dark:text-red-300">{save.error.message}</p> : null}
+    </div>
+  );
+}
+

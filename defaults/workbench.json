@@ -53,6 +53,13 @@
       "scheduled-completed"
     ]
   },
+  "discovery": {
+    "providers": {
+      "openai": { "adapter": "openai-compatible", "baseUrl": "https://api.openai.com/v1" },
+      "qwen": { "adapter": "openai-compatible", "baseUrl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1" },
+      "kimi": { "adapter": "openai-compatible", "baseUrl": "https://api.moonshot.ai/v1" }
+    }
+  },
   "grants": {},
   "remembered": []
 }

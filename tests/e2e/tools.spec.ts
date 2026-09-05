@@ -216,3 +216,27 @@ test('@run-11 Settings edits what it says it edits, and never shows a key back',
   // The credentials list's own words: the MCP card says "None configured." too, and a substring match sees both.
   await expect(page.getByText('None configured. The mock provider needs none.')).toBeVisible();
 });
+
+test('a repository is granted and taken back from the Tools screen, never in a file', async ({ page }) => {
+  await page.goto(base() + '/tools#token=' + token());
+  const table = page.getByTestId('disk-grants');
+  const echo = table.getByRole('row').filter({ has: page.getByRole('rowheader', { name: 'echo' }) });
+  await expect(echo).toContainText('none');
+
+  await echo.getByRole('button', { name: 'Grant a repository: echo' }).click();
+  const form = page.getByRole('form', { name: 'Grant a repository to echo' });
+  // A relative path is refused with a sentence, not a stack trace.
+  await form.getByLabel('Checkout path').fill('my-project');
+  await form.getByRole('button', { name: 'Grant' }).click();
+  await expect(echo.getByRole('alert')).toContainText('not an absolute path');
+
+  await form.getByLabel('Checkout path').fill(process.env['WB_E2E_REPO']!);
+  await form.getByLabel('Branches it may push to').fill('run/*');
+  await form.getByRole('button', { name: 'Grant' }).click();
+  await expect(echo).toContainText(process.env['WB_E2E_REPO']!, { timeout: 10_000 });
+  await expect(echo).toContainText('may push to');
+
+  await echo.getByRole('button', { name: `Remove repository ${process.env['WB_E2E_REPO']} from echo` }).click();
+  await expect(echo).toContainText('none', { timeout: 10_000 });
+});
+

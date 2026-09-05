@@ -34,7 +34,11 @@ export function request(overrides: Partial<ModelRequest> = {}): ModelRequest {
 
 export function runContractSuite(name: string, make: () => ContractCase): void {
   describe(`contract: ${name}`, () => {
-    const ctxFor = (c: ContractCase, fixture: string): AdapterContext => ({ fetch: c.fetch(fixture), apiKey: c.apiKey, runId: 'contract' });
+    const ctxFor = (c: ContractCase, fixture: string): AdapterContext => ({
+      fetch: c.fetch(fixture), apiKey: c.apiKey, runId: 'contract',
+      // An OpenAI-compatible listing needs the endpoint; the catalog entry under test names it.
+      ...(c.model.baseUrl ? { baseUrl: c.model.baseUrl, provider: c.model.id.split('/')[0] } : {}),
+    });
 
     /** Marks a case skipped (with the reason printed) rather than failing when its fixture is absent. */
     const withCase = async (fixture: string, body: (c: ContractCase, ctx: AdapterContext) => Promise<void>): Promise<void> => {

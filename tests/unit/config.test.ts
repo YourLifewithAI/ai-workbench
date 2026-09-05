@@ -36,3 +36,14 @@ describe('config precedence (D-20)', () => {
     expect(() => loadConfig(defaultsFile, file)).toThrow(/budgets\.maxCostUsd/);
   });
 });
+
+describe('discovery providers (D-64)', () => {
+  it('ships OpenAI, Qwen and Kimi as providers a key alone makes askable', () => {
+    const dir = tempDir('wb-cfg');
+    fs.writeFileSync(path.join(dir, 'workbench.json'), JSON.stringify({ schemaVersion: 1 }));
+    const config = loadConfig(defaultsFile, path.join(dir, 'workbench.json'));
+    expect(Object.keys(config.discovery.providers).sort()).toEqual(['kimi', 'openai', 'qwen']);
+    expect(config.discovery.providers['openai']).toEqual({ adapter: 'openai-compatible', baseUrl: 'https://api.openai.com/v1' });
+  });
+});
+

@@ -1,0 +1,13 @@
+[
+  {
+    "method": "GET",
+    "url": "http://127.0.0.1:11434/v1/models",
+    "requestHash": "authored",
+    "status": 200,
+    "statusText": "OK",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": "{\"object\": \"list\", \"data\": [{\"id\": \"qwen3:14b\", \"object\": \"model\", \"created\": 1755000000, \"owned_by\": \"library\"}, {\"id\": \"llama3.2:3b\", \"object\": \"model\", \"created\": 1755000000, \"owned_by\": \"library\"}]}"
+  }
+]

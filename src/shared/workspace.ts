@@ -34,6 +34,13 @@ export const WorkbenchConfig = z.object({
   /** `name@version` strings a human has acknowledged run with full access (D-32). Nothing loads without one. */
   plugins: z.object({ trusted: z.array(z.string()).default([]) }).prefault({ trusted: [] }),
   push: z.object({ enabled: z.boolean(), events: z.array(z.string()) }),
+  /**
+   * Providers discovery may ask that no catalog entry names yet (D-64). OpenAI, Qwen and Kimi all speak the
+   * OpenAI shape and list at `<baseUrl>/models`; a key saved under the name is what makes one of them asked.
+   */
+  discovery: z.object({
+    providers: z.record(z.string(), z.object({ adapter: z.string(), baseUrl: z.string().url() })).default({}),
+  }).prefault({ providers: {} }),
   grants: z.record(z.string(), z.unknown()).default({}),
   remembered: z.array(z.object({ tool: z.string(), host: z.string().optional(), path: z.string().optional() })).default([]),
 });
