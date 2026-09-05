@@ -1,6 +1,6 @@
 // The half of an @ai-sdk adapter that is the same for every provider: one streamed or single invocation,
 // canonical mapping in and out, and the engine keeping ownership of retry and fallback (D-04, D-07).
-import { generateText, streamText, type LanguageModel } from 'ai';
+import { generateText, streamText, type LanguageModel, type ModelMessage, type SystemModelMessage } from 'ai';
 import type { CatalogEntry, ContentBlock, ModelEvent, ModelRequest, ModelResponse, Usage } from '../../../../shared/model.js';
 import type { AdapterContext, ModelAdapter } from '../../adapter.js';
 import { ModelError, modelError } from '../../errors.js';
@@ -21,11 +21,20 @@ export abstract class AiSdkAdapter implements ModelAdapter {
     return slash === -1 ? catalogId : catalogId.slice(slash + 1);
   }
 
+  /**
+   * The system prompt and the transcript as the SDK wants them. A provider that caches prefixes overrides this
+   * to split the system at `req.cacheBoundary` and mark its breakpoints; the default sends one system string.
+   */
+  protected promptFor(req: ModelRequest): { instructions: string | SystemModelMessage[]; messages: ModelMessage[] } {
+    return { instructions: req.system, messages: toModelMessages(req.messages) };
+  }
+
   private callOptions(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext) {
+    const prompt = this.promptFor(req);
     return {
       model: this.languageModel(model, ctx),
-      system: req.system,
-      messages: toModelMessages(req.messages),
+      instructions: prompt.instructions,
+      messages: prompt.messages,
       ...(req.tools && req.tools.length ? { tools: toSdkTools(req.tools) } : {}),
       ...(req.maxOutputTokens !== undefined ? { maxOutputTokens: req.maxOutputTokens } : {}),
       ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),

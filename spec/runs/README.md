@@ -78,3 +78,6 @@ Everything an agent needs is in at most ten bounded files. Done is a command, no
 > then aesthetic — with the one model he trusts today, and to dogfood when model capability and price have moved.
 > The protocol is unchanged; only who executes the next briefs is.
 
+> Amendment (2026-09-05): after RUN-14, the remaining work is listed in `FINISH.md` — functional items first,
+> then the look of the thing, then what is parked. Items there are built in the order it gives, as maintenance
+> branches or run briefs, unless the owner strikes or reorders them.

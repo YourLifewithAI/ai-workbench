@@ -152,6 +152,17 @@ With no matching fixture the mock echoes the last user text. It streams when ask
 > - **`PUT /models/:id/enabled`** flips the flag; the Models screen has the button. An accepted model lands
 >   disabled and unpriced and is made usable with two clicks, never with a file.
 
+> Amendment (run/25, 2026-09-05): **prompt caching is on for Anthropic.** `CompiledRequest.cacheBoundary` says where
+> the stable part of `system` ends — identity, instructions and the retrieved sections; the harness after it
+> changes every call — and the Anthropic adapter sends the prefix as one system block with a breakpoint, the
+> harness as a second block without one, and a moving breakpoint on the last message, so each call of a step
+> reads back the tools, the prompt and the transcript up to the previous turn at the cached rate. `usage`
+> gains `cacheWriteInput`; `computeCost` prices cache reads at `cachedPerM` and writes at 1.25× the input
+> rate, and the shipped Anthropic entries carry `cachedPerM` (Fable 5.1 joins the catalog). Other adapters are
+> unchanged: OpenAI-shaped endpoints cache prefixes on their own, and the mock has nothing to cache. What still
+> costs the cache on a long step is D-47's masking, which rewrites one old tool result per round once the loop
+> is past `keepRecentToolResults`; the prefix before that message survives, the tail does not.
+
 > Amendment (D-68, 2026-09-05): a policy id may be `role:<name>`. `expandPolicy` (`src/runtime/models/roles.ts`)
 > replaces it with the members of the role's list that are ready, in the list's order, before `selectCandidates`
 > judges them; a plain id passes through untouched. Under `--provider mock` every member is servable, so a mock

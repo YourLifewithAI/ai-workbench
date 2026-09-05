@@ -101,11 +101,13 @@ export function mapContent(content: SdkContent, providerId: string): ContentBloc
 
 export function mapUsage(usage: SdkUsage): Usage {
   const cached = usage.inputTokenDetails?.cacheReadTokens;
+  const written = usage.inputTokenDetails?.cacheWriteTokens;
   const reasoning = usage.outputTokenDetails?.reasoningTokens;
   return {
     input: usage.inputTokens ?? 0,
     output: usage.outputTokens ?? 0,
     ...(cached !== undefined ? { cachedInput: cached } : {}),
+    ...(written !== undefined ? { cacheWriteInput: written } : {}),
     ...(reasoning !== undefined ? { reasoning } : {}),
     raw: JSON.parse(JSON.stringify(usage)) as Record<string, unknown>,
   };
