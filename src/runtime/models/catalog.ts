@@ -16,9 +16,12 @@ export function computeCost(entry: CatalogEntry, usage: Usage, at: Date): number
   const price = priceFor(entry, at);
   if (!price) return 0;
   const cached = usage.cachedInput ?? 0;
-  const uncachedInput = Math.max(0, usage.input - cached);
+  const written = usage.cacheWriteInput ?? 0;
+  const uncachedInput = Math.max(0, usage.input - cached - written);
   const cachedRate = price.cachedPerM ?? price.inputPerM;
+  // A cache write is billed at 1.25× the input rate (Anthropic's five-minute cache); a provider that reports
+  // no writes pays nothing extra here, and one with no cached rate on record pays full price for reads.
   const output = usage.output + (usage.reasoning ?? 0);
-  const cost = (uncachedInput * price.inputPerM + cached * cachedRate + output * price.outputPerM) / 1_000_000;
+  const cost = (uncachedInput * price.inputPerM + cached * cachedRate + written * price.inputPerM * 1.25 + output * price.outputPerM) / 1_000_000;
   return Math.round(cost * 1e8) / 1e8;
 }

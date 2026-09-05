@@ -188,6 +188,35 @@
       }
     },
     {
+      "id": "anthropic/claude-fable-5-1",
+      "adapter": "anthropic",
+      "enabled": true,
+      "locality": "cloud",
+      "capabilities": {
+        "text": true,
+        "vision": true,
+        "audioInput": false,
+        "toolCalling": "parallel",
+        "structuredOutput": "schema",
+        "streaming": true,
+        "reasoning": "opaque",
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000
+      },
+      "pricing": [
+        {
+          "effectiveFrom": "2026-06-01",
+          "inputPerM": 10.0,
+          "outputPerM": 50.0,
+          "cachedPerM": 0.25
+        }
+      ],
+      "dataPolicy": {
+        "trainsOnContent": "no",
+        "policyUrl": "https://www.anthropic.com/legal/commercial-terms"
+      }
+    },
+    {
       "id": "anthropic/claude-opus-5",
       "adapter": "anthropic",
       "enabled": true,
@@ -207,7 +236,8 @@
         {
           "effectiveFrom": "2026-01-01",
           "inputPerM": 5.0,
-          "outputPerM": 25.0
+          "outputPerM": 25.0,
+          "cachedPerM": 0.5
         }
       ],
       "dataPolicy": {
@@ -235,7 +265,8 @@
         {
           "effectiveFrom": "2026-01-01",
           "inputPerM": 2.0,
-          "outputPerM": 10.0
+          "outputPerM": 10.0,
+          "cachedPerM": 0.2
         }
       ],
       "dataPolicy": {
@@ -263,7 +294,8 @@
         {
           "effectiveFrom": "2026-01-01",
           "inputPerM": 1.0,
-          "outputPerM": 5.0
+          "outputPerM": 5.0,
+          "cachedPerM": 0.1
         }
       ],
       "dataPolicy": {

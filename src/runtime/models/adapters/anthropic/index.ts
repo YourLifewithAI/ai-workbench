@@ -1,12 +1,12 @@
 // Anthropic (D-07). Reasoning is opaque and must be replayed verbatim to the same provider, which the shared
 // mapping already does; the only provider fact here is how to ask for it.
 import { createAnthropic } from '@ai-sdk/anthropic';
-import type { generateText, LanguageModel } from 'ai';
+import type { generateText, LanguageModel, ModelMessage, SystemModelMessage } from 'ai';
 import type { CatalogEntry, DiscoveredModel, ModelRequest } from '../../../../shared/model.js';
 import type { AdapterContext } from '../../adapter.js';
 import { modelError } from '../../errors.js';
 import { AiSdkAdapter } from '../shared/adapter-base.js';
-import { providerOptionsFor } from '../shared/aisdk.js';
+import { providerOptionsFor, toModelMessages } from '../shared/aisdk.js';
 import { discovered, listingError } from '../shared/listing.js';
 
 const LIST_URL = 'https://api.anthropic.com/v1/models';
@@ -26,6 +26,27 @@ export class AnthropicAdapter extends AiSdkAdapter {
       fetch: ctx.fetch,
       ...(model.baseUrl ? { baseURL: model.baseUrl } : {}),
     }).languageModel(this.modelName(model.id));
+  }
+
+  /**
+   * Prompt caching (D-46). Two breakpoints: one after the stable prefix — tools, identity, instructions, the
+   * retrieved sections — so every call of a step reads it back at a tenth of the price, and one on the last
+   * message, so the transcript up to the previous turn is read back too. The harness sits after the first
+   * breakpoint, which is what lets its budget line change on every call without costing the cache.
+   */
+  protected override promptFor(req: ModelRequest): { instructions: string | SystemModelMessage[]; messages: ModelMessage[] } {
+    const breakpoint = { anthropic: { cacheControl: { type: 'ephemeral' as const } } };
+    const boundary = req.cacheBoundary !== undefined && req.cacheBoundary > 0 && req.cacheBoundary < req.system.length ? req.cacheBoundary : null;
+    const stable = boundary === null ? req.system : req.system.slice(0, boundary);
+    const volatile = boundary === null ? '' : req.system.slice(boundary).replace(/^\n+/, '');
+    const instructions: SystemModelMessage[] = [
+      ...(stable ? [{ role: 'system' as const, content: stable, providerOptions: breakpoint }] : []),
+      ...(volatile ? [{ role: 'system' as const, content: volatile }] : []),
+    ];
+    const transcript = toModelMessages(req.messages);
+    const last = transcript[transcript.length - 1];
+    if (last) transcript[transcript.length - 1] = { ...last, providerOptions: breakpoint } as ModelMessage;
+    return { instructions, messages: transcript };
   }
 
   /** `GET /v1/models` (D-64): ids and display names, paged. Anthropic states neither limits nor prices here. */

@@ -53,7 +53,11 @@ export function assemblePrompt(agent: LoadedAgent, task: string, harness: string
 
   // Order is D-46: nothing time-varying before the stable prefix; retrieved data next to the task; harness last.
   const sections = [...stable, ...retrieved, { name: 'harness', text: harness }].filter((s) => s.text.trim().length > 0);
-  const system = sections.map((s) => renderSection(s.name, s.text)).join('\n\n');
+  const rendered = sections.map((s) => renderSection(s.name, s.text));
+  const system = rendered.join('\n\n');
+  // The prefix a provider may cache ends where the harness begins: it is the one section that changes per call.
+  const harnessIndex = sections.findIndex((s) => s.name === 'harness');
+  const cacheBoundary = harnessIndex > 0 ? rendered.slice(0, harnessIndex).join('\n\n').length : system.length;
   const messages: Message[] = [{ role: 'user', content: [{ type: 'text', text: task }] }];
-  return { compiled: { system, messages, tools: [] }, promptVersion, sections };
+  return { compiled: { system, cacheBoundary, messages, tools: [] }, promptVersion, sections };
 }
