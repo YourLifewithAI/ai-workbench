@@ -22,6 +22,11 @@ export interface SchedulerDeps {
   start: (input: { workflowId: string; inputs: Record<string, unknown>; project?: string | undefined }) => { runId: string };
   /** Injectable so a test can move time without waiting for it. */
   now?: (() => Date) | undefined;
+  /**
+   * A reason nothing should fire right now — the month's cap is used up (F3) — or null. A paused schedule keeps
+   * its next time, so it fires when the reason lifts rather than being marked as missed.
+   */
+  paused?: (() => string | null) | undefined;
 }
 
 export interface UpsertScheduleInput {
@@ -113,6 +118,8 @@ export class Scheduler {
 
   // ---- the loop ------------------------------------------------------------------------------------------
 
+  private pausedLogged = false;
+
   start(): void {
     if (this.timer) return;
     this.timer = setInterval(() => {
@@ -135,7 +142,13 @@ export class Scheduler {
    * One pass. A schedule whose time has come fires once and is advanced past *now*, so an outage never fires a
    * backlog: `catchUp: 'once'` is one run for everything missed, `'none'` is none (D-15).
    */
-  tick(): { fired: { scheduleId: string; runId: string }[]; skipped: string[] } {
+  tick(): { fired: { scheduleId: string; runId: string }[]; skipped: string[]; paused?: string | undefined } {
+    const pausedFor = this.deps.paused?.() ?? null;
+    if (pausedFor) {
+      if (!this.pausedLogged) { this.deps.log.warn({ reason: pausedFor }, 'schedules are paused'); this.pausedLogged = true; }
+      return { fired: [], skipped: [], paused: pausedFor };
+    }
+    this.pausedLogged = false;
     const now = this.now();
     const due = this.deps.db.prepare('SELECT * FROM schedules WHERE enabled = 1 AND next_fire_at IS NOT NULL AND next_fire_at <= ?')
       .all(now.toISOString()) as ScheduleRow[];

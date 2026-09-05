@@ -6,7 +6,7 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import {
-  RerunRequest, ApprovalDecisionRequest, CompareRequest, CreateWorkflowRequest, EstimateRequest, FindingDecisionRequest, SaveWorkflowRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetReposRequest, SetPriceRequest, SetEnabledRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type DeleteWorkflowResponse, type EstimateResponse, type PermissionFinding, type PermissionFindingsResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
+  RerunRequest, ApprovalDecisionRequest, CompareRequest, CreateWorkflowRequest, EstimateRequest, FindingDecisionRequest, SaveWorkflowRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetReposRequest, SetPriceRequest, SetEnabledRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type DeleteWorkflowResponse, type EstimateResponse, type SpendResponse, type PermissionFinding, type PermissionFindingsResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
@@ -77,6 +77,8 @@ export interface AppDeps {
   setGrant: (agentId: string, permissions: unknown) => void;
   /** What a run would cost before it runs (F2): from the prompt sizes and today's prices, against the cap. */
   estimate: (req: EstimateRequest) => EstimateResponse;
+  /** Where the money went (F3). */
+  spend: () => SpendResponse;
   /** Model roles (D-68): what a policy comes to right now, and each role's list and resolution for Settings. */
   modelsNow: (policy: { primary: string; fallbacks: string[] }) => string[];
   modelRoles: () => { roles: Record<string, string[]>; resolved: Record<string, string | null>; undefinedRoles: string[] };
@@ -603,6 +605,7 @@ export function createApp(deps: AppDeps): Hono {
     const runs = deps.engine.listRuns({ limit: 200 });
     const reviews = deps.engine.reviews.list({ state: 'open' });
     const budgets = deps.workspace().config.budgets;
+    const spend = deps.spend();
     const body: DashboardResponse = {
       needsYou: reviews.filter((r) => r.blocking),
       approvals: deps.engine.approvals.list('pending'),
@@ -611,11 +614,18 @@ export function createApp(deps: AppDeps): Hono {
       running: runs.filter((r) => r.state === 'running' || r.state === 'queued' || r.state === 'waiting_review'),
       spentTodayUsd: deps.engine.spentTodayUsd(),
       dailySpendCapUsd: budgets.dailySpendCapUsd,
+      spentThisMonthUsd: spend.thisMonthUsd,
+      monthlySpendCapUsd: spend.monthlySpendCapUsd,
+      projectedMonthUsd: spend.projectedMonthUsd,
+      schedulesPaused: spend.schedulesPaused,
       schedules: deps.scheduler.list().filter((s) => s.enabled).slice(0, 10),
       networkMode: deps.workspace().config.network.mode,
     };
     return json(c, body);
   });
+
+  // Where the money went (F3): the month against its cap, and the last thirty days by model and by subject.
+  app.get('/api/v1/spend', (c) => json(c, deps.spend()));
 
   // ---- workflows (D-11) -----------------------------------------------------------------------
   app.get('/api/v1/workflows', (c) => {

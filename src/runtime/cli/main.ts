@@ -17,6 +17,7 @@ import { registerReview, registerSchedules } from './commands/review.js';
 import { registerApprovals, registerTools } from './commands/approvals.js';
 import { registerModels } from './commands/models.js';
 import { registerWorkflows } from './commands/workflows.js';
+import { registerSpend } from './commands/spend.js';
 
 let bootstrap;
 try {
@@ -51,6 +52,7 @@ registerApprovals(program, bootstrap);
 registerTools(program, bootstrap);
 registerModels(program, bootstrap);
 registerWorkflows(program, bootstrap);
+registerSpend(program, bootstrap);
 
 program.parseAsync(process.argv).catch((e: unknown) => {
   process.stderr.write(`error: ${(e as Error).message}\n`);

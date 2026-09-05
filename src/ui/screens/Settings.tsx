@@ -34,10 +34,7 @@ export function Settings() {
               <Row k="Deno sandbox" v={q.data.sandbox.deno ? 'available' : 'not installed — the execute tier is switched off'} />
             </dl>
           </Card>
-          <Card>
-            <h2 className="font-medium">Budgets</h2>
-            <dl className="mt-2 text-sm">{Object.entries(q.data.budgets).map(([k, v]) => <Row key={k} k={k} v={String(v)} />)}</dl>
-          </Card>
+          <Caps budgets={q.data.budgets} onSaid={setSaid} onDone={() => { void client.invalidateQueries({ queryKey: ['settings'] }); void client.invalidateQueries({ queryKey: ['dashboard'] }); }} />
           <Card>
             <h2 className="font-medium">Execution</h2>
             <dl className="mt-2 text-sm">{Object.entries(q.data.execution).map(([k, v]) => <Row key={k} k={k} v={String(v)} />)}</dl>
@@ -276,6 +273,43 @@ function ModelRoles({ models, onSaid, onDone }: { models: NonNullable<SettingsRe
         {save.isError ? <p role="alert" className="text-sm text-red-700 dark:text-red-300">{save.error.message}</p> : null}
         {dirty ? <p className="text-sm text-gray-700 dark:text-gray-300">Unsaved.</p> : null}
       </div>
+    </Card>
+  );
+}
+
+/**
+ * The three numbers that decide what a month can cost (F3), typed in on a screen: a run's cost cap, the day's,
+ * the month's. The rest of the budgets block stays read-only here; it is about calls and clocks, not money.
+ */
+function Caps({ budgets, onSaid, onDone }: { budgets: Record<string, number>; onSaid: (text: string) => void; onDone: () => void }) {
+  const [form, setForm] = useState({ maxCostUsd: String(budgets['maxCostUsd'] ?? ''), dailySpendCapUsd: String(budgets['dailySpendCapUsd'] ?? ''), monthlySpendCapUsd: String(budgets['monthlySpendCapUsd'] ?? '') });
+  const save = useMutation({
+    mutationFn: () => api.updateSettings({ budgets: { maxCostUsd: Number(form.maxCostUsd), dailySpendCapUsd: Number(form.dailySpendCapUsd), monthlySpendCapUsd: Number(form.monthlySpendCapUsd) } }),
+    onSuccess: () => { onSaid('Saved the spending caps.'); onDone(); },
+  });
+  const field = (key: keyof typeof form, label: string, hint: string) => (
+    <div>
+      <label htmlFor={`cap-${key}`} className="block text-sm font-medium">{label}</label>
+      <p id={`cap-${key}-hint`} className="text-xs text-gray-600 dark:text-gray-400">{hint}</p>
+      <input id={`cap-${key}`} type="number" min={0} step="0.01" inputMode="decimal" aria-describedby={`cap-${key}-hint`} value={form[key]}
+        onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+        className="mt-1 w-40 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm tabular-nums dark:border-gray-700 dark:bg-gray-950" />
+    </div>
+  );
+  return (
+    <Card data-testid="caps">
+      <h2 className="font-medium">Budgets</h2>
+      <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">Dollars. A run past its cap ends with a summary; a day or a month past its cap starts nothing new, and a used-up month pauses every schedule.</p>
+      <form className="mt-3 space-y-3" onSubmit={(e) => { e.preventDefault(); save.mutate(); }}>
+        {field('maxCostUsd', 'Per run', 'The most one run may spend.')}
+        {field('dailySpendCapUsd', 'Per day', '0 means no daily cap.')}
+        {field('monthlySpendCapUsd', 'Per month', '0 means no monthly cap. Schedules pause when it is reached.')}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button type="submit" size="sm" disabled={save.isPending}>{save.isPending ? 'Saving…' : 'Save caps'}</Button>
+          {save.isError ? <p role="alert" className="text-sm text-red-700 dark:text-red-300">{save.error.message}</p> : null}
+        </div>
+      </form>
+      <dl className="mt-3 text-sm">{Object.entries(budgets).filter(([k]) => !['maxCostUsd', 'dailySpendCapUsd', 'monthlySpendCapUsd'].includes(k)).map(([k, v]) => <Row key={k} k={k} v={String(v)} />)}</dl>
     </Card>
   );
 }
