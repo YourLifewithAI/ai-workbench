@@ -81,3 +81,7 @@ Everything an agent needs is in at most ten bounded files. Done is a command, no
 > Amendment (2026-09-05): after RUN-14, the remaining work is listed in `FINISH.md` — functional items first,
 > then the look of the thing, then what is parked. Items there are built in the order it gives, as maintenance
 > branches or run briefs, unless the owner strikes or reorders them.
+
+> Amendment (2026-09-05): the finish list's last item, project spaces (F5), is a run: **RUN-18** (D-69), built
+> after the look items, here by the coding harness as RUN-13 and RUN-14 were. Its brief is the one most worth
+> the owner's eye before it starts; the owner may strike or reshape it until the branch exists.
