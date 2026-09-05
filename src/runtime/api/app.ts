@@ -427,7 +427,7 @@ export function createApp(deps: AppDeps): Hono {
         return {
           agentId: agent.definition.id,
           fs: { read: granted?.fs.read ?? [], write: granted?.fs.write ?? [] },
-          repos: (granted?.repos ?? []).map((r) => ({ path: r.path, branches: r.branches })),
+          repos: (granted?.repos ?? []).map((r) => ({ path: r.path, branches: r.branches, deny: r.deny })),
         };
       }),
       denials: denials.map((d): ToolDenial => ({
@@ -538,6 +538,10 @@ export function createApp(deps: AppDeps): Hono {
     return json(c, body);
   });
 
+  /** Only the keys the author wrote: `Budgets.partial()` leaves the rest `undefined`, which JSON drops anyway. */
+  const compactBudget = (budget: Record<string, number | undefined>): Record<string, number> =>
+    Object.fromEntries(Object.entries(budget).filter((entry): entry is [string, number] => typeof entry[1] === 'number'));
+
   app.get('/api/v1/workflows/:id', (c) => {
     const id = c.req.param('id');
     const ws = deps.workspace();
@@ -552,6 +556,10 @@ export function createApp(deps: AppDeps): Hono {
       definition: workflow.definition as unknown as Record<string, unknown>,
       smells: validation.smells,
       order: validation.order,
+      budgets: {
+        workflow: workflow.definition.budgets ? compactBudget(workflow.definition.budgets) : null,
+        steps: workflow.definition.steps.filter((s) => s.budget).map((s) => ({ stepId: s.id, budget: compactBudget(s.budget!) })),
+      },
     };
     return json(c, body);
   });

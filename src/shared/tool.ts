@@ -75,7 +75,7 @@ export interface RepoAccess {
     diff(input: { staged?: boolean | undefined; path?: string | undefined }): Promise<string>;
     log(count: number): Promise<GitLogEntry[]>;
     branch(name: string): Promise<{ branch: string; created: boolean }>;
-    commit(message: string): Promise<{ sha: string; branch: string; files: string[]; skipped: string[] }>;
+    commit(message: string): Promise<{ sha: string; branch: string; files: string[]; skipped: string[]; committed: boolean }>;
     push(remote?: string): Promise<{ branch: string; remote: string; output: string }>;
   };
   /** The repository's own gate, from `.workbench/repo.json`. Nothing the agent says reaches the command line. */

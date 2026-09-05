@@ -120,12 +120,12 @@ export function repoTools(): ToolDefinition[] {
     execute: (input, ctx) => attempt(async () => (await ctx.repo.open(input.repo)).git.branch(input.name)),
   };
 
-  const commit: ToolDefinition<{ repo?: string | undefined; message: string }, { sha: string; branch: string; files: string[]; skipped: string[] }> = {
+  const commit: ToolDefinition<{ repo?: string | undefined; message: string }, { sha: string; branch: string; files: string[]; skipped: string[]; committed: boolean }> = {
     id: 'git.commit',
     version: '1.0.0',
-    description: 'Stage every change in the working tree and commit it on the current run branch, as you, with the run id in the message. A credentials-shaped file is left unstaged and named in `skipped`.',
+    description: 'Stage every change in the working tree and commit it on the current run branch, as you, with the run id in the message. A credentials-shaped file is left unstaged and named in `skipped`. A tree with nothing to commit answers `committed: false`.',
     input: z.object({ repo: repoArg, message: z.string().min(1).max(4000).describe('What changed and why, first line under 72 characters.') }),
-    output: z.object({ sha: z.string(), branch: z.string(), files: z.array(z.string()), skipped: z.array(z.string()) }),
+    output: z.object({ sha: z.string(), branch: z.string(), files: z.array(z.string()), skipped: z.array(z.string()), committed: z.boolean() }),
     tier: 'write',
     maxPermissions: ANY_REPOSITORY,
     execute: (input, ctx) => attempt(async () => (await ctx.repo.open(input.repo)).git.commit(input.message)),

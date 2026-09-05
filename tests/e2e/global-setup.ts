@@ -6,6 +6,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { ALL_REPO_TOOLS, IMPLEMENT_GREEN, MECHANIC, protocolRepo, protocolScripts, script } from '../helpers/repo.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const STATE_FILE = path.join(root, 'test-results', 'e2e-runtime.json');
@@ -52,11 +53,15 @@ export default async function globalSetup(): Promise<void> {
 
   const configFile = path.join(ws, 'config', 'workbench.json');
   const config = JSON.parse(fs.readFileSync(configFile, 'utf8')) as { grants?: Record<string, Record<string, unknown>> };
-  // A repository grant on this very checkout (RUN-16), so the Tools screen has one to show beside the paths.
+  // A repository grant (RUN-16), so the Tools screen has one to show beside the paths — on a fixture checkout
+  // with a bare remote and the run protocol's files, so the coding run (RUN-17) can be driven end to end.
+  const repo = protocolRepo('wb-e2e-repo');
+  protocolScripts(ws);
+  script(ws, MECHANIC, 'IMPLEMENT', IMPLEMENT_GREEN);
   config.grants = {
     ...(config.grants ?? {}),
     weaver: { tools: { 'permission.request': 'allow' } },
-    mechanic: { ...(config.grants?.['mechanic'] ?? {}), repos: [{ path: root, branches: 'run/*' }] },
+    mechanic: { ...(config.grants?.['mechanic'] ?? {}), tools: ALL_REPO_TOOLS, repos: [{ path: repo.root, branches: 'run/*' }] },
   };
   fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
 
@@ -102,5 +107,5 @@ export default async function globalSetup(): Promise<void> {
   process.env['WB_E2E_RUN_ID'] = runId;
   process.env['WB_E2E_WS'] = ws;
   process.env['WB_E2E_CLI'] = cli;
-  process.env['WB_E2E_REPO'] = root;
+  process.env['WB_E2E_REPO'] = repo.root;
 }

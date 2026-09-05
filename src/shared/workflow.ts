@@ -16,6 +16,11 @@ const StepCommon = {
   dependsOn: z.array(z.string()).default([]),
   when: z.string().optional(),
   review: z.enum(['none', 'blocking']).default('none'),
+  /**
+   * On a blocking gate: the step a rejection re-runs, with the feedback in its task, instead of this one. It
+   * must be an ancestor; everything downstream of it — this gate included — runs again (RUN-17).
+   */
+  onReject: z.string().optional(),
   budget: Budgets.partial().optional(),
   retries: z.number().int().min(0).max(2).default(0),
 };
@@ -31,13 +36,15 @@ const AgentStep = z.object({
   output: z.object({ document: z.string().nullable().optional() }).optional(),
 });
 
-const ToolStep = z.object({ ...StepCommon, kind: z.literal('tool'), tool: z.string(), input: Template });
+/** `agent` names whose grant the call runs under; without it, the workflow's own (`grants.<workflowId>`). */
+const ToolStep = z.object({ ...StepCommon, kind: z.literal('tool'), tool: z.string(), input: Template, agent: z.string().optional() });
 
 export interface StepCommonFields {
   id: string;
   dependsOn: string[];
   when?: string | undefined;
   review: 'none' | 'blocking';
+  onReject?: string | undefined;
   budget?: Partial<z.infer<typeof Budgets>> | undefined;
   retries: number;
 }
@@ -154,9 +161,46 @@ export function validateWorkflow(workflow: Workflow): ValidationResult {
     }
   }
 
+  // `onReject` points upstream, by construction: a rejection re-runs an ancestor and everything after it.
+  for (const [index, step] of workflow.steps.entries()) {
+    if (step.onReject === undefined) continue;
+    const at = `steps[${index}].onReject`;
+    if (step.review !== 'blocking') errors.push({ path: at, message: 'onReject only means something on a `review: "blocking"` step' });
+    if (!steps.has(step.onReject)) { errors.push({ path: at, message: `"${step.onReject}" is not a step in this workflow` }); continue; }
+    if (!ancestorsOf(step.id, edges).has(step.onReject)) errors.push({ path: at, message: `"${step.onReject}" does not run before "${step.id}", so a rejection could not re-run it and then come back here` });
+  }
+
   const order = topologicalOrder(edges, errors);
   smells.push(...detectSmells(workflow, steps, edges));
   return { errors, smells, edges, order };
+}
+
+/** Every step `id` transitively depends on. */
+export function ancestorsOf(id: string, edges: Map<string, Set<string>>): Set<string> {
+  const out = new Set<string>();
+  const visit = (current: string): void => {
+    for (const dependency of edges.get(current) ?? []) {
+      if (out.has(dependency)) continue;
+      out.add(dependency);
+      visit(dependency);
+    }
+  };
+  visit(id);
+  return out;
+}
+
+/** Every step that transitively depends on `id`, the gate that named it included. */
+export function descendantsOf(id: string, edges: Map<string, Set<string>>): Set<string> {
+  const out = new Set<string>();
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const [step, deps] of edges) {
+      if (out.has(step)) continue;
+      if (deps.has(id) || [...deps].some((d) => out.has(d))) { out.add(step); grew = true; }
+    }
+  }
+  return out;
 }
 
 /** Every expression a step evaluates: its own `when`, and for a map the list it iterates plus its inner step's. */

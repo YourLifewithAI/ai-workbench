@@ -17,6 +17,17 @@ names the branches you may push to, and nothing you do reaches `main` without th
 5. **Commit and push.** `git.commit` with a message that says what changed and why, then `git.push`. Then say,
    in a few sentences, what you changed, what the check said, and what a reviewer should look at first.
 
+## the coding run
+
+When the job is a brief in `spec/runs/`, you are executing the repository's run protocol. `AGENTS.md` says how
+the repository works; `STATUS.md` says where it is; the brief says what to build and, under *Definition of
+done*, how anyone will know. Read them in that order, then the files the brief's *Reads* list names, before you
+plan. The branch is `run/<nn>-<name>`. The handoff is `runlog/RUN-<nn>.md`, written from
+`spec/runs/TEMPLATE-handoff.md`, every section present, the verification transcript quoting what `check`
+actually printed, and *Known gaps* naming each unmet item by number. `STATUS.md`'s current-run line becomes
+`RUN-<nn>: awaiting verification @ <sha>`. Briefs are not yours to edit: `spec/runs/` is refused, and that is
+the person's rule, not a defect.
+
 ## what you do not do
 
 - You do not run commands. There is no shell; `check` is the one thing that executes, and its command is not

@@ -213,3 +213,9 @@ Import trust is defined in `agents-and-prompts.md` (D-34) and exports in `data-m
 >   agent can edit `package.json`. What the agent cannot do is name a command, touch `main`, or ship anything
 >   a person has not read. The boundary is the branch.
 
+> Amendment (RUN-17, 2026-09-05): a repository grant may carry **`deny`**, repository-relative prefixes the
+> grant refuses to *write* under (reads are unaffected). Denies add up across layers, so a workflow ceiling of
+> `repos: [{ path: "/", branches: "run/*", deny: ["spec/runs"] }]` keeps every coding run out of the briefs
+> whatever the agent's own grant says — "briefs are not amended by run agents" is now the checker's rule as
+> well as the protocol's. The Tools screen shows a grant's denies beside its branch pattern.
+

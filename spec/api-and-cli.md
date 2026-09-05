@@ -143,3 +143,9 @@ One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` �
 > repository grant is written by hand on purpose (D-66). `workbench doctor` gains a `repositories` check.
 > The trace gains `repo-decided`.
 
+> Amendment (RUN-17, 2026-09-05): `GET /api/v1/workflows/:id` also returns `budgets` — `{ workflow, steps:
+> [{ stepId, budget }] }`, only the caps the author wrote — so the run form can show what a workflow and each
+> of its steps cap themselves at before a run starts. Nothing new in the CLI: `workbench run workflow
+> coding-run --input brief=spec/runs/RUN-13.md --input repo=/abs/checkout` starts a coding run, and the parked
+> review is decided in Review or with `workbench review continue|reject`.
+

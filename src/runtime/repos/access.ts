@@ -63,7 +63,7 @@ async function open(deps: RepoAccessDeps, named: string | undefined): Promise<Re
 
 function access(deps: RepoAccessDeps, grant: RepoGrant): RepoAccess {
   const root = realpathOf(grant.path);
-  const policy = { root: grant.path, workspaceDir: deps.workspaceDir };
+  const policy = { root: grant.path, workspaceDir: deps.workspaceDir, deny: grant.deny ?? [] };
 
   const decide = (candidate: string, mode: 'read' | 'write' | 'list'): string => {
     const decision = checkRepoPath(candidate, policy, mode === 'write' ? 'write' : 'read');
@@ -155,10 +155,13 @@ function access(deps: RepoAccessDeps, grant: RepoGrant): RepoAccess {
         const skipped = staged.filter((f) => f.split('/').some((s) => s === '.git') || credentialShaped(path.basename(f)) !== null);
         await repo.unstage(skipped);
         const files = staged.filter((f) => !skipped.includes(f));
-        if (!files.length) throw new Error(skipped.length ? `Nothing to commit: the only changes are to ${skipped.join(', ')}, which a tool may not commit (SEC-33).` : 'Nothing to commit: the working tree matches HEAD.');
+        if (skipped.length && !files.length) throw new Error(`Nothing to commit: the only changes are to ${skipped.join(', ')}, which a tool may not commit (SEC-33).`);
+        // A tree that matches HEAD is an answer, not a failure: a workflow's commit step after a re-run that
+        // changed nothing should carry on to the push, which then has nothing new to say either.
+        if (!files.length) return { sha: await repo.head(), branch, files: [], skipped, committed: false };
         const trailer = `\n\nWorkbench-Run: ${deps.runId}\nWorkbench-Agent: ${deps.agentId}`;
         const sha = await repo.commit(`${message.trim()}${trailer}`, { name: deps.agentId, email: `${deps.agentId}@workbench.noreply` });
-        return { sha, branch, files, skipped };
+        return { sha, branch, files, skipped, committed: true };
       },
 
       async push(remote = 'origin') {

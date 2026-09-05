@@ -10,7 +10,7 @@ import { StepFailure, type StepOutcome, type StepRunner } from './step.js';
 import type { ToolExecutor } from '../tools/executor.js';
 import { evaluate, parseExpr, ReferenceError_, truthy, type Scope } from '../../shared/expr.js';
 import { renderTemplate } from '../../shared/template.js';
-import { mapItemStepId, validateWorkflow, type LoadedWorkflow, type MapStep, type Step } from '../../shared/workflow.js';
+import { descendantsOf, mapItemStepId, validateWorkflow, type LoadedWorkflow, type MapStep, type Step } from '../../shared/workflow.js';
 import type { LoadedAgent } from '../../shared/agent.js';
 import type { RunTaint } from './taint.js';
 
@@ -64,6 +64,17 @@ export class WorkflowFailure extends Error {
 
 type StepState = 'pending' | 'running' | 'skipped' | 'completed' | 'failed' | 'cancelled';
 
+/**
+ * A blocking gate was rejected and names an upstream step to re-run (`onReject`): that step and everything
+ * after it — the gate included — go back to pending, and the feedback lands in the target's task (RUN-17).
+ */
+class RedoFrom extends Error {
+  constructor(readonly target: string, readonly feedback: string) {
+    super(`re-running from ${target}`);
+    this.name = 'RedoFrom';
+  }
+}
+
 export class WorkflowExecutor {
   constructor(private readonly deps: WorkflowDeps) {}
 
@@ -79,6 +90,22 @@ export class WorkflowExecutor {
       if (!state.has(id)) continue;
       state.set(id, done.state);
       outputs.set(id, done.value);
+    }
+    // Feedback waiting for a step, keyed by the step that re-runs with it.
+    const feedbackFor = new Map<string, string>();
+    const redoFrom = (target: string, feedback: string): void => {
+      for (const id of [target, ...descendantsOf(target, edges)]) {
+        if (!state.has(id)) continue;
+        state.set(id, 'pending');
+        outputs.delete(id);
+      }
+      feedbackFor.set(target, feedback);
+    };
+    // A gate rejected before a restart, pointing upstream: the resumed run re-runs from there, not from the gate.
+    for (const step of definition.steps) {
+      if (step.review !== 'blocking' || !step.onReject) continue;
+      const feedback = this.deps.review.pendingFeedback(input.runId, step.id);
+      if (feedback !== null) redoFrom(step.onReject, feedback);
     }
 
     // Every step gets its row before anything runs, so the graph is complete from the first frame.
@@ -112,7 +139,9 @@ export class WorkflowExecutor {
           if (blocked) { state.set(step.id, 'cancelled'); this.markRow(input.runId, step.id, 'cancelled'); continue; }
 
           state.set(step.id, 'running');
-          running.set(step.id, this.execute(input, step, () => this.scopeFor(input, outputs), controller.signal)
+          const feedback = feedbackFor.get(step.id);
+          feedbackFor.delete(step.id);
+          running.set(step.id, this.execute(input, step, () => this.scopeFor(input, outputs), controller.signal, feedback)
             .then((result) => {
               if (result.skipped) {
                 state.set(step.id, 'skipped');
@@ -123,6 +152,7 @@ export class WorkflowExecutor {
               }
             })
             .catch((e: unknown) => {
+              if (e instanceof RedoFrom) { redoFrom(e.target, e.feedback); return; }
               const wf = asWorkflowFailure(step.id, e);
               state.set(step.id, wf.reason === 'cancelled' ? 'cancelled' : 'failed');
               failure ??= wf;
@@ -154,7 +184,7 @@ export class WorkflowExecutor {
 
   // ---- one step ------------------------------------------------------------------------------------------
 
-  private async execute(input: WorkflowRunInput, step: Step, scope: () => Scope, signal: AbortSignal): Promise<{ skipped: boolean; value: unknown }> {
+  private async execute(input: WorkflowRunInput, step: Step, scope: () => Scope, signal: AbortSignal, carried?: string | undefined): Promise<{ skipped: boolean; value: unknown }> {
     if (step.when !== undefined) {
       const keep = truthy(evaluate(parseExpr(step.when), scope()));
       if (!keep) {
@@ -167,7 +197,9 @@ export class WorkflowExecutor {
     const attempts = step.retries + 1;
     let last: unknown;
     // A resumed run picks up a rejection made before the restart, rather than re-running the step unchanged.
-    let feedback = this.deps.review.pendingFeedback(input.runId, step.id) ?? undefined;
+    // A gate that sends its rejections upstream (`onReject`) does not also carry them itself: the step it
+    // named answers the feedback, and the gate re-runs plain and summarises what that step did.
+    let feedback = carried ?? (step.onReject ? undefined : this.deps.review.pendingFeedback(input.runId, step.id) ?? undefined);
     for (let attempt = 1; attempt <= attempts; attempt++) {
       try {
         if (step.kind === 'map') return { skipped: false, value: await this.runMap(input, step, scope, signal) };
@@ -181,6 +213,8 @@ export class WorkflowExecutor {
             ...(outcome.versionId ? { versionId: outcome.versionId } : {}), signal,
           });
           if (!again) return { skipped: false, value: outcome.value };
+          // The gate names the step that answers the feedback: this one goes back to pending with the rest.
+          if (step.onReject) throw new RedoFrom(step.onReject, again.redo);
           feedback = again.redo;
         }
       } catch (e) {
@@ -238,11 +272,15 @@ export class WorkflowExecutor {
    */
   private async runTool(input: WorkflowRunInput, step: Extract<Step, { kind: 'tool' }>, scope: Scope, signal: AbortSignal): Promise<unknown> {
     const ws = this.deps.workspace();
-    // A tool step has no agent, so it runs as the workflow itself: its grant is `grants.<workflowId>`.
-    const asAgent = ws.agents.get(input.workflow.definition.id);
+    // A tool step has no agent of its own, so it runs under a named agent's grant, or as the workflow itself
+    // (`grants.<workflowId>`). Naming an agent widens nothing: the call is one that agent could make itself.
+    const under = step.agent ?? input.workflow.definition.id;
+    const asAgent = ws.agents.get(under);
     if (!asAgent) {
-      throw new WorkflowFailure(step.id, 'tool_step_needs_grant', { tool: step.tool },
-        `Step "${step.id}" calls the tool "${step.tool}" directly. A tool step runs under a grant named for the workflow, so this workspace needs an agent definition called "${input.workflow.definition.id}" to hold it — or use an agent step.`);
+      throw new WorkflowFailure(step.id, 'tool_step_needs_grant', { tool: step.tool, agent: under },
+        step.agent
+          ? `Step "${step.id}" calls the tool "${step.tool}" under agent "${step.agent}", which does not exist in this workspace.`
+          : `Step "${step.id}" calls the tool "${step.tool}" directly. A tool step runs under a grant named for the workflow, so this workspace needs an agent definition called "${input.workflow.definition.id}" to hold it — or name an agent with \`agent\`, or use an agent step.`);
     }
     this.markRow(input.runId, step.id, 'running', 'tool');
     this.deps.events.append(input.runId, step.id, 'step-started', { stepId: step.id, kind: 'tool', tool: step.tool });

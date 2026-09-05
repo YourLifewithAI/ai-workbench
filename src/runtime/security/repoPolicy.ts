@@ -5,6 +5,8 @@ import path from 'node:path';
 import { contains, realpathOf, same, windowsName, windowsUnsafePath, workspaceDenied, type FsDecision } from './broker.js';
 import { credentialShaped } from './secretScan.js';
 
+const CASE_SENSITIVE = process.platform === 'linux';
+
 /** The parts of `.git/` an agent could use to change what git *is*: its config, its hooks, its history, its refs. */
 export const GIT_INTERNALS = ['config', 'hooks', 'objects', 'refs', 'HEAD'] as const;
 
@@ -13,6 +15,8 @@ export interface RepoPolicy {
   root: string;
   /** The workspace, so a repository that happens to contain it still cannot reach its config (SEC-11). */
   workspaceDir: string;
+  /** Repository-relative prefixes the grant refuses to write under (`RepoGrant.deny`). */
+  deny?: string[] | undefined;
 }
 
 /**
@@ -55,6 +59,16 @@ export function checkRepoPath(candidate: string, policy: RepoPolicy, mode: 'read
 
   if (mode === 'write' && segments[0] && same('.workbench', segments[0])) {
     return { allowed: false, reason: `".workbench/" declares this repository's own gate. A tool may not change what \`check\` runs; a person edits that file (SEC-35).`, realPath: real };
+  }
+
+  if (mode === 'write') {
+    const relative = segments.join('/');
+    for (const prefix of policy.deny ?? []) {
+      const normalised = prefix.replace(/\\/g, '/').replace(/^\.?\/+/, '').replace(/\/+$/, '');
+      if (!normalised) continue;
+      const hit = same(relative, normalised) || relative.toLowerCase().startsWith(`${normalised.toLowerCase()}/`) || (!CASE_SENSITIVE && relative.startsWith(`${normalised}/`));
+      if (hit) return { allowed: false, reason: `"${relative}" is under "${normalised}/", which this grant refuses to write. That directory is a person's to edit.`, realPath: real };
+    }
   }
 
   // A repository grant that covers the workspace is not a second door to the workspace's config.

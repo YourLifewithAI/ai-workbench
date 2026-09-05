@@ -248,6 +248,7 @@ export function Tools() {
                             <li key={`${repo.path}:${repo.branches}`}>
                               <span className="font-mono text-xs break-all">{repo.path}</span>
                               <span className="ml-2 text-xs text-gray-700 dark:text-gray-300">may push to <span className="font-mono">{repo.branches}</span></span>
+                              {repo.deny.length ? <span className="ml-2 text-xs text-gray-700 dark:text-gray-300">may not write <span className="font-mono">{repo.deny.join(', ')}</span></span> : null}
                             </li>
                           ))}
                         </ul>

@@ -1,6 +1,6 @@
 // The workflow schema, its validator, templates, and the small JSON Schema checker (spec/workflows-and-execution.md).
 import { describe, it, expect } from 'vitest';
-import { Workflow, validateWorkflow, mapItemStepId } from '../../src/shared/workflow.js';
+import { Workflow, validateWorkflow, mapItemStepId, ancestorsOf, descendantsOf } from '../../src/shared/workflow.js';
 import { renderTemplate, renderTemplateString, referencesIn } from '../../src/shared/template.js';
 import { validateJson, parseJsonOutput, applyDefaults } from '../../src/shared/jsonschema.js';
 import { RunBudget, narrowBudgets, WRAP_UP_INSTRUCTION } from '../../src/runtime/engine/budget.js';
@@ -205,5 +205,53 @@ describe('budgets (D-14)', () => {
     expect(run.spent.modelCalls).toBe(1);
     expect(run.spent.costUsd).toBe(0.5);
     expect(step.checkBeforeModelCall()?.budget).toBe('maxModelCalls');
+  });
+});
+
+describe('onReject (RUN-17): a gate that sends a rejection upstream', () => {
+  const base = {
+    schemaVersion: 1 as const, id: 'wf', name: 'wf', description: '', inputs: { type: 'object' as const },
+    outputs: {},
+  };
+  const agent = (id: string, extra: Record<string, unknown> = {}) => ({ id, kind: 'agent' as const, agent: 'echo', input: `{{inputs.x}} ${id}`, ...extra });
+
+  it('accepts an ancestor, and re-runs it plus everything after it', () => {
+    const workflow = Workflow.parse({ ...base, steps: [agent('a'), agent('b', { input: '{{steps.a.output}}' }), agent('gate', { input: '{{steps.b.output}}', review: 'blocking', onReject: 'a' })] });
+    const result = validateWorkflow(workflow);
+    expect(result.errors).toEqual([]);
+    expect([...descendantsOf('a', result.edges)].sort()).toEqual(['b', 'gate']);
+    expect([...ancestorsOf('gate', result.edges)].sort()).toEqual(['a', 'b']);
+  });
+
+  it('refuses a target that is not upstream, does not exist, or sits on a step that does not block', () => {
+    const sideways = validateWorkflow(Workflow.parse({ ...base, steps: [agent('a'), agent('c'), agent('gate', { input: '{{steps.a.output}}', review: 'blocking', onReject: 'c' })] }));
+    expect(sideways.errors.map((e) => e.message).join(' ')).toContain('does not run before "gate"');
+    const missing = validateWorkflow(Workflow.parse({ ...base, steps: [agent('a'), agent('gate', { input: '{{steps.a.output}}', review: 'blocking', onReject: 'nope' })] }));
+    expect(missing.errors.map((e) => e.message).join(' ')).toContain('"nope" is not a step');
+    const open = validateWorkflow(Workflow.parse({ ...base, steps: [agent('a'), agent('gate', { input: '{{steps.a.output}}', onReject: 'a' })] }));
+    expect(open.errors.map((e) => e.message).join(' ')).toContain('review: "blocking"');
+  });
+});
+
+describe('a step budget is the step\'s (RUN-17)', () => {
+  const limits: Budgets = { maxModelCalls: 20, maxToolCalls: 10, maxCostUsd: 1, maxWallClockMs: 60_000, toolCallTimeoutMs: 1000, dailySpendCapUsd: 100 };
+
+  it('a stop on the step\'s own limit says so, and its wrap-up does not spend the run\'s', () => {
+    const run = new RunBudget(limits, Date.now(), () => 0);
+    const step = run.child({ maxModelCalls: 3 });
+    for (let i = 0; i < 2; i++) { expect(step.checkBeforeModelCall()).toBeNull(); step.recordModelCall(0); }
+    const stop = step.checkBeforeModelCall();
+    expect(stop?.scope).toBe('step');
+    expect(stop?.message).toContain('This step reached');
+    expect(step.takeWrapUp('step')).toBe(true);
+    expect(run.takeWrapUp('run'), 'the run keeps its own last word').toBe(true);
+    // The run's limits still stop a step whose own limits are untouched, and that stop is the run's. The run
+    // has spent its wrap-up above, so it stops at its full count of twenty.
+    const wide = run.child({ maxModelCalls: 100 });
+    for (let i = 0; i < 18; i++) wide.recordModelCall(0);
+    expect(run.spent.modelCalls).toBe(20);
+    const stop2 = wide.checkBeforeModelCall();
+    expect(stop2?.scope).toBe('run');
+    expect(stop2?.message).toContain('This run reached');
   });
 });
