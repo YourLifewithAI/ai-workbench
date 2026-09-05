@@ -12,7 +12,8 @@
     "maxCostUsd": 2.0,
     "maxWallClockMs": 1800000,
     "toolCallTimeoutMs": 60000,
-    "dailySpendCapUsd": 20.0
+    "dailySpendCapUsd": 20.0,
+    "monthlySpendCapUsd": 100.0
   },
   "execution": {
     "maxParallelSteps": 4,

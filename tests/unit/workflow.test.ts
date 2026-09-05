@@ -166,7 +166,7 @@ describe('the JSON Schema subset', () => {
 });
 
 describe('budgets (D-14)', () => {
-  const limits: Budgets = { maxModelCalls: 6, maxToolCalls: 10, maxCostUsd: 1, maxWallClockMs: 60_000, toolCallTimeoutMs: 1000, dailySpendCapUsd: 100 };
+  const limits: Budgets = { maxModelCalls: 6, maxToolCalls: 10, maxCostUsd: 1, maxWallClockMs: 60_000, toolCallTimeoutMs: 1000, dailySpendCapUsd: 100, monthlySpendCapUsd: 0 };
 
   it('holds one call back so a bounded run can still say what it produced', () => {
     const budget = new RunBudget(limits, Date.now(), () => 0);
@@ -234,7 +234,7 @@ describe('onReject (RUN-17): a gate that sends a rejection upstream', () => {
 });
 
 describe('a step budget is the step\'s (RUN-17)', () => {
-  const limits: Budgets = { maxModelCalls: 20, maxToolCalls: 10, maxCostUsd: 1, maxWallClockMs: 60_000, toolCallTimeoutMs: 1000, dailySpendCapUsd: 100 };
+  const limits: Budgets = { maxModelCalls: 20, maxToolCalls: 10, maxCostUsd: 1, maxWallClockMs: 60_000, toolCallTimeoutMs: 1000, dailySpendCapUsd: 100, monthlySpendCapUsd: 0 };
 
   it('a stop on the step\'s own limit says so, and its wrap-up does not spend the run\'s', () => {
     const run = new RunBudget(limits, Date.now(), () => 0);

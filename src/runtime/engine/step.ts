@@ -37,7 +37,7 @@ const MAX_REPAIR_TURNS = 1;
 
 export type StepFailureReason =
   | 'model_unavailable' | 'network_policy' | 'model_error' | 'schema_validation'
-  | 'budget_exceeded' | 'wall_clock_exceeded' | 'daily_cap_reached' | 'cancelled';
+  | 'budget_exceeded' | 'wall_clock_exceeded' | 'daily_cap_reached' | 'monthly_cap_reached' | 'cancelled';
 
 /** A step that ended without an output. `outcome` is set when a wrap-up turn produced a partial one. */
 export class StepFailure extends Error {

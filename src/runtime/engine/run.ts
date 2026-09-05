@@ -17,6 +17,7 @@ import { ApprovalStore, type ApprovalDecision } from '../approvals/store.js';
 import { ToolExecutor, type ApprovalHost } from '../tools/executor.js';
 import { builtinTools } from '../tools/registry.js';
 import type { PermissionsToolDeps } from '../tools/builtin/permissions.js';
+import type { SpendResponse } from '../../shared/api/index.js';
 import { gitExec } from '../repos/git.js';
 import { searchProvider, type MockSearchFixture } from '../search/index.js';
 import { RunTaint } from './taint.js';
@@ -663,7 +664,7 @@ export class Engine {
     const startedMs = Date.parse(startedAt);
 
     const work = async (): Promise<void> => {
-      const budget = new RunBudget(budgets, startedMs, () => this.spentTodayUsd());
+      const budget = new RunBudget(budgets, startedMs, () => this.spentTodayUsd(), () => this.spentThisMonthUsd());
       try {
         if (controller.signal.aborted) throw new StepFailure('cancelled', null, 'the run was cancelled');
         const outputs = await body(budget, controller.signal);
@@ -918,10 +919,62 @@ export class Engine {
 
   /** What every model call has cost since local midnight, for the daily cap (D-14). */
   spentTodayUsd(): number {
-    const midnight = new Date();
+    const midnight = this.now();
     midnight.setHours(0, 0, 0, 0);
-    const row = this.deps.db.prepare('SELECT COALESCE(SUM(cost_usd), 0) AS total FROM model_calls WHERE ts >= ?').get(midnight.toISOString()) as { total: number };
+    return this.spentSinceUsd(midnight);
+  }
+
+  /** From the first of this month, local time: the number the monthly cap and the Dashboard both read (F3). */
+  spentThisMonthUsd(): number {
+    const first = this.now();
+    first.setDate(1);
+    first.setHours(0, 0, 0, 0);
+    return this.spentSinceUsd(first);
+  }
+
+  spentSinceUsd(since: Date): number {
+    const row = this.deps.db.prepare('SELECT COALESCE(SUM(cost_usd), 0) AS total FROM model_calls WHERE ts >= ?').get(since.toISOString()) as { total: number };
     return row.total;
+  }
+
+  /**
+   * Where the money went (F3): today, seven days, thirty days and this month, the month's projection at the
+   * current daily rate, and the last thirty days by model and by what was run. Read from `model_calls`, the
+   * same rows every cap reads, so the screen and the stop agree to the cent.
+   */
+  spend(): SpendResponse {
+    const now = this.now();
+    const ago = (days: number): Date => new Date(now.getTime() - days * 86_400_000);
+    const first = new Date(now); first.setDate(1); first.setHours(0, 0, 0, 0);
+    const daysIn = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const dayOfMonth = now.getDate();
+    const thisMonth = this.spentSinceUsd(first);
+    const budgets = this.deps.workspace().config.budgets;
+    const byModel = (this.deps.db.prepare('SELECT model_id, COALESCE(SUM(cost_usd), 0) AS usd, COUNT(*) AS calls FROM model_calls WHERE ts >= ? GROUP BY model_id ORDER BY usd DESC').all(ago(30).toISOString()) as { model_id: string; usd: number; calls: number }[])
+      .map((r) => ({ modelId: r.model_id, usd: r.usd, calls: r.calls }));
+    const bySubject = (this.deps.db.prepare(`SELECT COALESCE(r.workflow_id, r.agent_id, '?') AS subject, r.kind AS kind, COALESCE(SUM(m.cost_usd), 0) AS usd, COUNT(DISTINCT m.run_id) AS runs
+      FROM model_calls m JOIN runs r ON r.id = m.run_id WHERE m.ts >= ? GROUP BY subject, kind ORDER BY usd DESC`).all(ago(30).toISOString()) as { subject: string; kind: string; usd: number; runs: number }[])
+      .map((r) => ({ subject: r.subject, kind: r.kind, usd: r.usd, runs: r.runs }));
+    return {
+      todayUsd: this.spentTodayUsd(),
+      last7DaysUsd: this.spentSinceUsd(ago(7)),
+      last30DaysUsd: this.spentSinceUsd(ago(30)),
+      thisMonthUsd: thisMonth,
+      monthlySpendCapUsd: budgets.monthlySpendCapUsd,
+      dailySpendCapUsd: budgets.dailySpendCapUsd,
+      projectedMonthUsd: dayOfMonth > 0 ? (thisMonth / dayOfMonth) * daysIn : thisMonth,
+      daysLeftInMonth: daysIn - dayOfMonth,
+      schedulesPaused: budgets.monthlySpendCapUsd > 0 && thisMonth >= budgets.monthlySpendCapUsd,
+      byModel, bySubject,
+    };
+  }
+
+  /**
+   * The clock, injectable so a test can move it: the caps read it, and so does the Dashboard. Always a copy —
+   * the callers set it to midnight or to the first of the month, and an injected clock is one shared object.
+   */
+  private now(): Date {
+    return new Date((this.deps.now ? this.deps.now() : new Date()).getTime());
   }
 
   private summary(row: RunRow): RunSummary {

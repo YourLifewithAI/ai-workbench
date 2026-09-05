@@ -27,5 +27,7 @@ export const Budgets = z.object({
   maxWallClockMs: z.number().int().positive(),
   toolCallTimeoutMs: z.number().int().positive(),
   dailySpendCapUsd: z.number().nonnegative(),
+  /** The month's ceiling (F3): a run past it fails before its first call, and schedules pause until the month turns. 0 means no cap; the shipped default is 100. */
+  monthlySpendCapUsd: z.number().nonnegative(),
 });
 export type Budgets = z.infer<typeof Budgets>;

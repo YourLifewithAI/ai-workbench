@@ -9,8 +9,8 @@ export type BudgetOverride = { [K in keyof Budgets]?: number | undefined };
 export type BudgetKind = 'maxModelCalls' | 'maxToolCalls' | 'maxCostUsd' | 'maxWallClockMs';
 
 export interface BudgetStop {
-  reason: 'budget_exceeded' | 'wall_clock_exceeded' | 'daily_cap_reached';
-  budget: BudgetKind | 'dailySpendCapUsd';
+  reason: 'budget_exceeded' | 'wall_clock_exceeded' | 'daily_cap_reached' | 'monthly_cap_reached';
+  budget: BudgetKind | 'dailySpendCapUsd' | 'monthlySpendCapUsd';
   message: string;
   /** Soft budgets end with a wrap-up turn; wall clock and the daily cap are hard stops (D-14). */
   allowWrapUp: boolean;
@@ -33,6 +33,8 @@ export class RunBudget {
     private readonly startedMs: number,
     /** What the whole workspace has already spent today, for the daily cap. */
     private readonly spentTodayUsd: () => number,
+    /** And this month, for the monthly cap (F3). Absent means no monthly check, as before it existed. */
+    private readonly spentThisMonthUsd: (() => number) | undefined = undefined,
     /**
      * A step budget narrows the run's without escaping it: spending is recorded in both, and the run's limits
      * still stop the step even when the step's own are untouched (D-20).
@@ -43,7 +45,7 @@ export class RunBudget {
   /** A budget for one step: its own limits, never wider than this one's, spending counted in both. */
   child(override: BudgetOverride | undefined): RunBudget {
     if (!override) return this;
-    return new RunBudget(narrowBudgets(this.limits, override), this.startedMs, this.spentTodayUsd, this);
+    return new RunBudget(narrowBudgets(this.limits, override), this.startedMs, this.spentTodayUsd, this.spentThisMonthUsd, this);
   }
 
   get wallClockMs(): number {
@@ -94,6 +96,10 @@ export class RunBudget {
     const scope = this.parent ? 'step' : 'run';
     if (this.wallClockMs >= this.limits.maxWallClockMs) {
       return { reason: 'wall_clock_exceeded', budget: 'maxWallClockMs', allowWrapUp: false, scope, message: `This run reached its time limit (${Math.round(this.limits.maxWallClockMs / 1000)}s). Nothing further was sent. Raise maxWallClockMs in Settings, or split the work into smaller runs.` };
+    }
+    const month = this.spentThisMonthUsd?.() ?? 0;
+    if (this.limits.monthlySpendCapUsd > 0 && month >= this.limits.monthlySpendCapUsd) {
+      return { reason: 'monthly_cap_reached', budget: 'monthlySpendCapUsd', allowWrapUp: false, scope, message: `This month's spending cap ($${this.limits.monthlySpendCapUsd.toFixed(2)}) is already used up ($${month.toFixed(2)} so far). Raise monthlySpendCapUsd in Settings, or wait for the month to turn.` };
     }
     const today = this.spentTodayUsd();
     if (this.limits.dailySpendCapUsd > 0 && today >= this.limits.dailySpendCapUsd) {

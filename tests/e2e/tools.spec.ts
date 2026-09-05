@@ -264,3 +264,24 @@ test('which models do the work is set on Settings, in order, and never in an age
   await page.getByTestId('model-roles').getByRole('button', { name: 'Save models' }).click();
   await expect(page.getByTestId('model-roles').getByText('Unsaved.')).toHaveCount(0);
 });
+
+test('the spending caps are set on Settings, and the Dashboard reads the month against its cap', async ({ page, request }) => {
+  await page.goto(base() + '/settings#token=' + token());
+  const caps = page.getByTestId('caps');
+  await expect(caps.getByRole('heading', { name: 'Budgets' })).toBeVisible();
+  await caps.getByLabel('Per month').fill('75');
+  await caps.getByRole('button', { name: 'Save caps' }).click();
+  await expect.poll(async () => ((await (await request.get(`${base()}/api/v1/settings`, { headers: { Authorization: `Bearer ${token()}` } })).json()) as { budgets: { monthlySpendCapUsd: number } }).budgets.monthlySpendCapUsd).toBe(75);
+
+  await page.goto(base() + '/dashboard#token=' + token());
+  await expect(page.getByRole('heading', { name: 'Today and this month' })).toBeVisible();
+  await expect(page.getByTestId('month-spend')).toContainText('of $75.00');
+  await expect(page.getByRole('meter', { name: 'Monthly spending cap' })).toBeVisible();
+  await expectNoA11yViolations(page, 'Dashboard with the month');
+
+  // Put it back, so the number other tests see is the shipped one.
+  await page.goto(base() + '/settings#token=' + token());
+  await page.getByTestId('caps').getByLabel('Per month').fill('100');
+  await page.getByTestId('caps').getByRole('button', { name: 'Save caps' }).click();
+  await expect.poll(async () => ((await (await request.get(`${base()}/api/v1/settings`, { headers: { Authorization: `Bearer ${token()}` } })).json()) as { budgets: { monthlySpendCapUsd: number } }).budgets.monthlySpendCapUsd).toBe(100);
+});

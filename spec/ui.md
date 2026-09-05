@@ -117,3 +117,9 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > before it runs**: *About $0.01 to $0.03 · ~1.2k tokens in · beats on anthropic/claude-sonnet-5, …*, with the
 > caveat and the cap the run would stop at, live as the inputs change. On the mock the line says there is no
 > bill. A step whose role has nothing ready is named there before the button is pressed.
+
+> Amendment (F3, 2026-09-05): **Dashboard** — *Today* becomes *Today and this month*: the month's spend against
+> its cap with a second meter, where the month is heading at the current rate, and a notice when schedules are
+> paused on it. **Settings** — the Budgets card is a form for the three money caps (per run, per day, per
+> month); the rest of the block stays read-only there. `workbench spend` prints the same numbers, plus the last
+> thirty days by model and by what was run.

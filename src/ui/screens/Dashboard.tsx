@@ -47,6 +47,7 @@ export function Dashboard() {
     return () => window.removeEventListener('keydown', onKey);
   }, [focused, pending.length, decide]);
   const capFraction = d && d.dailySpendCapUsd > 0 ? Math.min(1, d.spentTodayUsd / d.dailySpendCapUsd) : 0;
+  const monthFraction = d && d.monthlySpendCapUsd > 0 ? Math.min(1, d.spentThisMonthUsd / d.monthlySpendCapUsd) : 0;
 
   return (
     <section aria-labelledby="screen-title">
@@ -143,7 +144,7 @@ export function Dashboard() {
             </ul>
           )}
 
-          <h2 className="mt-8 text-lg font-medium">Today</h2>
+          <h2 className="mt-8 text-lg font-medium">Today and this month</h2>
           <Card className="mt-2">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-sm">Spent today</p>
@@ -160,6 +161,30 @@ export function Dashboard() {
             >
               <div className={capFraction >= 0.8 ? 'h-full rounded-full bg-amber-600 dark:bg-amber-400' : 'h-full rounded-full bg-blue-700 dark:bg-sky-400'} style={{ width: `${Math.max(capFraction * 100, capFraction > 0 ? 2 : 0)}%` }} />
             </div>
+            <div className="mt-4 flex flex-wrap items-baseline justify-between gap-2" data-testid="month-spend">
+              <p className="text-sm">This month</p>
+              <p className="text-sm tabular-nums">
+                {money(d.spentThisMonthUsd)}{d.monthlySpendCapUsd > 0 ? ` of ${money(d.monthlySpendCapUsd)}` : ''} · heading for {money(d.projectedMonthUsd)}
+              </p>
+            </div>
+            {d.monthlySpendCapUsd > 0 ? (
+              <div
+                role="meter"
+                aria-label="Monthly spending cap"
+                aria-valuenow={Math.round(monthFraction * 100)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuetext={`${money(d.spentThisMonthUsd)} of ${money(d.monthlySpendCapUsd)}`}
+                className="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"
+              >
+                <div className={monthFraction >= 0.8 ? 'h-full rounded-full bg-amber-600 dark:bg-amber-400' : 'h-full rounded-full bg-blue-700 dark:bg-sky-400'} style={{ width: `${Math.max(monthFraction * 100, monthFraction > 0 ? 2 : 0)}%` }} />
+              </div>
+            ) : null}
+            {d.schedulesPaused ? (
+              <p role="alert" className="mt-2 text-sm text-amber-700 dark:text-amber-300">
+                Schedules are paused: the month&apos;s cap is used up. Raise it in <Link to="/settings" className="underline underline-offset-4">Settings</Link>, or wait for the month to turn.
+              </p>
+            ) : null}
             <h3 className="mt-4 text-sm font-medium">Next scheduled</h3>
             {d.schedules.length === 0 ? (
               <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">

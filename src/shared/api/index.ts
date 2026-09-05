@@ -326,7 +326,7 @@ export type WorkflowSummary = z.infer<typeof WorkflowSummary>;
 /** A budget block as written: only the keys the author set. */
 export const BudgetLines = z.object({
   maxModelCalls: z.number().optional(), maxToolCalls: z.number().optional(), maxCostUsd: z.number().optional(),
-  maxWallClockMs: z.number().optional(), toolCallTimeoutMs: z.number().optional(), dailySpendCapUsd: z.number().optional(),
+  maxWallClockMs: z.number().optional(), toolCallTimeoutMs: z.number().optional(), dailySpendCapUsd: z.number().optional(), monthlySpendCapUsd: z.number().optional(),
 });
 export type BudgetLines = z.infer<typeof BudgetLines>;
 
@@ -558,6 +558,24 @@ export type ApprovalDecisionRequest = z.infer<typeof ApprovalDecisionRequest>;
 
 // ---- the Dashboard (spec/ui.md §Dashboard) ------------------------------------------------------
 
+/** Where the money went (F3): the same rows every cap reads, so the screen and the stop agree to the cent. */
+export const SpendResponse = z.object({
+  todayUsd: z.number(),
+  last7DaysUsd: z.number(),
+  last30DaysUsd: z.number(),
+  thisMonthUsd: z.number(),
+  monthlySpendCapUsd: z.number(),
+  dailySpendCapUsd: z.number(),
+  /** This month's spend at the rate so far, carried to the end of the month. */
+  projectedMonthUsd: z.number(),
+  daysLeftInMonth: z.number().int(),
+  /** True while the month's cap is used up: nothing scheduled fires until the month turns or the cap is raised. */
+  schedulesPaused: z.boolean(),
+  byModel: z.array(z.object({ modelId: z.string(), usd: z.number(), calls: z.number().int() })),
+  bySubject: z.array(z.object({ subject: z.string(), kind: z.string(), usd: z.number(), runs: z.number().int() })),
+});
+export type SpendResponse = z.infer<typeof SpendResponse>;
+
 export const DashboardResponse = z.object({
   /** Blocking gates: a run is standing still until one of these is decided. */
   needsYou: z.array(ReviewItem),
@@ -569,6 +587,11 @@ export const DashboardResponse = z.object({
   running: z.array(RunSummary),
   spentTodayUsd: z.number(),
   dailySpendCapUsd: z.number(),
+  /** This month against its cap, and where the month is heading (F3). */
+  spentThisMonthUsd: z.number().default(0),
+  monthlySpendCapUsd: z.number().default(0),
+  projectedMonthUsd: z.number().default(0),
+  schedulesPaused: z.boolean().default(false),
   schedules: z.array(ScheduleSummary),
   networkMode: z.string(),
 });

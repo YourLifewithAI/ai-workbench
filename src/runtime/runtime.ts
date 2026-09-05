@@ -147,6 +147,13 @@ export class Runtime {
     this.scheduler = new Scheduler({
       db,
       log: this.log,
+      // The month's cap pauses every schedule (F3): nobody is watching when one fires, so the cap is the guard.
+      paused: () => {
+        const cap = this.workspace.config.budgets.monthlySpendCapUsd;
+        if (cap <= 0) return null;
+        const spent = engine.spentThisMonthUsd();
+        return spent >= cap ? `this month's spending cap ($${cap.toFixed(2)}) is used up ($${spent.toFixed(2)} so far); schedules resume when the month turns or the cap is raised in Settings` : null;
+      },
       start: (input) => {
         const started = engine.startWorkflowRun(input);
         engine.markScheduled(started.runId);
@@ -187,6 +194,7 @@ export class Runtime {
       setNetworkMode: (mode) => this.setNetworkMode(mode),
       setGrant: (agentId, permissions) => this.setGrant(agentId, permissions),
       estimate: (req) => this.estimate(req),
+      spend: () => this.engine.spend(),
       modelsNow: (policy) => this.modelsNow(policy),
       modelRoles: () => this.modelRoles(),
       findings: { list: (state) => this.reviewFindings.list(state), decide: (id, decision) => this.decideFinding(id, decision) },

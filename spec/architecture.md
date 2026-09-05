@@ -129,3 +129,6 @@ Linux and macOS are supported and tested in CI (GitHub Actions, both OSes, `npm 
 > A role is an ordered list; an agent or a step may name `role:<name>`; the first ready member runs. The shipped
 > defaults define `capable`, `fast` and `cheap` across providers. A workspace file's list for a role replaces the
 > default list for that role (arrays replace, D-20); other roles keep their defaults.
+
+> Amendment (F3, 2026-09-05): `budgets.monthlySpendCapUsd` joins `config/workbench.json` (default 100). `GET
+> /spend` and `workbench spend` read `model_calls`, the rows the caps read, so the screen and the stop agree.

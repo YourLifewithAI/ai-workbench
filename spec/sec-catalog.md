@@ -70,3 +70,7 @@ Every run reads this file for the ids its brief lists (D-38). Each entry is a te
 
 > Amendment (RUN-14, 2026-09-05): the RUN-14 brief cites SEC-08 for "only a human writes to the matrix"; as
 > with RUN-13, that promise is SEC-11 here, and the new row is SEC-37. `tests/security/sec-37-permissions-review.test.ts`.
+
+> Amendment (F3, 2026-09-05): SEC-28 gains a third case, **SEC-28c**: the monthly cap refuses a run before its
+> first call and pauses every schedule until the month turns or the cap is raised; a paused schedule keeps its
+> time rather than being counted as missed. `tests/security/sec-28c-monthly-cap.test.ts`.
