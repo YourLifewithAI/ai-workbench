@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect, beforeAll } from 'vitest';
+import { roleFirst } from '../helpers/roles.js';
 import { CLI_DIST, runCli, startRuntime, tempWorkspace, waitFor } from '../helpers/workspace.js';
 import { openWorkspaceStore } from '../../src/runtime/cli/store.js';
 import type { EventRecord } from '../../src/shared/events.js';
@@ -52,8 +53,8 @@ describe('DoD 1: the story pipeline runs end to end, a different model per step'
         byStep.set(detail.version!.stepId!, detail.version!.modelId!);
       }
       expect([...byStep.keys()].sort()).toEqual(['beats', 'draft', 'final']);
-      // The Cutter is pinned to a flash-class id by the workflow, so the trace is not one model three times.
-      expect(byStep.get('final')).toBe('google/gemini-3.6-flash');
+      // The Cutter's step is pinned to the fast role by the workflow, so the trace is not one model three times.
+      expect(byStep.get('final')).toBe(roleFirst('fast'));
       expect(new Set(byStep.values()).size).toBeGreaterThan(1);
     } finally {
       await opened.close();
