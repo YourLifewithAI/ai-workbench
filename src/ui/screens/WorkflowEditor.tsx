@@ -158,6 +158,8 @@ function Editor({ loaded }: { loaded: WorkflowDetail }) {
   // A stable key per step row, kept beside the draft rather than in it: ids are editable, so they cannot key
   // the rows (each keystroke would remount the form), and nothing in the file may carry an editor artefact.
   const [keys, setKeys] = useState<number[]>(() => (loaded.definition['steps'] as unknown[]).map((_, i) => i));
+  // The step forms are a list of headings with one open (L4): a six-step workflow is a screen, not a scroll.
+  const [openStep, setOpenStep] = useState<number | null>(0);
   const nextKey = useRef(keys.length);
   const [baseVersion, setBaseVersion] = useState(loaded.version);
   const [conflict, setConflict] = useState<WorkflowConflict | null>(null);
@@ -195,16 +197,19 @@ function Editor({ loaded }: { loaded: WorkflowDetail }) {
     if (target < 0 || target >= draft.steps.length) return;
     setDraft((d) => ({ ...d, steps: swap(d.steps, index, target) }));
     setKeys((k) => swap(k, index, target));
+    setOpenStep((o) => (o === index ? target : o === target ? index : o));
   };
   const removeStep = (index: number): void => {
     setDraft((d) => ({ ...d, steps: d.steps.filter((_, i) => i !== index) }));
     setKeys((k) => k.filter((_, i) => i !== index));
+    setOpenStep((o) => (o === null || o === index ? null : o > index ? o - 1 : o));
   };
   const addStep = (): void => {
     let n = draft.steps.length + 1;
     while (draft.steps.some((s) => s.id === `step-${n}`)) n++;
     setDraft((d) => ({ ...d, steps: [...d.steps, { id: `step-${n}`, kind: 'agent', agent: agentIds[0] ?? '', input: '' }] }));
     setKeys((k) => [...k, nextKey.current++]);
+    setOpenStep(draft.steps.length);
   };
 
   const loadDisk = (): void => { void client.invalidateQueries({ queryKey: ['workflow', loaded.id] }); };
@@ -287,6 +292,8 @@ function Editor({ loaded }: { loaded: WorkflowDetail }) {
                 onChange={(next) => updateStep(index, next)}
                 onMove={(by) => moveStep(index, by)}
                 onRemove={() => removeStep(index)}
+                open={openStep === index}
+                onToggle={() => setOpenStep((o) => (o === index ? null : index))}
               />
             ))}
           </div>
@@ -439,9 +446,12 @@ interface StepEditorProps {
   step: StepDraft; index: number; count: number; stepIds: string[];
   agentIds: string[]; modelIds: string[]; toolIds: string[];
   onChange: (step: StepDraft) => void; onMove: (by: -1 | 1) => void; onRemove: () => void;
+  /** One step is open at a time (L4); the rest are a heading, a summary and an Open button. */
+  open: boolean;
+  onToggle: () => void;
 }
 
-function StepEditor({ step, index, count, stepIds, agentIds, modelIds, toolIds, onChange, onMove, onRemove }: StepEditorProps) {
+function StepEditor({ step, index, count, stepIds, agentIds, modelIds, toolIds, onChange, onMove, onRemove, open, onToggle }: StepEditorProps) {
   const id = `step-${index}`;
   const set = (patch: Rec): void => {
     const next: Rec = { ...step, ...patch };
@@ -457,11 +467,21 @@ function StepEditor({ step, index, count, stepIds, agentIds, modelIds, toolIds, 
     else onChange({ ...common, over: '', step: { id: 'item', kind: 'agent', agent, input: '{{item}}', output: { document: null } } });
   };
   const output = step['output'] as { document?: string | null } | undefined;
+  const summary = step.kind === 'agent' ? `agent · ${str(step['agent']) || 'no agent yet'}`
+    : step.kind === 'tool' ? `tool · ${str(step['tool']) || 'no tool yet'}`
+    : `map over ${str(step['over']) || '…'}`;
 
   return (
     <fieldset className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900" data-testid={`step-${step.id}`}>
       <legend className="px-1 text-sm font-semibold">Step {step.id || `#${index + 1}`}</legend>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-gray-700 dark:text-gray-300">{summary}{step['review'] === 'blocking' ? ' · waits for your review' : ''}</p>
+        <Button type="button" variant="ghost" size="sm" aria-expanded={open} onClick={onToggle}>
+          {open ? 'Close' : 'Open'}<span className="sr-only"> step {step.id}</span>
+        </Button>
+      </div>
+      {open ? <>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <div>
           <label htmlFor={`${id}-id`} className={LABEL}>Step id</label>
           <input id={`${id}-id`} value={step.id} onChange={(e) => set({ id: e.target.value })} className={MONO} />
@@ -546,6 +566,7 @@ function StepEditor({ step, index, count, stepIds, agentIds, modelIds, toolIds, 
       </div>
       <datalist id="wb-models">{modelIds.map((m) => <option key={m} value={m} />)}</datalist>
       <datalist id="wb-tools">{toolIds.map((t) => <option key={t} value={t} />)}</datalist>
+      </> : null}
     </fieldset>
   );
 }
