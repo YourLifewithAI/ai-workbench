@@ -2,20 +2,10 @@
   "schemaVersion": 1,
   "name": "Anthology",
   "description": "Life with AI: the stories, their bible, and the drafts on the way to them.",
-  "goals": "bible.md",
   "agents": [
     "architect",
     "weaver",
     "cutter"
-  ],
-  "tools": [
-    "calc",
-    "datetime",
-    "artifact.read",
-    "artifact.write",
-    "memory.remember",
-    "memory.search",
-    "knowledge.search"
   ],
   "memory": [
     "agent",

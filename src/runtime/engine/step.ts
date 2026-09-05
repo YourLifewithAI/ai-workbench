@@ -605,18 +605,22 @@ export class StepRunner {
    * The project's goals document (D-69), read whole. A project that names one that does not exist warns in the
    * trace and the run goes on: a missing page is a gap, not a reason to refuse the work.
    */
-  private goalsFor(input: AgentStepInput): { source: string; text: string } | undefined {
+  private goalsFor(input: AgentStepInput): { source: string; text: string; trusted: boolean } | undefined {
     const project = input.project;
     if (!project || !this.deps.artifacts) return undefined;
     const goals = this.deps.workspace().spaces.get(project)?.definition.goals;
     if (!goals) return undefined;
-    const text = this.deps.artifacts.readDocument(project, goals);
-    if (text === null) {
+    const latest = this.deps.artifacts.readDocumentWithAuthor(project, goals);
+    if (latest === null) {
       this.deps.log.warn({ project, document: goals, runId: input.runId }, 'the project names a goals document that does not exist');
       this.deps.events.append(input.runId, input.stepId, 'goals-missing', { project, document: goals });
       return undefined;
     }
-    return { source: `${project}/${goals}`, text };
+    // Goals are the owner's word only while the owner wrote the latest version. A version an agent's run filed
+    // could carry anything that run had read, so it goes in as data, fenced, and the trace says so (SEC-14, D-69).
+    const trusted = latest.createdBy !== 'run-step';
+    if (!trusted) this.deps.events.append(input.runId, input.stepId, 'goals-fenced', { project, document: goals, reason: 'the latest version was written by a run, not a person' });
+    return { source: `${project}/${goals}`, text: latest.content, trusted };
   }
 
   private knowledgeFor(agent: LoadedAgent, project: string | undefined, goals?: string | undefined): KnowledgeDocument[] {

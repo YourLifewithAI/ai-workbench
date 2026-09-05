@@ -213,8 +213,8 @@ test('@run-11 Settings edits what it says it edits, and never shows a key back',
 
   // And taking it away works from the same screen. (Exact: the model-roles card has its own "Remove … from" buttons.)
   await page.getByRole('button', { name: 'Remove', exact: true }).click();
-  // The credentials list's own words: the MCP card says "None configured." too, and a substring match sees both.
-  await expect(page.getByText('None configured. The mock provider needs none.')).toBeVisible();
+  // The credentials list's own words (L3): the MCP card says "None configured." too, and a substring match sees both.
+  await expect(page.getByText('None yet. The mock provider needs none')).toBeVisible();
 });
 
 test('a repository is granted and taken back from the Tools screen, never in a file', async ({ page }) => {

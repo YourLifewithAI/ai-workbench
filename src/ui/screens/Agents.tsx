@@ -6,13 +6,17 @@ import { EmptyState } from '../components/EmptyState.js';
 import { Estimate } from '../components/Estimate.js';
 import { Button } from '../components/ui/button.js';
 import { Badge, Card } from '../components/ui/card.js';
-import { CardTitle, Prose, ScreenTitle } from '../components/ui/text.js';
+import { CardTitle, Prose, ScreenTitle, SectionTitle } from '../components/ui/text.js';
+import type { AgentSummary } from '../../shared/api/index.js';
 
 export function Agents() {
   const q = useQuery({ queryKey: ['agents'], queryFn: api.agents });
   // A project named in the URL (the Library's empty state sends one) is carried to the agent that is opened.
   const [listParams] = useSearchParams();
   const carried = listParams.get('project');
+  // With a project named, its agents come first under their own heading (D-69); the rest follow.
+  const space = useQuery({ queryKey: ['space', carried], queryFn: () => api.space(carried!), enabled: carried !== null, staleTime: 60_000 });
+  const projectAgents = new Set(space.data?.space.agents ?? []);
   const client = useQueryClient();
   const reload = useMutation({ mutationFn: api.reloadAgents, onSuccess: () => client.invalidateQueries({ queryKey: ['agents'] }) });
 
@@ -52,28 +56,20 @@ export function Agents() {
         </div>
       ) : null}
 
+      {q.data?.agents.length && carried && projectAgents.size ? (
+        <>
+          <SectionTitle className="mt-6">This project's agents <span className="font-mono text-sm text-gray-600 dark:text-gray-400">{carried}</span></SectionTitle>
+          <ul className="mt-2 grid gap-3 md:grid-cols-2" aria-label={`Agents of ${carried}`}>
+            {q.data.agents.filter((a) => projectAgents.has(a.id)).map((a) => <li key={a.id}><AgentCard agent={a} carried={carried} /></li>)}
+          </ul>
+          <SectionTitle className="mt-8">Others</SectionTitle>
+        </>
+      ) : null}
       {q.data?.agents.length ? (
-        <ul className="mt-4 grid gap-3 md:grid-cols-2">
-          {q.data.agents.map((a) => (
+        <ul className={carried && projectAgents.size ? 'mt-2 grid gap-3 md:grid-cols-2' : 'mt-4 grid gap-3 md:grid-cols-2'}>
+          {q.data.agents.filter((a) => !(carried && projectAgents.has(a.id))).map((a) => (
             <li key={a.id}>
-              <Card>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <CardTitle>
-                      <Link to={`/agents/${a.id}${carried ? `?project=${encodeURIComponent(carried)}` : ''}`} className="underline-offset-4 hover:underline">{a.name}</Link>
-                    </CardTitle>
-                    <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{a.description}</p>
-                  </div>
-                  <Badge>{a.id}</Badge>
-                </div>
-                <dl className="mt-3 space-y-1 text-sm">
-                  <div className="flex gap-2"><dt className="text-gray-600 dark:text-gray-400">Model</dt><dd className="font-mono text-xs">{a.modelPolicy.primary}{a.modelPolicy.primary.startsWith('role:') ? ` → ${a.modelPolicy.now[0] ?? 'nothing ready'}` : ''}</dd></div>
-                  {a.modelPolicy.fallbacks.length ? (
-                    <div className="flex gap-2"><dt className="text-gray-600 dark:text-gray-400">Falls back to</dt><dd className="font-mono text-xs">{a.modelPolicy.fallbacks.join(', ')}</dd></div>
-                  ) : null}
-                  <div className="flex gap-2"><dt className="text-gray-600 dark:text-gray-400">Version</dt><dd className="break-all font-mono text-xs">{a.version.replace('sha256:', '').slice(0, 12)}</dd></div>
-                </dl>
-              </Card>
+              <AgentCard agent={a} carried={carried} />
             </li>
           ))}
         </ul>
@@ -198,5 +194,29 @@ function Row({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
       <dt className="text-gray-600 dark:text-gray-400">{k}</dt>
       <dd className={mono ? 'break-all text-right font-mono text-xs' : 'text-right'}>{v}</dd>
     </div>
+  );
+}
+
+/** One agent on the list; the project named in the URL travels with the link (D-69). */
+function AgentCard({ agent: a, carried }: { agent: AgentSummary; carried: string | null }) {
+  return (
+          <Card>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <CardTitle>
+                  <Link to={`/agents/${a.id}${carried ? `?project=${encodeURIComponent(carried)}` : ''}`} className="underline-offset-4 hover:underline">{a.name}</Link>
+                </CardTitle>
+                <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{a.description}</p>
+              </div>
+              <Badge>{a.id}</Badge>
+            </div>
+            <dl className="mt-3 space-y-1 text-sm">
+              <div className="flex gap-2"><dt className="text-gray-600 dark:text-gray-400">Model</dt><dd className="font-mono text-xs">{a.modelPolicy.primary}{a.modelPolicy.primary.startsWith('role:') ? ` → ${a.modelPolicy.now[0] ?? 'nothing ready'}` : ''}</dd></div>
+              {a.modelPolicy.fallbacks.length ? (
+                <div className="flex gap-2"><dt className="text-gray-600 dark:text-gray-400">Falls back to</dt><dd className="font-mono text-xs">{a.modelPolicy.fallbacks.join(', ')}</dd></div>
+              ) : null}
+              <div className="flex gap-2"><dt className="text-gray-600 dark:text-gray-400">Version</dt><dd className="break-all font-mono text-xs">{a.version.replace('sha256:', '').slice(0, 12)}</dd></div>
+            </dl>
+          </Card>
   );
 }

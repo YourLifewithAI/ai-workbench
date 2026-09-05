@@ -90,7 +90,8 @@ Ollama and LM Studio. Adding one is writing an adapter that passes the contract 
   prompt, in order, and the prompt is in the trace.
 - **Workflows** are a DAG in one JSON file: steps that name agents, tools, or a `map` over a list. A reference
   to another step's output *is* the dependency; there is nothing else to declare.
-- **The Library** keeps every version of everything an agent wrote, with the run that wrote it.
+- **The Library** keeps every version of everything an agent wrote, with the run that wrote it. A project is a
+  space: its agents, a goals page in every prompt, a ceiling on the tools used there, the memory it keeps.
 - **Memory** is what agents carry between runs, with provenance. An item written by a run that had read the web
   is `untrusted`, and untrusted memory reaches a model fenced as data — never as an instruction.
 - **Review** is where you rate and reject; **Approvals** is where the runtime waits for you before it does

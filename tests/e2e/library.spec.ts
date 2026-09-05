@@ -76,3 +76,33 @@ test('@run-03 the exported folder is one a human can read', async () => {
   expect(fs.readFileSync(path.join(out, 'documents', 'bible.md'), 'utf8')).toContain('overbearing grandmother');
   fs.rmSync(out, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
+
+test('@run-18 a project\'s space is a form on its Library page, saved hash-pinned', async ({ page, request }) => {
+  await page.goto(base() + '/library/anthology#token=' + token());
+  const card = page.getByTestId('space');
+  await expect(card.getByRole('heading', { name: 'Space' })).toBeVisible();
+  await expect(card.getByLabel('Goals')).toHaveValue('');
+  await expect(card.getByLabel('Goals').getByRole('option', { name: 'bible.md' })).toBeAttached();
+  await expect(card.getByRole('checkbox', { name: 'weaver' })).toBeChecked();
+  await expect(card.getByRole('checkbox', { name: 'researcher' })).not.toBeChecked();
+  await expectNoA11yViolations(page, 'Library project with its space');
+
+  // A change is a save, and the runtime reads it at once.
+  await card.getByRole('checkbox', { name: 'researcher' }).check();
+  await expect(card.getByText('Unsaved.')).toBeVisible();
+  await card.getByRole('button', { name: 'Save space' }).click();
+  await expect(card.getByRole('status')).toHaveText(/Saved/);
+  const auth = { Authorization: `Bearer ${token()}` };
+  const saved = (await (await request.get(base() + '/api/v1/projects/anthology/space', { headers: auth })).json()) as { space: { agents: string[] } };
+  expect(saved.space.agents).toContain('researcher');
+
+  // The file moved underneath (another save with the version this page loaded): the next save is refused, not applied.
+  const current = (await (await request.get(base() + '/api/v1/projects/anthology/space', { headers: auth })).json()) as { version: string; space: Record<string, unknown> };
+  await request.put(base() + '/api/v1/projects/anthology/space', { headers: { ...auth, 'Content-Type': 'application/json' }, data: { space: { ...current.space, agents: ['architect', 'weaver', 'cutter'] }, baseVersion: current.version } });
+  await card.getByRole('checkbox', { name: 'judge' }).check();
+  await card.getByRole('button', { name: 'Save space' }).click();
+  await expect(card.getByRole('alert')).toContainText('changed since this form loaded it');
+  await card.getByRole('button', { name: 'Load what is on disk' }).click();
+  await expect(card.getByRole('checkbox', { name: 'researcher' })).not.toBeChecked();
+  await expect(card.getByRole('checkbox', { name: 'judge' })).not.toBeChecked();
+});

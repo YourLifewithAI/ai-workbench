@@ -97,3 +97,16 @@ test('@run-01 a broken definition is reported on the screen, and reload picks up
   await expect(page.getByRole('link', { name: 'Fixed By The Test', exact: true })).toBeVisible();
   fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
+
+test('@run-18 with a project named, its agents come first', async ({ page }) => {
+  await page.goto(base() + '/agents?project=anthology#token=' + token());
+  await expect(page.getByRole('heading', { name: /This project's agents/ })).toBeVisible();
+  const mine = page.getByRole('list', { name: 'Agents of anthology' });
+  await expect(mine.getByRole('link', { name: 'The Architect' })).toBeVisible();
+  await expect(mine.getByRole('link', { name: 'The Weaver' })).toBeVisible();
+  await expect(mine.getByRole('link', { name: 'The Researcher' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Others' })).toBeVisible();
+  // The project travels to the agent's run form.
+  await mine.getByRole('link', { name: 'The Architect' }).click();
+  await expect(page.getByLabel('Target project')).toHaveValue('anthology');
+});
