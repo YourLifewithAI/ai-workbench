@@ -145,3 +145,11 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > not by mood (default moves the screen forward; secondary is the alternative; ghost is a toolbar action; link is
 > an action in a sentence), and `asChild` puts the same classes on a `<Link>` so a navigation that looks like a
 > button is one. Tabs and the phone's bottom bar are not buttons and keep their own shapes.
+
+> Amendment (L3, 2026-09-05): **every empty state offers the one action that fills it**, or says in one sentence
+> where that action is when it sits on the same screen. Dashboard: *Run a workflow* when nothing waits, and
+> *Running* names Workflows and Agents; Agents: *Reload agents*; Review: *Run a workflow*; Workflows: *New
+> workflow*; a Library project: *Run an agent here* (the project travels to the agent's run form as `?project=`);
+> Memory: *Write the first one* (focuses the remember field); Models: *Add a key*; Settings' lists say what fills
+> them and where; the editor's empty graph points at *Steps*. "Nothing has been refused" on Tools stays as it is:
+> that one is good news.

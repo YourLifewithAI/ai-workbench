@@ -220,7 +220,7 @@ function Editor({ loaded }: { loaded: WorkflowDetail }) {
             <Subheading as="h2">The graph, as the draft reads now</Subheading>
             <p className={HINT}>Edges come from references: type <code className="font-mono">{'{{steps.x.output}}'}</code> in a step and watch it connect. Nothing here is draggable, because an edge you drew is a line the runtime would not read.</p>
             <div data-testid="draft-graph" className="mt-3">
-              {analysis.graph.length ? <RunGraph steps={analysis.graph} /> : <p className="text-sm">No steps yet.</p>}
+              {analysis.graph.length ? <RunGraph steps={analysis.graph} /> : <p className="text-sm">No steps yet. Add the first one under Steps; it appears here as you type.</p>}
             </div>
           </Card>
           {analysis.issues.length ? (

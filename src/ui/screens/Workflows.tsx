@@ -49,7 +49,11 @@ export function Workflows() {
       ) : null}
 
       {q.data && q.data.workflows.length === 0 && q.data.errors.length === 0 ? (
-        <div className="mt-6"><EmptyState title="No workflows in this workspace yet. A workflow is one JSON file naming the steps and what each one gets." /></div>
+        <div className="mt-6">
+          <EmptyState title="No workflows in this workspace yet. A workflow is one JSON file naming the steps and what each one gets.">
+            <Button asChild><Link to="/workflows/new">New workflow</Link></Button>
+          </EmptyState>
+        </div>
       ) : null}
 
       {q.data?.workflows.length ? (
@@ -366,7 +370,7 @@ function Schedules({ workflow }: { workflow: WorkflowDetailShape }) {
           ))}
         </ul>
       ) : (
-        <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">Not scheduled.</p>
+        <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">Not scheduled. Set one below.</p>
       )}
 
       <form className="mt-4 space-y-3" onSubmit={(e) => { e.preventDefault(); add.mutate(); }}>

@@ -78,7 +78,13 @@ export function ProjectDetail() {
         Export it from the command line: <code className="font-mono text-xs">workbench export project {slug} --out ./somewhere</code>
       </Prose>
       {q.isError ? <p role="alert" className="mt-3 text-red-700 dark:text-red-300">{q.error.message}</p> : null}
-      {q.data && q.data.length === 0 ? <div className="mt-6"><EmptyState title="Nothing here yet. Run an agent with this project as its target and its output lands here." /></div> : null}
+      {q.data && q.data.length === 0 ? (
+        <div className="mt-6">
+          <EmptyState title="Nothing here yet. Run an agent with this project as its target and its output lands here.">
+            <Button asChild variant="secondary"><Link to={`/agents?project=${encodeURIComponent(slug)}`}>Run an agent here</Link></Button>
+          </EmptyState>
+        </div>
+      ) : null}
       {q.data?.length ? (
         // `table-fixed` plus a wrapping path: a document path is long and unbroken, and on a phone one of them
         // is enough to push the whole page sideways.

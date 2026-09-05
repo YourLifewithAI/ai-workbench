@@ -107,6 +107,7 @@ export function Memory() {
         <label className="block grow">
           <span className="block text-sm font-medium">Tell them something</span>
           <input
+            id="memory-draft"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="I write in British English and never use em dashes."
@@ -136,7 +137,9 @@ export function Memory() {
           <EmptyState title={query || scope
             ? 'No item in this scope matches those words.'
             : 'Nothing is remembered yet. Agents remember with the memory.remember tool, and you can write an item yourself above — nothing is extracted automatically.'}
-          />
+          >
+            {query || scope ? null : <Button variant="secondary" onClick={() => document.getElementById('memory-draft')?.focus()}>Write the first one</Button>}
+          </EmptyState>
         </div>
       ) : null}
 

@@ -79,7 +79,11 @@ export function Review() {
       {q.isPending ? <p className="mt-4" role="status">Loading…</p> : null}
       {q.isError ? <p className="mt-4 text-red-700 dark:text-red-300" role="alert">Could not load the queue: {q.error.message}</p> : null}
       {q.data && items.length === 0 ? (
-        <div className="mt-6"><EmptyState title="Outputs wait here for your rating. Nothing is blocked unless a step asks." /></div>
+        <div className="mt-6">
+          <EmptyState title="Outputs wait here for your rating. Nothing is blocked unless a step asks.">
+            <Button asChild variant="secondary"><Link to="/workflows">Run a workflow</Link></Button>
+          </EmptyState>
+        </div>
       ) : null}
 
       <ul className="mt-4 space-y-3">

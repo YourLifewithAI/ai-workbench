@@ -58,7 +58,7 @@ export function Settings() {
               {q.data.mcpServers.length ? (
                 <pre tabIndex={0} className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-2 font-mono text-xs dark:bg-gray-950">{JSON.stringify(q.data.mcpServers, null, 2)}</pre>
               ) : (
-                <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">None configured.</p>
+                <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">None configured. Add one below.</p>
               )}
             </Card>
           </div>
@@ -106,7 +106,7 @@ function Credentials({ configured, onSaid, onDone }: { configured: string[]; onS
       </p>
 
       <ul className="mt-3 space-y-1 text-sm">
-        {configured.length === 0 ? <li className="text-gray-700 dark:text-gray-300">None configured. The mock provider needs none.</li> : null}
+        {configured.length === 0 ? <li className="text-gray-700 dark:text-gray-300">None yet. The mock provider needs none; a real one is a key pasted below.</li> : null}
         {configured.map((provider) => (
           <li key={provider} className="flex flex-wrap items-center gap-3">
             <span className="font-mono text-xs">{provider}</span>
@@ -163,7 +163,7 @@ function Plugins({ plugins, onSaid, onDone }: { plugins: PluginStatusSummary[]; 
         Nothing loads until you have said so for that exact version.
       </p>
       {plugins.length === 0 ? (
-        <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">No plugins in this workspace.</p>
+        <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">No plugins in this workspace. One is a directory under plugins/; it shows here on the next start, untrusted until you say otherwise.</p>
       ) : (
         <ul className="mt-3 space-y-3">
           {plugins.map((plugin) => (
@@ -258,7 +258,7 @@ function ModelRoles({ models, onSaid, onDone }: { models: NonNullable<SettingsRe
                     </li>
                   ))}
                 </ol>
-              ) : <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">No models yet.</p>}
+              ) : <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">No models yet. Pick one below; a role with none stops every agent that names it.</p>}
               <label htmlFor={`role-${name}-add`} className="mt-2 block text-xs font-medium">Add a model to {name}</label>
               <select id={`role-${name}-add`} value="" className="mt-1 w-full rounded-md border border-gray-300 bg-white p-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
                 onChange={(e) => { if (e.target.value) set(name, [...list, e.target.value]); }}>

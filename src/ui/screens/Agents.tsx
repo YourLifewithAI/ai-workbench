@@ -10,6 +10,9 @@ import { CardTitle, Prose, ScreenTitle } from '../components/ui/text.js';
 
 export function Agents() {
   const q = useQuery({ queryKey: ['agents'], queryFn: api.agents });
+  // A project named in the URL (the Library's empty state sends one) is carried to the agent that is opened.
+  const [listParams] = useSearchParams();
+  const carried = listParams.get('project');
   const client = useQueryClient();
   const reload = useMutation({ mutationFn: api.reloadAgents, onSuccess: () => client.invalidateQueries({ queryKey: ['agents'] }) });
 
@@ -43,7 +46,9 @@ export function Agents() {
 
       {q.data && q.data.agents.length === 0 && q.data.errors.length === 0 ? (
         <div className="mt-6">
-          <EmptyState title="No agents in this workspace yet. An agent is one JSON file and a Markdown file of instructions." />
+          <EmptyState title="No agents in this workspace yet. An agent is one JSON file and a Markdown file of instructions in agents/; add one and reload.">
+            <Button variant="secondary" onClick={() => reload.mutate()} disabled={reload.isPending}>{reload.isPending ? 'Reloading…' : 'Reload agents'}</Button>
+          </EmptyState>
         </div>
       ) : null}
 
@@ -55,7 +60,7 @@ export function Agents() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <CardTitle>
-                      <Link to={`/agents/${a.id}`} className="underline-offset-4 hover:underline">{a.name}</Link>
+                      <Link to={`/agents/${a.id}${carried ? `?project=${encodeURIComponent(carried)}` : ''}`} className="underline-offset-4 hover:underline">{a.name}</Link>
                     </CardTitle>
                     <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{a.description}</p>
                   </div>

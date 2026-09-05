@@ -7,6 +7,7 @@ import { Button } from '../components/ui/button.js';
 import { Badge, Card } from '../components/ui/card.js';
 import { cn } from '../lib/cn.js';
 import { Prose, ScreenTitle, SectionTitle, Subheading } from '../components/ui/text.js';
+import { Link } from 'react-router-dom';
 
 const AVAILABILITY: Record<ModelStatus['availability'], { label: string; tone: 'good' | 'bad' | 'busy' | 'neutral' }> = {
   ready: { label: 'ready', tone: 'good' },
@@ -94,7 +95,11 @@ export function Models() {
       {q.isPending ? <p className="mt-4" role="status">Loading the catalog…</p> : null}
       {q.isError ? <p className="mt-4 text-red-700 dark:text-red-300" role="alert">Could not load models: {q.error.message}</p> : null}
       {q.data && q.data.models.length === 0 ? (
-        <div className="mt-6"><EmptyState title="No provider configured. Add a key, or use local models offline." /></div>
+        <div className="mt-6">
+          <EmptyState title="No provider configured. Add a key, or use local models offline.">
+            <Button asChild><Link to="/settings">Add a key</Link></Button>
+          </EmptyState>
+        </div>
       ) : null}
 
       {q.data?.models.length ? (

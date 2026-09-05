@@ -76,7 +76,9 @@ export function Dashboard() {
           {d.approvals.length === 0 && d.needsYou.length === 0 && d.failed.length === 0 ? (
             <div className="mt-2">
               <EmptyState title={waitingTitle(d)}>
-                {d.unreviewed > 0 || d.findings > 0 ? <Button onClick={() => navigate('/review')}>Open Review</Button> : null}
+                {d.unreviewed > 0 || d.findings > 0
+                  ? <Button onClick={() => navigate('/review')}>Open Review</Button>
+                  : <Button variant="secondary" onClick={() => navigate('/workflows')}>Run a workflow</Button>}
               </EmptyState>
             </div>
           ) : (
@@ -125,7 +127,9 @@ export function Dashboard() {
 
           <SectionTitle className="mt-8">Running</SectionTitle>
           {d.running.length === 0 ? (
-            <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">Nothing is running.</p>
+            <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
+              Nothing is running. Start one from <Link to="/workflows" className="text-blue-700 underline underline-offset-4 dark:text-sky-300">Workflows</Link> or <Link to="/agents" className="text-blue-700 underline underline-offset-4 dark:text-sky-300">Agents</Link>.
+            </p>
           ) : (
             <ul className="mt-2 space-y-2">
               {d.running.map((r) => (
