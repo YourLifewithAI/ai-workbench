@@ -128,3 +128,77 @@ test('@run-17 the coding run: the form shows its inputs and budgets, and the par
   }, { timeout: 60_000 }).toBe('completed');
 });
 
+
+test('@run-13 a workflow is edited as forms: the graph follows the draft, the save runs, the trace names the new agent', async ({ page, request }) => {
+  await page.goto(base() + '/workflows#token=' + token());
+  await page.getByRole('link', { name: 'New workflow' }).click();
+  await expect(page.getByRole('heading', { name: 'New workflow' })).toBeVisible();
+  await page.getByLabel('Name').fill('Edited in e2e');
+  // The id follows the name until it is typed by hand.
+  await expect(page.getByLabel('Id', { exact: true })).toHaveValue('edited-in-e2e');
+  await page.getByLabel('A copy of an existing workflow').check();
+  await page.getByLabel('Copy of', { exact: true }).selectOption('story-pipeline');
+  await expectNoA11yViolations(page, 'New workflow');
+  await page.getByRole('button', { name: 'Create workflow' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Edit Edited in e2e' })).toBeVisible();
+  // The graph is drawn from the draft: three steps, as copied.
+  await expect(page.getByText(/^final \(cutter\), after draft/)).toBeVisible();
+
+  // Change a step's agent; the graph says so at once.
+  const final = page.getByRole('group', { name: 'Step final' });
+  await final.getByLabel('Agent', { exact: true }).selectOption('weaver');
+  await final.getByLabel('Model', { exact: true }).fill('');
+  await expect(page.getByText(/^final \(weaver\), after draft/)).toBeVisible();
+
+  // Add a step. Until it refers to another step it is a root; the moment the reference is typed, the edge is there.
+  await page.getByRole('button', { name: 'Add a step' }).click();
+  const added = page.getByRole('group', { name: 'Step step-4' });
+  await added.getByLabel('Step id').fill('check');
+  const check = page.getByRole('group', { name: 'Step check' });
+  await check.getByLabel('Agent', { exact: true }).selectOption('reviewer');
+  await check.getByLabel('Input', { exact: true }).fill('Check these beats against the premise.');
+  await expect(page.getByText(/^check \(reviewer\), with nothing before it/)).toBeVisible();
+  await check.getByLabel('Input', { exact: true }).fill('Check these beats against the premise.\n\n{{steps.beats.output}}');
+  await expect(page.getByText(/^check \(reviewer\), after beats/)).toBeVisible();
+  await expect(page.getByRole('img', { name: /Workflow graph: 4 steps/ })).toBeVisible();
+  await expectNoA11yViolations(page, 'Workflow editor');
+
+  await page.getByRole('button', { name: 'Save workflow' }).click();
+  await expect(page.getByRole('heading', { name: 'Edited in e2e' })).toBeVisible();
+  await expect(page.getByText('Saved. Runs started from now on use this version.')).toBeVisible();
+  await expect(page.getByRole('img', { name: /Workflow graph: 4 steps/ })).toBeVisible();
+
+  // Run it, and read the trace: the step runs on the agent it was just given.
+  await page.getByLabel('Premise').fill('A dentist finds a message in a tooth.');
+  await page.getByRole('button', { name: 'Start run' }).click();
+  await expect(page.getByRole('heading', { name: /^Run / })).toBeVisible();
+  for (const step of ['beats', 'draft', 'final', 'check']) {
+    await expect(page.getByText(new RegExp(`^${step} \\(\\w+\\) is completed`))).toBeVisible({ timeout: 30_000 });
+  }
+  await expect(page.getByText(/^final \(weaver\) is completed/)).toBeVisible();
+  const runId = page.url().split('/runs/')[1]!.split(/[?#]/)[0]!;
+  const trace = await request.get(base() + `/api/v1/runs/${runId}/trace.jsonl`, { headers: { Authorization: `Bearer ${token()}` } });
+  const events = (await trace.text()).split('\n').filter(Boolean).map((l) => JSON.parse(l) as { type: string; stepId: string | null; payload: Record<string, unknown> });
+  expect(events.find((e) => e.type === 'step-started' && e.stepId === 'final')?.payload['agentId']).toBe('weaver');
+  expect(events.find((e) => e.type === 'step-started' && e.stepId === 'check')?.payload['agentId']).toBe('reviewer');
+});
+
+test('@run-13 deleting a workflow says how many schedules go with it', async ({ page, request }) => {
+  const auth = { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' };
+  const made = await request.post(base() + '/api/v1/workflows', { headers: auth, data: { id: 'delete-me-e2e', name: 'Delete me', copyOf: 'story-pipeline' } });
+  expect(made.status()).toBe(201);
+  const scheduled = await request.post(base() + '/api/v1/schedules', { headers: auth, data: { workflowId: 'delete-me-e2e', cron: '0 7 * * *', inputs: { premise: 'x' } } });
+  expect(scheduled.status()).toBe(201);
+
+  await page.goto(base() + '/workflows/delete-me-e2e#token=' + token());
+  await expect(page.getByRole('heading', { name: 'Delete me' })).toBeVisible();
+  await page.getByRole('button', { name: 'Delete…' }).click();
+  const dialog = page.getByRole('alertdialog');
+  await expect(dialog.getByText('1 schedule points at it and will be deleted too.')).toBeVisible();
+  await expectNoA11yViolations(page, 'Delete a workflow');
+  await dialog.getByRole('button', { name: 'Delete workflow and 1 schedule' }).click();
+  await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Delete me' })).toHaveCount(0);
+  expect((await request.get(base() + '/api/v1/workflows/delete-me-e2e', { headers: auth })).status()).toBe(404);
+});

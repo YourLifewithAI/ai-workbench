@@ -12,7 +12,7 @@ Order of checks: `Host`/`Origin` (403) before token (401). Requests without an `
 |---|---|
 | runs | `POST /runs` `{ kind: 'agent'|'workflow', id, inputs, project?, overrides?, provider?: 'mock' }` → `{ runId }` · `GET /runs?state=&kind=&project=` · `GET /runs/:id` (summary, steps, spent) · `POST /runs/:id/cancel` · `POST /runs/:id/resume` · `GET /runs/:id/events?after=<seq>` (replays stored events after `seq`, then streams live ones; SSE `id` = seq, `event` = type, `data` = the JSONL line; the stream closes after a terminal event) · `GET /runs/events` (workspace-level SSE of `run-*` events for every run, feeding lists and the Dashboard) · `GET /runs/:id/trace.jsonl` · `GET /runs/:id/privacy` |
 | agents | `GET /agents` (incl. load errors) · `GET /agents/:id` · `POST /agents/reload` |
-| workflows | `GET /workflows` · `GET /workflows/:id` |
+| workflows | `GET /workflows` · `GET /workflows/:id` · `POST /workflows` (new: blank or a copy, RUN-13) · `PUT /workflows/:id` `{ definition, baseVersion }` (the editor's save: validated, refused with a diff if the file moved, D-62) · `DELETE /workflows/:id?deleteSchedules=true` (refused with the count until the schedules are accepted) |
 | projects | `GET /projects` · `POST /projects` · `GET /projects/:slug` |
 | evaluation | `GET /datasets` · `POST /datasets` · `GET /datasets/:id/cases` · `GET /datasets/:id/export` · `POST /datasets/import` · `GET /experiments` · `POST /experiments` · `GET /experiments/:id/results` · `POST /experiments/:id/cancel` · `POST /compare` · `POST /compare/pick` |
 | documents | `GET /projects/:slug/documents` · `GET /documents/:id` · `GET /documents/:id/versions` · `PUT /documents/:id` (human edit → version) · `POST /runs/:id/rerun` `{ model? }` |
@@ -149,3 +149,19 @@ One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` �
 > coding-run --input brief=spec/runs/RUN-13.md --input repo=/abs/checkout` starts a coding run, and the parked
 > review is decided in Review or with `workbench review continue|reject`.
 
+> Amendment (RUN-13, 2026-09-05): the workflow write path. `GET /workflows/:id` also returns `schedules`, the
+> number of schedule rows pointing at it. `PUT /workflows/:id` takes `{ definition, baseVersion }` and answers
+> the detail; a draft that would not run is `400 validation` with `details.issues: [{ path, stepId, message }]`
+> (the same verdict the editor shows live — `src/shared/workflow-check.ts` is one function for both); a file
+> whose hash moved since `baseVersion` is `409 conflict` with `details.conflict: { baseVersion, currentVersion,
+> against: 'loaded' | 'draft', diff }`, the diff drawn against the opened version when the runtime still knows
+> it (in memory, or a `workflow_versions` row) and against the draft otherwise; nothing is written in either
+> case. `POST /workflows` `{ id, name, copyOf? }` writes a blank one-step file or a copy without its schedule
+> block. `DELETE /workflows/:id` is `409 conflict` with `details.schedules` while schedules point at it;
+> `?deleteSchedules=true` removes them with the file. The file is written compacted: keys in reading order,
+> schema defaults left out; the hash is over the parsed form, so that changes nothing a run sees. CLI:
+> `workbench workflows list | show <id> | new <id> --name <name> [--copy-of <id>] | edit <id> | delete <id>
+> [--with-schedules]`. `edit` opens the file in `$VISUAL`, else `$EDITOR`, else `notepad` or `vi`, with the
+> child allowlist plus the terminal and display variables; when the editor closes the file is validated exactly
+> as the loader validates it, left as written either way, exit 1 with the reason when it would not load, and a
+> running workbench is told to reload when it is valid. A batch-file `EDITOR` is refused on Windows by name.

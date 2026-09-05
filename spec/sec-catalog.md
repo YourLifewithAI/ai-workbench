@@ -59,3 +59,9 @@ Every run reads this file for the ids its brief lists (D-38). Each entry is a te
 > Windows, and a child there cannot start without `SystemRoot`. The refusals are not per-platform and are the
 > actual content of the row — no credential value, no arbitrary environment variable, no `NODE_OPTIONS`,
 > which is executable by another name.
+
+> Amendment (RUN-13, 2026-09-05): the RUN-13 brief cites SEC-08 for "only a human writes a definition the
+> runtime will execute". In this catalog that promise is **SEC-11** — the hard deny list covers `workflows/`
+> under any grant — and SEC-08 is offline mode. The editor's write routes add nothing a tool can reach: they
+> sit behind SEC-01 and SEC-02 like every other route, and a draft that carries a credential leaves the runtime
+> redacted (SEC-06) while the file on disk holds what the owner typed. `tests/security/sec-11-workflow-editor.test.ts`.

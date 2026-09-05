@@ -10,6 +10,7 @@ import type { Hono } from 'hono';
 import { packagePaths, type PackagePaths } from './paths.js';
 import type { Bootstrap } from './bootstrap.js';
 import { loadAgents, loadWorkflows, loadWorkspace, type BrokenAgent, type Workspace } from './workspace/loader.js';
+import { createWorkflow, deleteWorkflowFile, saveWorkflow, WorkflowWriteError } from './workspace/workflows.js';
 import { Redactor } from './security/redaction.js';
 import { writeSecretFile } from './security/secretFile.js';
 import { loadCredentials, type Credentials } from './security/credentials.js';
@@ -39,7 +40,8 @@ import { createApp } from './api/app.js';
 import { ArtifactStore } from './artifacts/store.js';
 import { listModels, pollLocalEndpoints, providerOf, type PollResult } from './models/availability.js';
 import { applyFinding, diffProvider, pinsFor } from './models/discovery.js';
-import type { CatalogFinding, DiscoveryReport } from '../shared/api/index.js';
+import type { CatalogFinding, CreateWorkflowRequest, DeleteWorkflowResponse, DiscoveryReport } from '../shared/api/index.js';
+import { Workflow, type LoadedWorkflow } from '../shared/workflow.js';
 import { ModelsFile, type CatalogEntry } from '../shared/model.js';
 import { EgressDeniedError } from './security/egress.js';
 import { ModelError } from './models/errors.js';
@@ -157,6 +159,9 @@ export class Runtime {
       plugins: () => this.plugins.map((p) => ({ ...p })),
       writeAgent: (definition, sections) => this.writeAgent(definition, sections),
       writeWorkflow: (workflow) => this.writeWorkflow(workflow),
+      saveWorkflow: (id, raw, baseVersion) => this.saveWorkflow(id, raw, baseVersion),
+      createWorkflow: (body) => this.createWorkflow(body),
+      deleteWorkflow: (id, deleteSchedules) => this.deleteWorkflow(id, deleteSchedules),
       trustPlugin: (key) => this.trustPlugin(key),
       setCredential: (name, apiKey) => this.setCredential(name, apiKey),
       updateSettings: (patch) => this.updateSettings(patch),
@@ -449,6 +454,71 @@ export class Runtime {
     fs.writeFileSync(file, JSON.stringify(definition, null, 2) + '\n');
     this.reloadAgents();
     return { id: definition.id };
+  }
+
+  /**
+   * The editor's save (RUN-13, D-62): validate, refuse a file that moved, write, record the hash. The base
+   * the conflict diff is drawn against is whatever this runtime still knows for that hash — the copy in
+   * memory when nothing reloaded in between, else the row a run pinned — and the draft when it knows neither.
+   */
+  saveWorkflow(id: string, raw: unknown, baseVersion: string): LoadedWorkflow {
+    const loaded = saveWorkflow({
+      workflowsDir: this.workspace.paths.workflows, id, raw, baseVersion,
+      knownVersion: (hash) => {
+        const inMemory = this.workspace.workflows.get(id);
+        if (inMemory?.version === hash) return inMemory.definition;
+        const row = this.db.prepare('SELECT definition_json FROM workflow_versions WHERE hash = ?').get(hash) as { definition_json: string } | undefined;
+        if (!row) return null;
+        const parsed = Workflow.safeParse(JSON.parse(row.definition_json));
+        return parsed.success ? parsed.data : null;
+      },
+    });
+    this.recordWorkflowVersion(loaded);
+    this.reloadAgents();
+    this.log.info({ workflowId: id, version: loaded.version }, 'a workflow was saved from the editor');
+    return loaded;
+  }
+
+  createWorkflow(body: CreateWorkflowRequest): LoadedWorkflow {
+    let copyOf: Workflow | undefined;
+    if (body.copyOf !== undefined) {
+      const source = this.workspace.workflows.get(body.copyOf);
+      if (!source) throw new WorkflowWriteError('not_found', `There is no workflow called "${body.copyOf}" to copy.`);
+      copyOf = source.definition;
+    }
+    // A blank workflow's one step has to name an agent; the echo agent when the workspace has it, else the
+    // first by name. It is a placeholder the editor opens on, not a recommendation.
+    const agents = [...this.workspace.agents.keys()].sort();
+    const firstAgent = agents.includes('echo') ? 'echo' : agents[0];
+    if (!firstAgent) throw new WorkflowWriteError('validation', 'A workflow step names an agent, and this workspace has none yet. Add an agent first.');
+    const loaded = createWorkflow({ workflowsDir: this.workspace.paths.workflows, id: body.id, name: body.name, copyOf, firstAgent });
+    this.recordWorkflowVersion(loaded);
+    this.reloadAgents();
+    this.log.info({ workflowId: body.id, copyOf: body.copyOf ?? null }, 'a workflow was created');
+    return loaded;
+  }
+
+  /** Deleting a workflow that a schedule points at is refused until the count has been shown and accepted. */
+  deleteWorkflow(id: string, deleteSchedules: boolean): DeleteWorkflowResponse {
+    const file = path.join(this.workspace.paths.workflows, `${id}.workflow.json`);
+    if (!fs.existsSync(file)) throw new WorkflowWriteError('not_found', `There is no workflow called "${id}".`);
+    const schedules = this.scheduler.list().filter((s) => s.workflowId === id);
+    if (schedules.length && !deleteSchedules) {
+      throw new WorkflowWriteError('conflict',
+        `"${id}" has ${schedules.length} schedule${schedules.length === 1 ? '' : 's'} pointing at it. Deleting the workflow deletes ${schedules.length === 1 ? 'that schedule' : 'them'} too; say so to go ahead.`,
+        { schedules: schedules.length });
+    }
+    for (const s of schedules) this.scheduler.remove(s.id);
+    deleteWorkflowFile(this.workspace.paths.workflows, id);
+    this.reloadAgents();
+    this.log.info({ workflowId: id, schedules: schedules.length }, 'a workflow was deleted');
+    return { deleted: true, schedules: schedules.length };
+  }
+
+  /** The same row a run records at start, so a hash the editor produced is one the diff can be drawn against. */
+  private recordWorkflowVersion(workflow: LoadedWorkflow): void {
+    this.db.prepare('INSERT OR IGNORE INTO workflow_versions (hash, workflow_id, definition_json, created_at) VALUES (?, ?, ?, ?)')
+      .run(workflow.version, workflow.definition.id, JSON.stringify(workflow.definition), new Date().toISOString());
   }
 
   /** A human accepting "this code runs with full access", for one plugin and one version (D-32). */

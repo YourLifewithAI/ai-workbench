@@ -12,6 +12,7 @@ import { Agents, AgentDetail } from './screens/Agents.js';
 import { Models } from './screens/Models.js';
 import { Library, ProjectDetail, DocumentView } from './screens/Library.js';
 import { Workflows, WorkflowDetail } from './screens/Workflows.js';
+import { WorkflowEditor, WorkflowNew } from './screens/WorkflowEditor.js';
 import { Dashboard } from './screens/Dashboard.js';
 import { Review } from './screens/Review.js';
 import { Tools } from './screens/Tools.js';
@@ -47,7 +48,9 @@ export function App() {
             <Route path="/memory" element={<Memory />} />
             <Route path="/evaluate" element={<Evaluate />} />
             <Route path="/workflows" element={<Workflows />} />
+            <Route path="/workflows/new" element={<WorkflowNew />} />
             <Route path="/workflows/:id" element={<WorkflowDetail />} />
+            <Route path="/workflows/:id/edit" element={<WorkflowEditor />} />
             <Route path="/runs" element={<Runs />} />
             <Route path="/runs/:id" element={<RunDetail />} />
             <Route path="/settings" element={<Settings />} />

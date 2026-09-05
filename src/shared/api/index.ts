@@ -289,8 +289,44 @@ export const WorkflowDetail = WorkflowSummary.extend({
   order: z.array(z.string()),
   /** What the workflow and its steps cap themselves at, so the run form can say so before a run starts (RUN-17). */
   budgets: z.object({ workflow: BudgetLines.nullable(), steps: z.array(z.object({ stepId: z.string(), budget: BudgetLines })) }),
+  /** How many schedule rows point at this workflow, so a delete can say what goes with it (RUN-13). */
+  schedules: z.number().int(),
 });
 export type WorkflowDetail = z.infer<typeof WorkflowDetail>;
+
+/** The editor's save (D-62): the whole definition, and the content hash it was loaded at. */
+export const SaveWorkflowRequest = z.object({
+  definition: z.record(z.string(), z.unknown()),
+  baseVersion: z.string().min(1),
+});
+export type SaveWorkflowRequest = z.infer<typeof SaveWorkflowRequest>;
+
+/** A new workflow file: blank, or a copy of one that exists (its schedule block is not copied). */
+export const CreateWorkflowRequest = z.object({
+  id: z.string().regex(/^[a-z0-9-]+$/, 'lowercase letters, digits and hyphens'),
+  name: z.string().min(1),
+  copyOf: z.string().optional(),
+});
+export type CreateWorkflowRequest = z.infer<typeof CreateWorkflowRequest>;
+
+/** One problem a save was refused for: a JSON path and, when it concerns a step, the step's id. */
+export const WorkflowIssue = z.object({ path: z.string(), stepId: z.string().nullable(), message: z.string() });
+export type WorkflowIssue = z.infer<typeof WorkflowIssue>;
+
+/**
+ * Why a save was refused because the file moved underneath the editor: what is on disk now, against the
+ * version the editor started from when the runtime still knows it, else against the draft being saved.
+ */
+export const WorkflowConflict = z.object({
+  baseVersion: z.string(),
+  currentVersion: z.string(),
+  against: z.enum(['loaded', 'draft']),
+  diff: DiffResponse,
+});
+export type WorkflowConflict = z.infer<typeof WorkflowConflict>;
+
+export const DeleteWorkflowResponse = z.object({ deleted: z.literal(true), schedules: z.number().int() });
+export type DeleteWorkflowResponse = z.infer<typeof DeleteWorkflowResponse>;
 
 export const WorkflowListResponse = z.object({
   workflows: z.array(WorkflowSummary),

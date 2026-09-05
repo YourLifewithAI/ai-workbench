@@ -87,3 +87,14 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > table's repository cell carries *Grant a repository…* (checkout path, branches) and a *Remove* per grant.
 > **Settings** — a provider name is lowercased on save, and a bad one is refused with the rule.
 
+> Amendment (RUN-13, 2026-09-05): **Workflows** — *New workflow* (blank, or a copy of one that exists; the id
+> follows the name until typed) and, on a workflow, *Edit* and *Delete…*. The editor is forms over the file
+> (D-62): the workflow's name, description, default project, inputs as rows (name, label, type, hint,
+> required) and outputs; then one form per step — kind (agent, tool, map), agent or tool, model pin, input,
+> *Only when*, review and what a rejection re-runs, where the output files — with add, remove, move up and
+> move down. The graph beside the form is drawn from the draft on every keystroke and is not draggable; *This
+> draft would not run* and *Worth a look* re-run on the draft, and Save stays disabled while the first is
+> non-empty. A save is refused with the step named when the draft would not run, and with a line diff when the
+> file changed on disk after it was opened; the person then loads what is on disk or saves the draft over it,
+> explicitly. *Delete…* asks inline and says how many schedules go with the workflow. A file that failed to
+> load offers *Delete…* and names `workbench workflows edit <id>`.

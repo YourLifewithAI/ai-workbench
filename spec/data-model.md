@@ -100,3 +100,7 @@ Vocabularies: `runs.kind ∈ agent | workflow | experiment`; `runs.state ∈ que
 
 
 > Amendment (RUN-04, 2026-09-03): `document_versions.partial` is written for the first time — it marks a version produced by a wrap-up turn rather than by a step that finished (D-14). It had existed since RUN-03 with nothing to set it, and the INSERT was passing a literal `0`.
+
+> Amendment (RUN-13, 2026-09-05): `workflow_versions` is also written by the editor's save and by create, not
+> only when a run starts, so a conflict diff can be drawn against the version the editor opened even after a
+> reload in between. Editing never touches `runs.workflow_version`: a run keeps the hash it began with.

@@ -7,7 +7,14 @@ export interface Bootstrap {
   bind: string;
   /** PATH HOME TMPDIR LANG LC_* TZ — the only variables a child process ever inherits. */
   childEnvAllowlist: Record<string, string>;
+  /** `$VISUAL`, else `$EDITOR`, for `workbench workflows edit`; undefined means the platform's plain one. */
+  editor: string | undefined;
+  /** The allowlist plus what an interactive editor needs to draw: the terminal and display variables. */
+  editorEnv: Record<string, string>;
 }
+
+/** Nothing here carries a secret; an editor without them either cannot draw (vi) or cannot open a window. */
+const EDITOR_KEYS = ['TERM', 'COLORTERM', 'DISPLAY', 'WAYLAND_DISPLAY', 'XDG_RUNTIME_DIR', 'XDG_SESSION_TYPE', 'SHELL', 'USER', 'LOGNAME', 'APPDATA'];
 
 const ALLOWLIST_EXACT = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'TZ'];
 
@@ -44,10 +51,14 @@ export function readBootstrap(): Bootstrap {
   if (port !== undefined && (!Number.isInteger(port) || port < 0 || port > 65535)) {
     throw new Error(`WORKBENCH_PORT must be an integer between 0 and 65535, got "${portRaw}"`);
   }
+  const editorEnv = { ...allow };
+  for (const key of EDITOR_KEYS) if (env[key]) editorEnv[key] = env[key]!;
   return {
     workspace: env['WORKBENCH_WORKSPACE'] || undefined,
     port,
     bind: env['WORKBENCH_BIND'] || '127.0.0.1',
     childEnvAllowlist: allow,
+    editor: (env['VISUAL'] ?? env['EDITOR'] ?? '').trim() || undefined,
+    editorEnv,
   };
 }
