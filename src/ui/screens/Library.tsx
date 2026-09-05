@@ -198,10 +198,10 @@ export function DocumentView() {
                   <caption className="sr-only">Line by line difference between the two versions</caption>
                   <tbody>
                     {diff.data.lines.map((line, i) => (
-                      <tr key={i} className={line.kind === 'added' ? 'bg-green-50 dark:bg-green-950' : line.kind === 'removed' ? 'bg-red-50 dark:bg-red-950' : ''}>
+                      <tr key={i} className={line.kind === 'added' ? 'bg-green-50 dark:bg-green-900/40' : line.kind === 'removed' ? 'bg-red-50 dark:bg-red-900/40' : ''}>
                         <td className="w-10 select-none px-2 text-right text-gray-600 dark:text-gray-400">{line.leftNo ?? ''}</td>
                         <td className="w-10 select-none px-2 text-right text-gray-600 dark:text-gray-400">{line.rightNo ?? ''}</td>
-                        <td className="w-6 select-none px-1 text-gray-700 dark:text-gray-300">{line.kind === 'added' ? '+' : line.kind === 'removed' ? '−' : ''}</td>
+                        <td className={line.kind === 'added' ? 'w-6 select-none px-1 font-semibold text-green-800 dark:text-green-300' : line.kind === 'removed' ? 'w-6 select-none px-1 font-semibold text-red-800 dark:text-red-300' : 'w-6 select-none px-1'}>{line.kind === 'added' ? '+' : line.kind === 'removed' ? '−' : ''}</td>
                         <td className="whitespace-pre-wrap px-2 py-0.5">{line.text || ' '}</td>
                       </tr>
                     ))}

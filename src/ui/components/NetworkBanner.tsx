@@ -30,7 +30,7 @@ export function NetworkBanner() {
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-gray-200 px-4 py-2 text-sm dark:border-gray-800">
       <span className={cn('rounded px-2 py-0.5 text-xs font-medium', copy.tone)}>Network: {copy.label}</span>
-      <span className="text-gray-600 dark:text-gray-400">{copy.says}</span>
+      <span className="hidden text-gray-600 md:inline dark:text-gray-400">{copy.says}</span>
       {mode === 'offline' ? (
         <Button variant="link" size="sm" className="ml-auto text-xs underline" onClick={() => setMode.mutate('allowlist')} disabled={setMode.isPending}>
           Go back online (allowlist)

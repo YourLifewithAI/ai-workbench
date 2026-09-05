@@ -153,3 +153,21 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > Memory: *Write the first one* (focuses the remember field); Models: *Add a key*; Settings' lists say what fills
 > them and where; the editor's empty graph points at *Steps*. "Nothing has been refused" on Tools stays as it is:
 > that one is good news.
+
+> Amendment (L4, 2026-09-05): **the workflow editor** keeps the graph above the form under `lg` and beside it
+> from `lg`; the step forms are a list of headings with one open at a time — each closed step is its id, a
+> one-line summary (kind and agent, tool or list; whether it waits for review) and an *Open* button; adding a
+> step opens it; moving or removing one keeps the open step the same step.
+
+> Amendment (L5, 2026-09-05): **the mark** is a bench with a light above it, drawn once in `src/ui/public/favicon.svg`
+> and inlined as `Mark` beside the wordmark in the sidebar and on the token page; the Home Screen icons
+> (`icon-192.png`, `icon-512.png`, the maskable `icon-maskable-512.png`) and the push notification's icon are
+> renderings of the same drawing. Navy `#1e2952` ground (the manifest's theme colour), white bench, sky `#38bdf8`
+> light: it reads at 16 px and carries its own ground, so it is the same in both themes.
+
+> Amendment (L6 + L7, 2026-09-05): checked in dark at 1280 px and in light at an iPhone 14 width, from screenshots
+> of every screen with content. Dark: the `busy` badge tone is amber-900 under amber-100 (it was a deep orange under
+> near-white); the diff view's added and removed rows are a visible tint (`green-900/40`, `red-900/40`) and the
+> sign column takes the semantic colour in both themes. Phone: the network banner is one line — the chip and the
+> action; its sentence appears from `md` — so *Needs you* sits higher on the Dashboard. Review cards, findings and
+> the run form at 390 px wrap onto two rows of controls at most; nothing becomes a column of single words.
