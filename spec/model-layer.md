@@ -152,3 +152,8 @@ With no matching fixture the mock echoes the last user text. It streams when ask
 > - **`PUT /models/:id/enabled`** flips the flag; the Models screen has the button. An accepted model lands
 >   disabled and unpriced and is made usable with two clicks, never with a file.
 
+> Amendment (D-68, 2026-09-05): a policy id may be `role:<name>`. `expandPolicy` (`src/runtime/models/roles.ts`)
+> replaces it with the members of the role's list that are ready, in the list's order, before `selectCandidates`
+> judges them; a plain id passes through untouched. Under `--provider mock` every member is servable, so a mock
+> run's candidate list is the whole role in the owner's order. A role that contributes nothing is a rejection
+> with the reason (not a role, no members, none ready) and the screen to fix it on.

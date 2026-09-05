@@ -124,3 +124,8 @@ The shipped `Dockerfile` builds the runtime and SPA into one image that runs `wo
 ## Platforms (D-39)
 
 Linux and macOS are supported and tested in CI (GitHub Actions, both OSes, `npm run check` and `npm run e2e`). Windows is best-effort via WSL2. Node ≥ 22. Deno ≥ 2 is optional and enables the execute tier of tools. Ids are ULIDs; timestamps are ISO 8601 UTC.
+
+> Amendment (D-68, 2026-09-05): `config/workbench.json` gains `models: { roles: { <name>: [<catalog id>, …] } }`.
+> A role is an ordered list; an agent or a step may name `role:<name>`; the first ready member runs. The shipped
+> defaults define `capable`, `fast` and `cheap` across providers. A workspace file's list for a role replaces the
+> default list for that role (arrays replace, D-20); other roles keep their defaults.

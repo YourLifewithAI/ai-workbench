@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import type { PluginStatusSummary } from '../../shared/api/index.js';
+import type { PluginStatusSummary, SettingsResponse } from '../../shared/api/index.js';
 import { api } from '../lib/api.js';
 import { setWelcomeDone } from '../lib/welcome.js';
 import { Button } from '../components/ui/button.js';
@@ -47,6 +47,7 @@ export function Settings() {
             <dl className="mt-2 text-sm">{Object.entries(q.data.retention).map(([k, v]) => <Row key={k} k={k} v={String(v)} />)}</dl>
           </Card>
           <div className="md:col-span-2"><Credentials configured={q.data.providersConfigured} onSaid={setSaid} onDone={() => void client.invalidateQueries({ queryKey: ['settings'] })} /></div>
+          {q.data.models ? <div className="md:col-span-2"><ModelRoles key={JSON.stringify(q.data.models.roles)} models={q.data.models} onSaid={setSaid} onDone={() => { void client.invalidateQueries({ queryKey: ['settings'] }); void client.invalidateQueries({ queryKey: ['agents'] }); }} /></div> : null}
           <div className="md:col-span-2"><PushSettings /></div>
           <div className="md:col-span-2"><Plugins plugins={q.data.plugins} onSaid={setSaid} onDone={() => void client.invalidateQueries({ queryKey: ['settings'] })} /></div>
           <div className="md:col-span-2">
@@ -194,6 +195,87 @@ function Plugins({ plugins, onSaid, onDone }: { plugins: PluginStatusSummary[]; 
         </ul>
       )}
       {trust.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{trust.error.message}</p> : null}
+    </Card>
+  );
+}
+
+const AVAILABILITY_WORD: Record<string, string> = {
+  ready: 'ready', 'no-credential': 'no key', 'blocked-by-mode': 'blocked by the network mode', unreachable: 'not answering',
+  disabled: 'disabled', 'no-adapter': 'no adapter', 'price-unknown': 'price unknown',
+};
+
+/**
+ * Which models do the work (D-68). A role is an ordered list; the first model in it that is ready runs. The
+ * order is the owner's and is set here, never in an agent file: the shipped agents name roles, so a workspace
+ * with one key runs on that key.
+ */
+function ModelRoles({ models, onSaid, onDone }: { models: NonNullable<SettingsResponse['models']>; onSaid: (text: string) => void; onDone: () => void }) {
+  const catalog = useQuery({ queryKey: ['models'], queryFn: api.models, staleTime: 30_000 });
+  const [roles, setRoles] = useState<Record<string, string[]>>(() => ({ ...Object.fromEntries(models.undefinedRoles.map((r) => [r, []])), ...models.roles }));
+  const [dirty, setDirty] = useState(false);
+  const save = useMutation({
+    mutationFn: () => api.updateSettings({ models: { roles } }),
+    onSuccess: () => { setDirty(false); onSaid('Saved which models do the work.'); onDone(); },
+  });
+  const statusOf = (id: string): string => catalog.data?.models.find((m) => m.id === id)?.availability ?? 'unknown';
+  const set = (name: string, list: string[]): void => { setRoles((r) => ({ ...r, [name]: list })); setDirty(true); };
+  const move = (name: string, index: number, by: -1 | 1): void => {
+    const list = [...(roles[name] ?? [])];
+    const target = index + by;
+    if (target < 0 || target >= list.length) return;
+    [list[index], list[target]] = [list[target]!, list[index]!];
+    set(name, list);
+  };
+  const names = Object.keys(roles).sort();
+  const catalogIds = (catalog.data?.models ?? []).filter((m) => m.adapter !== 'mock').map((m) => m.id);
+
+  return (
+    <Card data-testid="model-roles">
+      <h2 className="font-medium">Which models do the work</h2>
+      <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+        An agent names a role — <code className="font-mono">role:capable</code>, <code className="font-mono">role:fast</code>, <code className="font-mono">role:cheap</code> — instead of a model.
+        The first model in the role&apos;s list that is ready is the one that runs, so the order here is the whole decision. A model pinned by id in an agent or a step still wins.
+      </p>
+      <div className="mt-3 grid gap-3 lg:grid-cols-3">
+        {names.map((name) => {
+          const list = roles[name] ?? [];
+          const now = list.find((id) => statusOf(id) === 'ready') ?? null;
+          return (
+            <fieldset key={name} className="rounded-md border border-gray-200 p-3 dark:border-gray-800" data-testid={`role-${name}`}>
+              <legend className="px-1 text-sm font-semibold"><span className="font-mono">role:{name}</span></legend>
+              <p className="text-xs text-gray-700 dark:text-gray-300">
+                {models.undefinedRoles.includes(name) && !list.length ? 'Named by an agent; no list yet. ' : ''}
+                Now: <span className="font-mono">{now ?? 'nothing ready'}</span>
+              </p>
+              {list.length ? (
+                <ol className="mt-2 space-y-1">
+                  {list.map((id, index) => (
+                    <li key={id} className="flex flex-wrap items-center justify-between gap-2 rounded bg-gray-50 px-2 py-1 text-sm dark:bg-gray-950">
+                      <span className="min-w-0 break-all"><span className="font-mono text-xs">{id}</span> <Badge tone={statusOf(id) === 'ready' ? 'good' : 'neutral'}>{AVAILABILITY_WORD[statusOf(id)] ?? statusOf(id)}</Badge></span>
+                      <span className="flex gap-1">
+                        <Button type="button" size="sm" variant="ghost" disabled={index === 0} onClick={() => move(name, index, -1)}>▲<span className="sr-only"> Move {id} up in {name}</span></Button>
+                        <Button type="button" size="sm" variant="ghost" disabled={index === list.length - 1} onClick={() => move(name, index, 1)}>▼<span className="sr-only"> Move {id} down in {name}</span></Button>
+                        <Button type="button" size="sm" variant="ghost" onClick={() => set(name, list.filter((x) => x !== id))}>×<span className="sr-only"> Remove {id} from {name}</span></Button>
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              ) : <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">No models yet.</p>}
+              <label htmlFor={`role-${name}-add`} className="mt-2 block text-xs font-medium">Add a model to {name}</label>
+              <select id={`role-${name}-add`} value="" className="mt-1 w-full rounded-md border border-gray-300 bg-white p-1.5 text-sm dark:border-gray-700 dark:bg-gray-950"
+                onChange={(e) => { if (e.target.value) set(name, [...list, e.target.value]); }}>
+                <option value="">Choose a model</option>
+                {catalogIds.filter((id) => !list.includes(id)).map((id) => <option key={id} value={id}>{id} ({AVAILABILITY_WORD[statusOf(id)] ?? statusOf(id)})</option>)}
+              </select>
+            </fieldset>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <Button type="button" size="sm" onClick={() => save.mutate()} disabled={!dirty || save.isPending}>{save.isPending ? 'Saving…' : 'Save models'}</Button>
+        {save.isError ? <p role="alert" className="text-sm text-red-700 dark:text-red-300">{save.error.message}</p> : null}
+        {dirty ? <p className="text-sm text-gray-700 dark:text-gray-300">Unsaved.</p> : null}
+      </div>
     </Card>
   );
 }

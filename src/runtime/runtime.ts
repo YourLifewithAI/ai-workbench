@@ -15,6 +15,9 @@ import { FindingStore, logGrantChange } from './permissions/store.js';
 import { applyProposal, DEFAULT_THRESHOLDS, gatherFacts, recordCatalogSeen, type PermissionFacts, type ReviewThresholds } from './permissions/review.js';
 import { proposeFindings } from './permissions/propose.js';
 import { grantFor } from './security/permissions.js';
+import { expandPolicy, resolveRoles, rolesReferenced } from './models/roles.js';
+import { statusFor } from './models/availability.js';
+import { findModel } from './models/catalog.js';
 import { Redactor } from './security/redaction.js';
 import { writeSecretFile } from './security/secretFile.js';
 import { loadCredentials, type Credentials } from './security/credentials.js';
@@ -182,6 +185,8 @@ export class Runtime {
       artifacts,
       setNetworkMode: (mode) => this.setNetworkMode(mode),
       setGrant: (agentId, permissions) => this.setGrant(agentId, permissions),
+      modelsNow: (policy) => this.modelsNow(policy),
+      modelRoles: () => this.modelRoles(),
       findings: { list: (state) => this.reviewFindings.list(state), decide: (id, decision) => this.decideFinding(id, decision) },
       push: this.push,
       vapidPublicKey: () => this.vapid.publicKey,
@@ -244,6 +249,7 @@ export class Runtime {
       sandbox,
       childEnvAllowlist: opts.bootstrap.childEnvAllowlist,
       mcp: mcpHost,
+      modelReady: (id) => runtime.modelReady(id),
       // The auditor's tools (RUN-14). The facts a run was shown are kept by run id, so what it proposes is
       // judged against the candidates it saw, at the thresholds it asked for.
       permissionsReview: {
@@ -578,7 +584,7 @@ export class Runtime {
   updateSettings(patch: Record<string, unknown>): void {
     const file = this.workspace.paths.workbenchJson;
     const current = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
-    for (const key of ['budgets', 'retention', 'execution', 'mcp', 'push'] as const) {
+    for (const key of ['budgets', 'retention', 'execution', 'mcp', 'push', 'models'] as const) {
       const value = patch[key];
       if (value === undefined) continue;
       current[key] = typeof current[key] === 'object' && current[key] !== null && !Array.isArray(current[key])
@@ -621,6 +627,37 @@ export class Runtime {
     // The audit log the review reads for "since when": one row per field that moved, always by a human.
     const rows = logGrantChange(this.db, agentId, before, grantFor(this.workspace.config, agentId));
     this.log.info({ agentId, changed: rows }, 'a grant changed');
+  }
+
+  /**
+   * Whether a catalog id could run right now, by the catalog's own rules (D-68): the verdict the Models screen
+   * shows. A local endpoint that has not been polled yet gets the benefit of the doubt — the call that follows
+   * either works or falls back to the next candidate.
+   */
+  modelReady(id: string): boolean {
+    const entry = findModel(this.workspace.catalog, id);
+    if (!entry) return false;
+    const status = statusFor(entry, {
+      catalog: this.workspace.catalog, mode: this.workspace.config.network.mode,
+      hasAdapter: (a) => this.registry.has(a), hasCredential: (p) => this.credentials.get(p) !== undefined,
+      reachableEndpoints: this.polled?.reachable ?? new Set<string>(),
+    });
+    if (status.availability === 'unreachable' && this.polled === null) return true;
+    return status.availability === 'ready';
+  }
+
+  /** The ids an agent's policy comes to right now: roles expanded, and only what is ready (D-68). */
+  modelsNow(policy: { primary: string; fallbacks: string[] }): string[] {
+    return expandPolicy([policy.primary, ...policy.fallbacks], this.workspace.config.models.roles, (id) => this.modelReady(id)).ids.filter((id) => this.modelReady(id));
+  }
+
+  /** Each role's list, what it resolves to, and the roles an agent or a step names that no list defines. */
+  modelRoles(): { roles: Record<string, string[]>; resolved: Record<string, string | null>; undefinedRoles: string[] } {
+    const roles = this.workspace.config.models.roles;
+    const pins = [...this.workspace.workflows.values()].flatMap((w) => w.definition.steps.flatMap((s) =>
+      s.kind === 'agent' && s.model ? [s.model] : s.kind === 'map' && s.step.kind === 'agent' && s.step.model ? [s.step.model] : []));
+    const referenced = rolesReferenced([...this.workspace.agents.values()].map((a) => a.definition.modelPolicy), pins);
+    return { roles, resolved: resolveRoles(roles, (id) => this.modelReady(id)), undefinedRoles: referenced.filter((r) => !(r in roles)) };
   }
 
   /** What the auditor sees (D-63): grant metadata and how it was used, never a trace, a memory or a document. */

@@ -55,9 +55,40 @@
   },
   "discovery": {
     "providers": {
-      "openai": { "adapter": "openai-compatible", "baseUrl": "https://api.openai.com/v1" },
-      "qwen": { "adapter": "openai-compatible", "baseUrl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1" },
-      "kimi": { "adapter": "openai-compatible", "baseUrl": "https://api.moonshot.ai/v1" }
+      "openai": {
+        "adapter": "openai-compatible",
+        "baseUrl": "https://api.openai.com/v1"
+      },
+      "qwen": {
+        "adapter": "openai-compatible",
+        "baseUrl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+      },
+      "kimi": {
+        "adapter": "openai-compatible",
+        "baseUrl": "https://api.moonshot.ai/v1"
+      }
+    }
+  },
+  "models": {
+    "roles": {
+      "capable": [
+        "anthropic/claude-sonnet-5",
+        "google/gemini-3.8-flash",
+        "anthropic/claude-opus-5",
+        "google/gemini-2.5-pro",
+        "ollama/qwen3:14b"
+      ],
+      "fast": [
+        "google/gemini-3.6-flash",
+        "anthropic/claude-haiku-4-5",
+        "google/gemini-2.5-flash",
+        "ollama/qwen3:14b"
+      ],
+      "cheap": [
+        "google/gemini-3.6-flash",
+        "anthropic/claude-haiku-4-5",
+        "ollama/qwen3:14b"
+      ]
     }
   },
   "grants": {},

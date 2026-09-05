@@ -75,10 +75,21 @@ export const SettingsResponse = z.object({
   mcpServers: z.array(z.unknown()).default([]),
   push: z.object({ enabled: z.boolean(), events: z.array(z.string()) }).optional(),
   plugins: z.array(PluginStatusSummary).default([]),
+  /** Which models do the work (D-68): each role's ordered list, and the model each resolves to right now. */
+  models: z.object({
+    roles: z.record(z.string(), z.array(z.string())),
+    resolved: z.record(z.string(), z.string().nullable()),
+    /** Roles an agent or a workflow step names that no list defines. */
+    undefinedRoles: z.array(z.string()),
+  }).optional(),
 });
 export type SettingsResponse = z.infer<typeof SettingsResponse>;
 
-export const AgentModelPolicy = z.object({ primary: z.string(), fallbacks: z.array(z.string()), requires: z.record(z.string(), z.unknown()).optional() });
+export const AgentModelPolicy = z.object({
+  primary: z.string(), fallbacks: z.array(z.string()), requires: z.record(z.string(), z.unknown()).optional(),
+  /** The ids the policy comes to right now, roles expanded to what is ready (D-68). Empty means nothing would run. */
+  now: z.array(z.string()).default([]),
+});
 
 export const AgentSummary = z.object({
   id: z.string(),
@@ -692,6 +703,8 @@ export const UpdateSettingsRequest = z.object({
   execution: z.record(z.string(), z.unknown()).optional(),
   mcp: z.object({ servers: z.array(z.unknown()) }).optional(),
   push: z.object({ enabled: z.boolean(), events: z.array(z.string()) }).optional(),
+  /** The whole roles map, replaced (D-68). A role name is lowercase letters, digits and hyphens. */
+  models: z.object({ roles: z.record(z.string().regex(/^[a-z][a-z0-9-]*$/), z.array(z.string().min(1))) }).optional(),
 });
 export type UpdateSettingsRequest = z.infer<typeof UpdateSettingsRequest>;
 

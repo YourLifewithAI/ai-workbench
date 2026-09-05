@@ -67,6 +67,8 @@ export interface EngineDeps {
   sandbox?: Sandbox | undefined;
   /** The permissions review's tools (RUN-14): grant metadata in, findings out, never a matrix write. */
   permissionsReview?: PermissionsToolDeps | undefined;
+  /** Whether a catalog id could run right now, for expanding roles (D-68). */
+  modelReady?: ((id: string) => boolean) | undefined;
   /** MCP servers (RUN-09). Their tools join the catalogue after `start()`, through `Engine.addTools`. */
   mcp?: McpHost | undefined;
   /** PATH HOME TMPDIR LANG LC_* TZ — the only variables a child of this runtime inherits (D-33). */
@@ -167,7 +169,7 @@ export class Engine {
     this.steps = new StepRunner({
       db: deps.db, events: deps.events, workspace: deps.workspace, registry: deps.registry,
       credentials: deps.credentials, redactor: deps.redactor, log: deps.log,
-      fetch: deps.fetch, runtimePort: deps.runtimePort, artifacts, memory: this.memory,
+      fetch: deps.fetch, runtimePort: deps.runtimePort, artifacts, memory: this.memory, modelReady: deps.modelReady,
     });
     // The hosts below close over `this`; nothing calls them during construction, so the cycle between the
     // engine (which starts child runs) and the tools (which ask it to) never has to be broken by a null.

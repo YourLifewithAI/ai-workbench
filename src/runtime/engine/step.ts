@@ -1,6 +1,7 @@
 // One agent step, from candidate selection to a committed output. Shared by single-agent runs and by every
 // step of a workflow, so both get the same retries, fallback, budgets, wrap-up turn and trace shape.
 import { ulid } from 'ulid';
+import { expandPolicy } from '../models/roles.js';
 import type { Db } from '../db/index.js';
 import type { Workspace } from '../workspace/loader.js';
 import type { AdapterContext, AdapterRegistry, FetchLike, ModelAdapter } from '../models/adapter.js';
@@ -65,6 +66,8 @@ export interface StepDeps {
   artifacts?: ArtifactStore | undefined;
   /** Present from RUN-06. Absent means no tool can be called, which is the safe direction to fail. */
   tools?: ToolExecutor | undefined;
+  /** Whether a catalog id could run right now, for expanding roles (D-68). Absent means every member is tried. */
+  modelReady?: ((id: string) => boolean) | undefined;
   /** Present from RUN-08. Absent means no memory is retrieved, and the prompt simply has no memory sections. */
   memory?: MemoryStore | undefined;
 }
@@ -449,10 +452,13 @@ export class StepRunner {
     const ws = this.deps.workspace();
     const policy = input.agent.definition.modelPolicy;
     // A step's `model` replaces the primary and keeps the agent's fallbacks, so an ensemble stays resilient.
-    const ids = input.modelOverride ? [input.modelOverride, ...policy.fallbacks] : [policy.primary, ...policy.fallbacks];
-    const { candidates, rejected } = selectCandidates({
+    const named = input.modelOverride ? [input.modelOverride, ...policy.fallbacks] : [policy.primary, ...policy.fallbacks];
+    // A role becomes the members of its list that are ready (D-68). Under the mock every id is servable.
+    const mock = input.provider === 'mock';
+    const expansion = expandPolicy(named, ws.config.models.roles, (id) => mock || (this.deps.modelReady?.(id) ?? true));
+    const { candidates, rejected: unusable } = selectCandidates({
       catalog: ws.catalog,
-      ids,
+      ids: expansion.ids,
       mode: ws.config.network.mode,
       requires: policy.requires as Record<string, unknown> | undefined,
       hasAdapter: (id) => this.deps.registry.has(id),
@@ -460,6 +466,7 @@ export class StepRunner {
     });
     if (candidates.length) return candidates;
 
+    const rejected = [...expansion.rejected, ...unusable];
     const why = rejected.map((r) => `${r.id}: ${r.reason}`).join('; ');
     // The network mode is a policy decision, not a missing model: name it, so the fix is obvious.
     const blockedByMode = rejected.length > 0 && rejected.every((r) => r.reason.startsWith('network mode is'));
