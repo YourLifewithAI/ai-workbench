@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "companion",
+  "name": "Companion",
+  "description": "The owner's own. Remembers what it is told about the person, files each exchange as a note in the Library, and works inside its own caps.",
+  "instructions": {
+    "file": "instructions.md"
+  },
+  "modelPolicy": {
+    "primary": "role:capable"
+  },
+  "review": "none",
+  "documents": [
+    "about.md"
+  ],
+  "memory": {
+    "read": ["agent", "user", "workspace", "project"],
+    "write": ["user", "agent"]
+  },
+  "permissions": {
+    "tools": {
+      "memory.remember": "allow",
+      "memory.search": "allow"
+    }
+  },
+  "budgets": {
+    "maxCostUsd": 0.5,
+    "dailySpendCapUsd": 2,
+    "monthlySpendCapUsd": 20
+  },
+  "output": {
+    "kind": "document",
+    "document": "notes/{{runId}}.md"
+  }
+}

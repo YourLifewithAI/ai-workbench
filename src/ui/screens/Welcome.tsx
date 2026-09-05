@@ -64,6 +64,13 @@ export function Welcome() {
             <p className="text-sm text-gray-600 dark:text-gray-400">Run the example first.</p>
           )}
         </Step>
+
+        <Step n={5} title="Meet your companion" done={false} why="One agent that is yours: it remembers what you tell it about yourself, files each exchange as a note in the Library, and spends inside its own daily and monthly caps within the workspace's.">
+          <p className="text-sm text-gray-700 dark:text-gray-300">
+            It reads <span className="font-mono text-xs">about.md</span> in the companion project as your word about yourself; that page is yours to fill in from the Library.
+          </p>
+          <Button className="mt-3" variant="secondary" onClick={() => { setWelcomeDone(true); navigate('/agents/companion?project=companion'); }}>Open the companion</Button>
+        </Step>
       </ol>
 
       <p className="mt-8 text-sm text-gray-600 dark:text-gray-400">

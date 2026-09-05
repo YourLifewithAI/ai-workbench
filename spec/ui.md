@@ -132,3 +132,7 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > line under the blocking items (`3 permission findings`, linking to Review). Findings block nothing, so they are
 > never cards there; when nothing is blocked and findings are open, the empty state says "Nothing is blocked"
 > rather than "nothing is waiting". `GET /dashboard` carries the count as `findings`.
+
+> Amendment (F6, 2026-09-05): **Welcome** gains a fifth step, *Meet your companion*, which opens the shipped
+> companion agent with the companion project chosen (`/agents/companion?project=companion`); an agent's run form
+> reads `?project=` as its initial target project.

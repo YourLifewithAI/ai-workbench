@@ -62,6 +62,16 @@ Provider-specific adaptation belongs to adapters (D-09).
 
 `examples/workspace/agents/echo/agent.json` is the smallest valid agent: `instructions: [{ name: "task", text: "Reply with exactly the task text and nothing else." }]`, `modelPolicy.primary: "mock/echo"`, no tools, no permissions. It is what RUN-00 runs and what every later run uses as a smoke test.
 
+## The companion (F6)
+
+`examples/workspace/agents/companion/` is the owner's own agent, shipped with the owner's own project
+(`projects/companion/about.md`, a page the owner fills in and the agent reads as `documents: ["about.md"]`).
+It holds `memory.remember` and `memory.search`, writes what it is told about the person in the `user` scope
+and its working notes in its own, and files each reply as `notes/{{runId}}.md` in the companion project so the
+exchange is readable in the Library. Its `budgets` carry `dailySpendCapUsd` and `monthlySpendCapUsd` of its
+own, counted against its own spend (see workflows-and-execution.md, F6 amendment). Welcome's last step opens
+it with the project chosen. It is a recipe for "a space of my own" until project spaces (D-69) make it one.
+
 ## Import trust (D-34)
 
 Importing an agent validates `schemaVersion` (mismatch is refused with a message naming the versions), then rewrites `permissions` to **requested** — the one word used everywhere for this state. Nothing in a file grants anything; grants are made in the Tools screen and stored in the workspace, not in the agent.

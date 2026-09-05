@@ -9,7 +9,7 @@ import type { Credentials } from '../security/credentials.js';
 import type { Redactor } from '../security/redaction.js';
 import type { Logger } from '../log/index.js';
 import type { EventStore } from './events.js';
-import { RunBudget, narrowBudgets, type BudgetOverride } from './budget.js';
+import { type OwnCaps, RunBudget, narrowBudgets, type BudgetOverride } from './budget.js';
 import { StepFailure, StepRunner } from './step.js';
 import { WorkflowExecutor, WorkflowFailure, type ReviewHost } from './workflow-run.js';
 import { MAX_REJECTIONS, ReviewStore, type ReviewDecision } from '../review/store.js';
@@ -528,7 +528,10 @@ export class Engine {
       throw new NotFoundError(broken ? `Agent "${input.agentId}" failed to load: ${broken.message}` : `Agent "${input.agentId}" does not exist in this workspace.`);
     }
     const runId = ulid();
-    const budgets = narrowBudgets(narrowBudgets(ws.config.budgets, agent.definition.budgets), input.budget);
+    // The agent's own daily and monthly caps are its own (F6): they count its runs' spend, so they do not narrow
+    // the workspace's numbers here, which keep counting the workspace's total.
+    const { own, narrowing } = this.ownCapsOf(agent.definition.id, agent.definition.budgets);
+    const budgets = narrowBudgets(narrowBudgets(ws.config.budgets, narrowing), input.budget);
     const now = new Date().toISOString();
     this.deps.db.prepare(`INSERT INTO runs (id, kind, state, agent_version, agent_id, project_id, parent_run_id, depth, inputs_json, budgets_json, spent_json, started_at)
       VALUES (?, 'agent', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -572,7 +575,7 @@ export class Engine {
         if (!again) return { output: outcome.output };
         feedback = again.redo;
       }
-    }, input.parent !== undefined);
+    }, input.parent !== undefined, own);
   }
 
   /**
@@ -662,12 +665,14 @@ export class Engine {
     body: (budget: RunBudget, signal: AbortSignal) => Promise<Record<string, unknown>>,
     /** A delegated run never queues: its parent is holding a slot and waiting for it, so queueing would deadlock. */
     bypassQueue = false,
+    /** The agent's own caps, for an agent run whose definition has any (F6). */
+    own?: OwnCaps | undefined,
   ): { runId: string; done: Promise<void> } {
     const controller = new AbortController();
     const startedMs = Date.parse(startedAt);
 
     const work = async (): Promise<void> => {
-      const budget = new RunBudget(budgets, startedMs, () => this.spentTodayUsd(), () => this.spentThisMonthUsd());
+      const budget = new RunBudget(budgets, startedMs, () => this.spentTodayUsd(), () => this.spentThisMonthUsd(), undefined, own);
       try {
         if (controller.signal.aborted) throw new StepFailure('cancelled', null, 'the run was cancelled');
         const outputs = await body(budget, controller.signal);
@@ -920,24 +925,45 @@ export class Engine {
     return rows.map((r) => this.summary(r));
   }
 
-  /** What every model call has cost since local midnight, for the daily cap (D-14). */
-  spentTodayUsd(): number {
+  /** What every model call has cost since local midnight, for the daily cap (D-14); one agent's runs only when named. */
+  spentTodayUsd(agentId?: string): number {
     const midnight = this.now();
     midnight.setHours(0, 0, 0, 0);
-    return this.spentSinceUsd(midnight);
+    return this.spentSinceUsd(midnight, agentId);
   }
 
   /** From the first of this month, local time: the number the monthly cap and the Dashboard both read (F3). */
-  spentThisMonthUsd(): number {
+  spentThisMonthUsd(agentId?: string): number {
     const first = this.now();
     first.setDate(1);
     first.setHours(0, 0, 0, 0);
-    return this.spentSinceUsd(first);
+    return this.spentSinceUsd(first, agentId);
   }
 
-  spentSinceUsd(since: Date): number {
-    const row = this.deps.db.prepare('SELECT COALESCE(SUM(cost_usd), 0) AS total FROM model_calls WHERE ts >= ?').get(since.toISOString()) as { total: number };
+  spentSinceUsd(since: Date, agentId?: string): number {
+    const row = (agentId === undefined
+      ? this.deps.db.prepare('SELECT COALESCE(SUM(cost_usd), 0) AS total FROM model_calls WHERE ts >= ?').get(since.toISOString())
+      : this.deps.db.prepare('SELECT COALESCE(SUM(m.cost_usd), 0) AS total FROM model_calls m JOIN runs r ON r.id = m.run_id WHERE m.ts >= ? AND r.agent_id = ?').get(since.toISOString(), agentId)) as { total: number };
     return row.total;
+  }
+
+  /**
+   * An agent's own daily and monthly caps (F6), split from the rest of its budgets: the rest narrows the run as
+   * before; these two are checked against the agent's own spend and never narrow the workspace's numbers.
+   */
+  private ownCapsOf(agentId: string, budgets: BudgetOverride | undefined): { own: OwnCaps | undefined; narrowing: BudgetOverride | undefined } {
+    if (!budgets) return { own: undefined, narrowing: undefined };
+    const { dailySpendCapUsd, monthlySpendCapUsd, ...narrowing } = budgets;
+    const daily = typeof dailySpendCapUsd === 'number' ? dailySpendCapUsd : 0;
+    const monthly = typeof monthlySpendCapUsd === 'number' ? monthlySpendCapUsd : 0;
+    if (daily <= 0 && monthly <= 0) return { own: undefined, narrowing };
+    return {
+      own: {
+        subject: agentId, dailySpendCapUsd: daily, monthlySpendCapUsd: monthly,
+        spentTodayUsd: () => this.spentTodayUsd(agentId), spentThisMonthUsd: () => this.spentThisMonthUsd(agentId),
+      },
+      narrowing,
+    };
   }
 
   /**

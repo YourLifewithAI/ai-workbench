@@ -61,7 +61,7 @@ says. You do not run it yourself and it does not need to be on `Path`; the workb
 node dist\cli.js init ~/wb
 ```
 
-That makes `C:\Users\you\wb` and fills it with the example workspace: thirteen agents, six workflows, a
+That makes `C:\Users\you\wb` and fills it with the example workspace: fourteen agents, six workflows, a
 config, an empty database. It is a folder you own. Back it up like any other folder; there is nothing in the
 repository that is yours.
 
@@ -128,6 +128,14 @@ the two runs' cost per step on Runs. That is the whole editing loop; nothing her
 
 To make a new one, **New workflow** → *Copy of* story-pipeline, rename it, and take steps out.
 
+## Your own agent
+
+Agents → **Companion**, with the *Target project* set to `companion` (Welcome's last step opens it that way).
+It is the one agent that is yours: it reads `about.md` in the companion project as your word about yourself,
+remembers what you tell it in the `user` scope of Memory, files each exchange as a note in the Library, and
+spends inside its own caps ($2 a day, $20 a month as shipped) within the workspace's. Fill in `about.md` from
+the Library first; an empty page makes for a companion that knows nothing about you.
+
 ## What each screen is for
 
 - **Dashboard** — what needs you (approvals, blocking reviews, failures, the permissions review's findings),
@@ -138,7 +146,7 @@ To make a new one, **New workflow** → *Copy of* story-pipeline, rename it, and
   tried to leave the machine, in order.
 - **Library** — every version of everything an agent wrote.
 - **Workflows** — the six shipped pipelines, runnable and editable.
-- **Agents** — the thirteen shipped agents: what each is told, which model it gets now, and a run form.
+- **Agents** — the fourteen shipped agents: what each is told, which model it gets now, and a run form.
 - **Models** — the catalog, what is ready, prices, and *Check for changes*.
 - **Memory** — what agents carry between runs, with where each item came from.
 - **Tools** — the grant matrix. Nothing is granted until you grant it; the screen says what each tool reaches.

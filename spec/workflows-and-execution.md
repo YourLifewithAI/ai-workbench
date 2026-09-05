@@ -89,6 +89,13 @@ A run is `queued` while `execution.maxConcurrentRuns` are running.
 "retention": { "scratchDays": 7 }
 ```
 
+> Amendment (F6, 2026-09-05): an agent's own `budgets.dailySpendCapUsd` and `budgets.monthlySpendCapUsd` are
+> **its own caps**, checked against what runs of that agent have spent today and this month, not against the
+> workspace's total; the workspace's caps still apply on top, against the workspace's total. Before this a
+> per-agent daily cap narrowed the workspace's number and was compared to the workspace's spend, so a $2 companion
+> cap would have stopped the companion once anything at all had spent $2. The stop reasons are unchanged
+> (`daily_cap_reached`, `monthly_cap_reached`); the message names the agent.
+
 > Amendment (RUN-04, 2026-09-03): "the last permitted model call is the wrap-up turn" is implemented literally for `maxModelCalls` — one call is held back, so a budget of six means five productive calls and a sixth that summarises, and the count never exceeds the budget. Cost cannot be reserved the same way, since a call's price is not known until it returns; a wrap-up after a cost stop may carry the total slightly past `maxCostUsd`. The wrap-up does not emit a second `budget-warning` when 80% already announced that budget: one warning per budget means one.
 
 At 80% of `maxModelCalls`, `maxToolCalls`, or `maxCostUsd` a `budget-warning` event is emitted once per budget and the next harness section says so. The last permitted model call is the wrap-up turn: tools removed, an instruction to summarize what exists and what remains; its output is committed as the step's output flagged `partial`, then the run is `failed { reason: 'budget_exceeded' }`. `maxWallClockMs` and the daily cap are hard stops with no wrap-up. The daily cap sums `model_calls.cost_usd` over the local calendar day; a run that would start past it is refused with `daily_cap_reached`, and a running one fails before its next model call.

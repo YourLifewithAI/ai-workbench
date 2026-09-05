@@ -1,0 +1,7 @@
+{
+  "match": { "systemIncludes": "Companion", "callIndex": 1 },
+  "respond": {
+    "text": "Noting that before anything else.",
+    "toolCalls": [{ "name": "memory.remember", "input": { "content": "The owner prefers the uncertain thing said plainly over a confident guess.", "scope": "user" } }]
+  }
+}
