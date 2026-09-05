@@ -57,8 +57,11 @@ describe('SEC-28c the monthly cap stops spending and pauses schedules', () => {
       expect(trace).toContain('monthly_cap_reached');
       expect(trace).not.toContain('model-started');
 
-      // The month turns: the cap is behind us, schedules fire again.
-      now = new Date('2026-10-01T00:00:30Z');
+      // The month turns: the cap is behind us, schedules fire again. The window is the *local* calendar
+      // month (D-70), so cross the boundary in local time: `2026-10-01T00:00:30Z` is still September for
+      // every owner west of Greenwich, and this assertion then fails on their machine while passing in CI,
+      // which runs in UTC. Constructed from parts, it is the first minute of October in any zone.
+      now = new Date(2026, 9, 1, 0, 0, 30);
       const after = (await (await fetch(`${rt.baseUrl}/api/v1/spend`, { headers: headers(rt) })).json()) as SpendResponse;
       expect(after.thisMonthUsd).toBe(0);
       expect(after.schedulesPaused).toBe(false);

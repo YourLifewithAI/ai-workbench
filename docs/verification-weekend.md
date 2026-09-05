@@ -92,15 +92,18 @@ The same gates CI runs, on your machine. Mostly waiting. Read the last lines of 
   **Expect:** `Test Files 19 passed` and `Tests 131 passed | 2 skipped` or higher. One run on its own is `npm run dod -- 18` (any two-digit run number).
 
 - [ ] **A-4 Docker (optional)**
-  
-  Only if Docker Desktop is installed. The smoke script is bash: run it from Git Bash, not PowerShell.
 
-  ```powershell
+  Only if Docker Desktop is installed **and its engine is running** — open Docker Desktop first and wait for it to say *Engine running*; installed is not the same as started. Both lines are bash, and both must run from the repository, not from your home folder.
+
+  ```bash
+  cd ~/ai-workbench
   docker build -t ai-workbench:local .
   bash scripts/docker-smoke.sh ai-workbench:local
   ```
-  
+
   **Expect:** The smoke script prints its items and exits 0. Skip cleanly if there is no Docker; CI covers it on Linux.
+
+  Two failures that are not the build's fault: `failed to connect to the docker API` (or `Cannot connect to the Docker daemon`) means the engine is not up; `scripts/docker-smoke.sh: No such file or directory` means the shell is not in the repository. If a pasted line arrives with `^[[200~` in front of it, Git Bash took the paste literally — retype it.
 
 ## B. The Windows facts only you can check
 
@@ -160,12 +163,16 @@ CI runs Windows, but not your Windows: no Visual Studio, your profile, your shel
   `deploy.md`, section *On Windows: at logon, with Task Scheduler*: create the task with the `schtasks` command there, sign out and in, then read the URL from the workspace rather than from a window.
 
   ```powershell
+  schtasks /query /tn "AI Workbench"
+  Test-Path "$HOME\wb-weekend\data\runtime.json"
   $rt = Get-Content "$HOME\wb-weekend\data\runtime.json" | ConvertFrom-Json
   "http://127.0.0.1:$($rt.port)/#token=$(Get-Content "$HOME\wb-weekend\data\runtime.token")"
   schtasks /end /tn "AI Workbench"
   ```
-  
-  **Expect:** The printed URL opens the Dashboard. `schtasks /end` stops it and the next `doctor` says the runtime is not running. Do this one after B-4's runtime is stopped, or the two will fight over the workspace.
+
+  **Expect:** The first line lists the task and says *Running*; `Test-Path` says `True`. Only then is the URL worth reading, and it opens the Dashboard. `schtasks /end` stops it and the next `doctor` says the runtime is not running.
+
+  If the URL comes out as `http://127.0.0.1:/#token=` — no port, no token — the two files are not there, so PowerShell filled the blanks with nothing. That is the task not running, not a broken URL: check the `schtasks /query` line above it. Do this one after B-4's runtime is stopped, or the two will fight over the workspace.
 
 ## C. The whole app on the mock, no key
 
@@ -402,7 +409,7 @@ A few dollars at most. The checks that only a real model proves.
   
   Settings → *Which models do the work*.
   
-  **Expect:** *capable* resolves to `anthropic/claude-sonnet-5`, *fast* and *cheap* to `anthropic/claude-haiku-4-5`; the Google entries are listed but not ready.
+  **Expect:** *capable* resolves to `anthropic/claude-sonnet-5`. What *fast* and *cheap* come to depends on which keys are on file: the shipped lists put `google/gemini-3.6-flash` **ahead of** `anthropic/claude-haiku-4-5`, so with a Google key on file those two roles run on Gemini, and with only an Anthropic key they run on Haiku. Neither is a failure. If you want Anthropic doing that work whichever keys are present, drag Haiku above Gemini on this screen — that is the only place to change it, and it changes what runs a minute later.
 
 - [ ] **D-4 The adapter against the real API**
   

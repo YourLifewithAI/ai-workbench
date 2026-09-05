@@ -85,6 +85,21 @@ jobs:
       - run: npx vitest run --project security tests/security/sec-21-24-sandbox.test.ts
       - run: npm run dod -- 09
 
+  # The money caps count a *local* calendar day and month (D-70), and every runner above is UTC — so a
+  # boundary assertion written as a `...T00:00:00Z` literal passes here and fails on the owner's machine,
+  # which is exactly how it reached them. This job runs the suites that can tell the difference in a zone
+  # west of Greenwich, where that mistake is visible on the first run rather than the first weekend.
+  timezone:
+    runs-on: ubuntu-latest
+    env:
+      TZ: America/New_York
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx vitest run --project unit --project security
+
   docker:
     runs-on: ubuntu-latest
     steps:
