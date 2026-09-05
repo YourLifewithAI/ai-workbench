@@ -620,6 +620,7 @@ export function createApp(deps: AppDeps): Hono {
       schedulesPaused: spend.schedulesPaused,
       schedules: deps.scheduler.list().filter((s) => s.enabled).slice(0, 10),
       networkMode: deps.workspace().config.network.mode,
+      findings: deps.findings.list('open').length,
     };
     return json(c, body);
   });

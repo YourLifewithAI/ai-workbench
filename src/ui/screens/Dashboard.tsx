@@ -5,6 +5,7 @@ import { describeCron } from '../lib/cron';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { money } from '../../shared/summary.js';
+import type { DashboardResponse } from '../../shared/api/index.js';
 import { api } from '../lib/api.js';
 import { ApprovalCard } from '../components/ApprovalCard.js';
 import { BudgetLine } from '../components/BudgetBar.js';
@@ -73,10 +74,8 @@ export function Dashboard() {
           ) : null}
           {d.approvals.length === 0 && d.needsYou.length === 0 && d.failed.length === 0 ? (
             <div className="mt-2">
-              <EmptyState title={d.unreviewed > 0
-                ? `Nothing is blocked. ${d.unreviewed} output${d.unreviewed === 1 ? '' : 's'} would like a rating when you have a moment.`
-                : 'Nothing is waiting on you.'}>
-                {d.unreviewed > 0 ? <Button onClick={() => navigate('/review')}>Open Review</Button> : null}
+              <EmptyState title={waitingTitle(d)}>
+                {d.unreviewed > 0 || d.findings > 0 ? <Button onClick={() => navigate('/review')}>Open Review</Button> : null}
               </EmptyState>
             </div>
           ) : (
@@ -114,6 +113,13 @@ export function Dashboard() {
               ))}
             </ul>
           )}
+          {/* The permissions review's open findings (F8): counted here, decided in Review, blocking nothing. */}
+          {d.findings > 0 ? (
+            <p className="mt-2 text-sm text-gray-700 dark:text-gray-300" data-testid="findings-count">
+              <Link to="/review" className="underline underline-offset-4">{d.findings} permission finding{d.findings === 1 ? '' : 's'}</Link>
+              {' '}from the review {d.findings === 1 ? 'is' : 'are'} waiting in Review.
+            </p>
+          ) : null}
           {resume.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{resume.error.message}</p> : null}
 
           <h2 className="mt-8 text-lg font-medium">Running</h2>
@@ -206,4 +212,11 @@ export function Dashboard() {
       ) : null}
     </section>
   );
+}
+
+/** The empty state under Needs you: honest about what waits without blocking (ratings, the review's findings). */
+function waitingTitle(d: DashboardResponse): string {
+  if (d.unreviewed > 0) return `Nothing is blocked. ${d.unreviewed} output${d.unreviewed === 1 ? '' : 's'} would like a rating when you have a moment.`;
+  if (d.findings > 0) return 'Nothing is blocked.';
+  return 'Nothing is waiting on you.';
 }
