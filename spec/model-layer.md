@@ -163,3 +163,8 @@ With no matching fixture the mock echoes the last user text. It streams when ask
 > costs the cache on a long step is D-47's masking, which rewrites one old tool result per round once the loop
 > is past `keepRecentToolResults`; the prefix before that message survives, the tail does not.
 
+> Amendment (D-68, 2026-09-05): a policy id may be `role:<name>`. `expandPolicy` (`src/runtime/models/roles.ts`)
+> replaces it with the members of the role's list that are ready, in the list's order, before `selectCandidates`
+> judges them; a plain id passes through untouched. Under `--provider mock` every member is servable, so a mock
+> run's candidate list is the whole role in the owner's order. A role that contributes nothing is a rejection
+> with the reason (not a role, no members, none ready) and the screen to fix it on.

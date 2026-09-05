@@ -41,6 +41,13 @@ export const WorkbenchConfig = z.object({
   discovery: z.object({
     providers: z.record(z.string(), z.object({ adapter: z.string(), baseUrl: z.string().url() })).default({}),
   }).prefault({ providers: {} }),
+  /**
+   * Which models do the work (D-68): a role is an ordered list of catalog ids, and an agent's policy may name
+   * `role:<name>` instead of an id. The first model in the list that is ready is the one that runs, so the
+   * shipped agents run on whichever key the owner has, and the order is chosen on a screen rather than in
+   * twelve agent files.
+   */
+  models: z.object({ roles: z.record(z.string(), z.array(z.string())).default({}) }).prefault({ roles: {} }),
   grants: z.record(z.string(), z.unknown()).default({}),
   remembered: z.array(z.object({ tool: z.string(), host: z.string().optional(), path: z.string().optional() })).default([]),
 });

@@ -1,4 +1,7 @@
 import fs from 'node:fs';
+import { resolveRoles, rolesReferenced } from '../../models/roles.js';
+import { statusFor } from '../../models/availability.js';
+import { findModel } from '../../models/catalog.js';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import type { Command } from 'commander';
@@ -81,6 +84,35 @@ export function registerDoctor(program: Command, bootstrap: Bootstrap): void {
             detail: unpriced.length
               ? `no price on record for ${unpriced.map((m) => m.id).join(', ')} — unusable until one is entered in config/models.json (D-65)`
               : 'every cloud model has a price on record',
+          });
+
+          // Which models do the work (D-68): every role an agent names comes to something, or doctor says which does not.
+          const rolesInUse = rolesReferenced([...ws.agents.values()].map((a) => a.definition.modelPolicy), []);
+          const readyHere = (id: string): boolean => {
+            const entry = findModel(ws.catalog, id);
+            if (!entry) return false;
+            // No runtime here to poll a local endpoint or list adapters: a local model is given the benefit of the doubt.
+            const status = statusFor(entry, {
+              catalog: ws.catalog, mode: ws.config.network.mode, hasAdapter: () => true,
+              hasCredential: (provider) => creds.names().includes(provider),
+              reachableEndpoints: new Set(ws.catalog.models.filter((m) => m.locality === 'local' && m.baseUrl).map((m) => m.baseUrl!)),
+            });
+            return status.availability === 'ready';
+          };
+          const resolved = resolveRoles(ws.config.models.roles, readyHere);
+          const undefinedRoles = rolesInUse.filter((r) => !(r in ws.config.models.roles));
+          // A used role with nothing ready is a fault once there is a key to run on; with no key at all it is
+          // just the state of things, and the mock provider needs no role to resolve.
+          const empty = Object.entries(resolved).filter(([name, id]) => id === null && rolesInUse.includes(name)).map(([name]) => name);
+          const fault = undefinedRoles.length > 0 || (empty.length > 0 && creds.names().length > 0);
+          checks.push({
+            name: 'model roles',
+            ok: !fault,
+            detail: [
+              ...Object.entries(resolved).map(([name, id]) => `${name} → ${id ?? 'nothing ready'}`),
+              ...(undefinedRoles.length ? [`named by an agent but not defined: ${undefinedRoles.join(', ')}`] : []),
+              ...(empty.length ? [creds.names().length ? 'set the order in Settings → Which models do the work, or add a key for a model in the list' : 'no key is configured, so nothing is ready; the mock provider needs none'] : []),
+            ].join('; '),
           });
 
           // Every repository a person has granted (D-66): is it there, is it a checkout, does it declare a gate.

@@ -180,3 +180,10 @@ One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` â
 > auditor's own with the agent, the tool and a note). Neither can touch a path, a host or a credential, and no
 > tool anywhere sets a grant. CLI: `workbench review findings list | apply <id> | dismiss <id>`. A workflow's
 > `schedule` block may say `enabled: false`; the row is seeded paused.
+
+> Amendment (D-68, 2026-09-05): `GET /settings` also returns `models: { roles, resolved, undefinedRoles }` â€” each
+> role's list, the model it comes to right now (or null), and the roles an agent or a step names that no list
+> defines. `PUT /settings` takes `models: { roles }`, the whole map, replaced; a role name is lowercase letters,
+> digits and hyphens. `GET /agents` and `GET /agents/:id` carry `modelPolicy.now`: the ids the policy comes to
+> right now, roles expanded, only what is ready. `workbench doctor` gains a `model roles` check that names what
+> each role resolves to and any role an agent names that is not defined.

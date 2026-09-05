@@ -201,18 +201,18 @@ test('@run-11 Settings edits what it says it edits, and never shows a key back',
   const secret = `AIzaNotReal${Date.now()}`;
   await page.getByLabel('Provider').fill('google');
   await page.getByLabel('Key').fill(secret);
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
 
   // The name appears in the credentials list — with a Remove button beside it, which is what makes it that list
   // rather than the read-only summary above — and the value appears nowhere at all.
-  const credentials = page.getByRole('listitem').filter({ hasText: 'google' }).filter({ has: page.getByRole('button', { name: 'Remove' }) });
+  const credentials = page.getByRole('listitem').filter({ hasText: 'google' }).filter({ has: page.getByRole('button', { name: 'Remove', exact: true }) });
   await expect(credentials).toBeVisible();
   await expect(page.locator('body')).not.toContainText(secret);
   const settings = await request.get(`${base()}/api/v1/settings`, { headers: { Authorization: `Bearer ${token()}` } });
   expect(await settings.text()).not.toContain(secret);
 
-  // And taking it away works from the same screen.
-  await page.getByRole('button', { name: 'Remove' }).click();
+  // And taking it away works from the same screen. (Exact: the model-roles card has its own "Remove … from" buttons.)
+  await page.getByRole('button', { name: 'Remove', exact: true }).click();
   // The credentials list's own words: the MCP card says "None configured." too, and a substring match sees both.
   await expect(page.getByText('None configured. The mock provider needs none.')).toBeVisible();
 });
@@ -240,3 +240,27 @@ test('a repository is granted and taken back from the Tools screen, never in a f
   await expect(echo).toContainText('none', { timeout: 10_000 });
 });
 
+
+test('which models do the work is set on Settings, in order, and never in an agent file', async ({ page, request }) => {
+  await page.goto(base() + '/settings#token=' + token());
+  const card = page.getByTestId('model-roles');
+  await expect(card.getByRole('heading', { name: 'Which models do the work' })).toBeVisible();
+  const fast = card.getByTestId('role-fast');
+  await expect(fast.getByRole('listitem').first()).toContainText('google/gemini-3.6-flash');
+  await expectNoA11yViolations(page, 'Settings with model roles');
+
+  // Put the second model first, and save. The order is the whole decision.
+  await fast.getByRole('button', { name: /Move anthropic\/claude-haiku-4-5 up in fast/ }).click();
+  await expect(fast.getByRole('listitem').first()).toContainText('anthropic/claude-haiku-4-5');
+  await card.getByRole('button', { name: 'Save models' }).click();
+  await expect(card.getByText('Unsaved.')).toHaveCount(0);
+
+  const settings = (await (await request.get(`${base()}/api/v1/settings`, { headers: { Authorization: `Bearer ${token()}` } })).json()) as { models: { roles: Record<string, string[]> } };
+  expect(settings.models.roles['fast']![0]).toBe('anthropic/claude-haiku-4-5');
+  // Put it back, so the order other tests see is the shipped one. (A reload would lose the token fragment.)
+  await page.goto(base() + '/settings#token=' + token());
+  const again = page.getByTestId('model-roles').getByTestId('role-fast');
+  await again.getByRole('button', { name: /Move anthropic\/claude-haiku-4-5 down in fast/ }).click();
+  await page.getByTestId('model-roles').getByRole('button', { name: 'Save models' }).click();
+  await expect(page.getByTestId('model-roles').getByText('Unsaved.')).toHaveCount(0);
+});

@@ -107,3 +107,8 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > researcher's hosts to api.example.com* — plus *Dismiss*. Pressing the button is the person writing the
 > matrix, the same act as on the Tools screen; a finding with nothing to flip says so and offers only Dismiss.
 > **Workflows** shows `permissions-review` with its schedule paused: the owner switches it on.
+
+> Amendment (D-68, 2026-09-05): **Settings** gains *Which models do the work*: one column per role with its
+> ordered list, each model's readiness in a word, move up, move down, remove, an *Add a model* pick list from
+> the catalogue, and *Now:* the model the role comes to. One *Save models* for the card. **Agents** shows a role
+> beside what it resolves to (`role:fast → anthropic/claude-haiku-4-5`) and, on the agent's page, *Would run on*.

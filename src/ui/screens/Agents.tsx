@@ -60,7 +60,7 @@ export function Agents() {
                   <Badge>{a.id}</Badge>
                 </div>
                 <dl className="mt-3 space-y-1 text-sm">
-                  <div className="flex gap-2"><dt className="text-gray-600 dark:text-gray-400">Model</dt><dd className="font-mono text-xs">{a.modelPolicy.primary}</dd></div>
+                  <div className="flex gap-2"><dt className="text-gray-600 dark:text-gray-400">Model</dt><dd className="font-mono text-xs">{a.modelPolicy.primary}{a.modelPolicy.primary.startsWith('role:') ? ` → ${a.modelPolicy.now[0] ?? 'nothing ready'}` : ''}</dd></div>
                   {a.modelPolicy.fallbacks.length ? (
                     <div className="flex gap-2"><dt className="text-gray-600 dark:text-gray-400">Falls back to</dt><dd className="font-mono text-xs">{a.modelPolicy.fallbacks.join(', ')}</dd></div>
                   ) : null}
@@ -153,6 +153,7 @@ export function AgentDetail() {
               <h2 className="font-medium">Definition</h2>
               <dl className="mt-2 text-sm">
                 <Row k="Primary model" v={q.data.modelPolicy.primary} mono />
+                <Row k="Would run on" v={q.data.modelPolicy.now.length ? q.data.modelPolicy.now.join(', ') : 'nothing is ready: add a key in Settings, or change the role there'} mono />
                 <Row k="Fallbacks" v={q.data.modelPolicy.fallbacks.join(', ') || 'none'} mono />
                 <Row k="Version" v={q.data.version} mono />
                 <Row k="Instructions" v={q.data.instructionsSource === 'file' ? 'instructions.md' : 'inline in agent.json'} />

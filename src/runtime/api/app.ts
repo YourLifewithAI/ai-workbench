@@ -75,6 +75,9 @@ export interface AppDeps {
   setNetworkMode: (mode: SetNetworkModeRequest['mode']) => void;
   /** A human granting or withdrawing a tool. This is the authority; what an agent's file asks for is not. */
   setGrant: (agentId: string, permissions: unknown) => void;
+  /** Model roles (D-68): what a policy comes to right now, and each role's list and resolution for Settings. */
+  modelsNow: (policy: { primary: string; fallbacks: string[] }) => string[];
+  modelRoles: () => { roles: Record<string, string[]>; resolved: Record<string, string | null>; undefinedRoles: string[] };
   /** The permissions review (D-63): what the auditor proposed, and the person's decision on each. */
   findings: {
     list: (state: 'open' | 'applied' | 'dismissed' | 'all') => PermissionFinding[];
@@ -257,7 +260,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get('/api/v1/agents', (c) => {
     const ws = deps.workspace();
-    const body: AgentListResponse = { agents: [...ws.agents.values()].map(agentSummary), errors: ws.brokenAgents };
+    const body: AgentListResponse = { agents: [...ws.agents.values()].map((a) => agentSummary(a, deps.modelsNow(a.definition.modelPolicy))), errors: ws.brokenAgents };
     return json(c, body);
   });
 
@@ -276,7 +279,7 @@ export function createApp(deps: AppDeps): Hono {
       return fail(c, 'not_found', broken ? `Agent "${id}" failed to load: ${broken.message}` : `Agent "${id}" does not exist in this workspace.`, 404);
     }
     const body: AgentDetail = {
-      ...agentSummary(agent),
+      ...agentSummary(agent, deps.modelsNow(agent.definition.modelPolicy)),
       sections: agent.sections,
       instructionsSource: Array.isArray(agent.definition.instructions) ? 'inline' : 'file',
       documents: agent.definition.documents,
@@ -1191,7 +1194,7 @@ export function createApp(deps: AppDeps): Hono {
       return fail(c, 'validation', 'The request body must be JSON.', 400);
     }
     const parsed = UpdateSettingsRequest.safeParse(raw);
-    if (!parsed.success) return fail(c, 'validation', 'Expected some of { budgets, retention, execution, mcp, push }.', 400, parsed.error.issues);
+    if (!parsed.success) return fail(c, 'validation', 'Expected some of { budgets, retention, execution, mcp, push, models: { roles } }.', 400, parsed.error.issues);
     try {
       deps.updateSettings(parsed.data);
       return json(c, { ok: true, restartRequired: parsed.data.mcp !== undefined }, 202);
@@ -1214,6 +1217,7 @@ export function createApp(deps: AppDeps): Hono {
       mcpServers: ws.config.mcp.servers,
       push: ws.config.push,
       plugins: deps.plugins?.() ?? [],
+      models: deps.modelRoles(),
     };
     return json(c, body);
   });
@@ -1304,14 +1308,14 @@ function budgetOverride(overrides: Record<string, unknown> | undefined): BudgetO
   return Object.keys(out).length ? out : undefined;
 }
 
-function agentSummary(agent: LoadedAgent): AgentSummary {
+function agentSummary(agent: LoadedAgent, now: string[]): AgentSummary {
   const d = agent.definition;
   return {
     id: d.id,
     name: d.name,
     description: d.description,
     version: agent.version,
-    modelPolicy: { primary: d.modelPolicy.primary, fallbacks: d.modelPolicy.fallbacks, ...(d.modelPolicy.requires ? { requires: d.modelPolicy.requires as Record<string, unknown> } : {}) },
+    modelPolicy: { primary: d.modelPolicy.primary, fallbacks: d.modelPolicy.fallbacks, now, ...(d.modelPolicy.requires ? { requires: d.modelPolicy.requires as Record<string, unknown> } : {}) },
     tools: d.tools.map((t) => t.id),
     outputKind: d.output.kind,
     review: d.review,
