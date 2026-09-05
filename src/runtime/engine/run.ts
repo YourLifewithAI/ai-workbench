@@ -438,7 +438,10 @@ export class Engine {
    */
   private reviewHost(): ReviewHost {
     return {
-      afterStep: async ({ runId, stepId, blocking, versionId, signal }) => {
+      afterStep: async ({ runId, stepId, blocking, versionId, signal, intermediate }) => {
+        // An intermediate output — `output: { document: null }` — is a step's working, not something a person
+        // meant to rate; it stays out of the queue unless the step is a gate, where the person must see it (F4).
+        if (intermediate && !blocking) return null;
         const row = this.reviews.open({ runId, stepId, blocking, ...(versionId ? { versionId } : {}) });
         if (!blocking) return null;
 
