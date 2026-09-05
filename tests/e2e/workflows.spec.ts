@@ -104,9 +104,13 @@ test('@run-17 the coding run: the form shows its inputs and budgets, and the par
   });
   expect(started.ok(), await started.text()).toBe(true);
   const { runId } = (await started.json()) as { runId: string };
+  // A failed run answers with its error, so a red CI log says what went wrong rather than only that it did.
   await expect.poll(async () => {
-    const detail = (await (await request.get(`${base()}/api/v1/runs/${runId}`, { headers: { Authorization: `Bearer ${token()}` } })).json()) as { state: string };
-    return detail.state;
+    const detail = (await (await request.get(`${base()}/api/v1/runs/${runId}`, { headers: { Authorization: `Bearer ${token()}` } })).json()) as { state: string; error?: unknown };
+    if (detail.state !== 'failed') return detail.state;
+    const trace = await (await request.get(`${base()}/api/v1/runs/${runId}/trace.jsonl`, { headers: { Authorization: `Bearer ${token()}` } })).text();
+    const failures = trace.split('\n').filter((l) => l.includes('"step-failed"') || l.includes('"run-failed"') || l.includes('"ok":false'));
+    return `failed: ${JSON.stringify(detail.error)} ${failures.join(' ')}`;
   }, { timeout: 120_000 }).toBe('waiting_review');
 
   await page.goto(base() + '/review#token=' + token());
