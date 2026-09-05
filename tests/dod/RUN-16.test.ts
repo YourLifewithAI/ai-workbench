@@ -213,7 +213,8 @@ describe('DoD 2: the repository deny-list (SEC-33)', () => {
       expect(fs.existsSync(path.join(root, '..', 'outside.txt'))).toBe(false);
       expect(fs.existsSync(path.join(root, 'credentials.json'))).toBe(false);
       expect(fs.readFileSync(path.join(root, 'README.md'), 'utf8')).toContain('# fixture');
-      expect(JSON.parse(fs.readFileSync(path.join(root, '.workbench', 'repo.json'), 'utf8')).check).not.toContain('rm');
+      // Byte for byte what the fixture wrote: on the macOS runner the node path itself contains "arm64".
+      expect(JSON.parse(fs.readFileSync(path.join(root, '.workbench', 'repo.json'), 'utf8')).check).toBe(`"${process.execPath}" check.js`);
       // Refused in the trace, in the open (the run itself completes: a denial is a result, not a crash).
       expect(trace.filter((e) => e.type === 'repo-decided' && e.payload['allowed'] === false).length).toBeGreaterThanOrEqual(5);
     } finally {
