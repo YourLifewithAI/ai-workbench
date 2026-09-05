@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { roleFirst } from '../helpers/roles.js';
 import { describe, it, expect, beforeAll } from 'vitest';
 import { CLI_DIST, runCli, startRuntime, tempWorkspace } from '../helpers/workspace.js';
 import { openWorkspaceStore } from '../../src/runtime/cli/store.js';
@@ -33,7 +34,7 @@ describe('DoD 1: a run files its output in a project, with provenance', () => {
         createdBy: 'run-step',
         runId,
         stepId: 'main',
-        modelId: 'google/gemini-3.8-flash',
+        modelId: roleFirst('capable'),
       });
       expect(detail.version!.agentVersion).toMatch(/^sha256:[0-9a-f]{64}$/);
     } finally {

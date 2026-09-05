@@ -7,10 +7,7 @@
     "file": "instructions.md"
   },
   "modelPolicy": {
-    "primary": "google/gemini-3.6-flash",
-    "fallbacks": [
-      "google/gemini-3.8-flash"
-    ]
+    "primary": "role:fast"
   },
   "permissions": {
     "tools": {
@@ -29,18 +26,38 @@
           "items": {
             "type": "object",
             "properties": {
-              "candidate": { "type": "string" },
-              "kind": { "type": "string", "enum": ["unjustified"] },
-              "agentId": { "type": "string" },
-              "tool": { "type": "string" },
-              "note": { "type": "string", "maxLength": 600 }
+              "candidate": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "unjustified"
+                ]
+              },
+              "agentId": {
+                "type": "string"
+              },
+              "tool": {
+                "type": "string"
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 600
+              }
             },
             "additionalProperties": false
           }
         },
-        "summary": { "type": "string", "maxLength": 600 }
+        "summary": {
+          "type": "string",
+          "maxLength": 600
+        }
       },
-      "required": ["findings", "summary"],
+      "required": [
+        "findings",
+        "summary"
+      ],
       "additionalProperties": false
     }
   }

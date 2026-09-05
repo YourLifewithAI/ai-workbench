@@ -1,6 +1,7 @@
 // RUN-01 Definition of done (spec/runs/RUN-01.md). Item 4 (watch it stream in the UI) is the @run-01 e2e case.
 import fs from 'node:fs';
 import path from 'node:path';
+import { roleFirst } from '../helpers/roles.js';
 import { describe, it, expect, beforeAll } from 'vitest';
 import Database from 'better-sqlite3';
 import { workspacePaths } from '../../src/runtime/paths.js';
@@ -47,7 +48,7 @@ describe('DoD 2: a workspace agent runs and its provenance is stored', () => {
     const db = readDb(ws);
     try {
       const call = db.prepare('SELECT * FROM model_calls WHERE run_id = ?').get(result.runId) as { model_id: string; adapter: string; prompt_version: string; agent_version: string; cost_usd: number };
-      expect(call.model_id).toBe('google/gemini-3.8-flash');
+      expect(call.model_id).toBe(roleFirst('capable'));
       expect(call.adapter).toBe('mock');
       expect(call.prompt_version).toMatch(/^sha256:[0-9a-f]{64}$/);
       expect(call.agent_version).toMatch(/^sha256:[0-9a-f]{64}$/);
@@ -56,7 +57,7 @@ describe('DoD 2: a workspace agent runs and its provenance is stored', () => {
       const version = db.prepare('SELECT * FROM agent_versions WHERE hash = ?').get(call.agent_version) as { agent_id: string; definition_json: string } | undefined;
       expect(version, 'agent_versions resolves the hash the model call names').toBeDefined();
       expect(version!.agent_id).toBe('architect');
-      expect(JSON.parse(version!.definition_json)).toHaveProperty('definition.modelPolicy.primary', 'google/gemini-3.8-flash');
+      expect(JSON.parse(version!.definition_json)).toHaveProperty('definition.modelPolicy.primary', 'role:capable');
     } finally {
       db.close();
     }

@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
+import { roleFirst } from '../helpers/roles.js';
 import { AxeBuilder } from '@axe-core/playwright';
 
 const url = (): string => process.env['WB_E2E_URL']!;
@@ -21,7 +22,8 @@ test('@run-01 the Agents screen lists the workspace agents with their policy and
   for (const name of ['The Architect', 'The Weaver', 'The Cutter', 'Echo']) {
     await expect(page.getByRole('link', { name, exact: true })).toBeVisible();
   }
-  await expect(page.getByText('google/gemini-3.8-flash').first()).toBeVisible();
+  // The shipped agents name roles; the screen shows the role beside what it comes to.
+  await expect(page.getByText(/role:capable/).first()).toBeVisible();
   await expectNoA11yViolations(page, 'Agents');
 
   await page.getByRole('link', { name: 'The Architect', exact: true }).click();
@@ -66,9 +68,9 @@ test('@run-01 running an agent streams its text, then the run reads as a summary
   await expect(summary.locator('li')).toHaveCount(2);
   await expect(summary).toContainText('1 model call');
   // 420 in / 260 out come from the fixture; the price comes from the catalog.
-  await expect(summary).toContainText(expectedCost('google/gemini-3.8-flash', 420, 260));
+  await expect(summary).toContainText(expectedCost(roleFirst('capable'), 420, 260));
 
-  await page.locator('details summary').filter({ hasText: 'google/gemini-3.8-flash' }).first().click();
+  await page.locator('details summary').filter({ hasText: roleFirst('capable') }).first().click();
   await expect(page.getByRole('heading', { name: 'Compiled prompt' })).toBeVisible();
   await expect(page.getByText('## identity').first()).toBeVisible();
   await expect(page.getByText('Turn the premise into scene beats').first(), 'the instructions reached the prompt').toBeVisible();

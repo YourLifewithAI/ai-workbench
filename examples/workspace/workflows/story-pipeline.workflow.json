@@ -7,9 +7,15 @@
   "inputs": {
     "type": "object",
     "properties": {
-      "premise": { "type": "string", "title": "Premise", "description": "One or two sentences. Who, where, and what is about to go wrong." }
+      "premise": {
+        "type": "string",
+        "title": "Premise",
+        "description": "One or two sentences. Who, where, and what is about to go wrong."
+      }
     },
-    "required": ["premise"]
+    "required": [
+      "premise"
+    ]
   },
   "steps": [
     {
@@ -17,22 +23,28 @@
       "kind": "agent",
       "agent": "architect",
       "input": "{{inputs.premise}}",
-      "output": { "document": "beats.md" }
+      "output": {
+        "document": "beats.md"
+      }
     },
     {
       "id": "draft",
       "kind": "agent",
       "agent": "weaver",
       "input": "Turn these beats into prose.\n\n{{steps.beats.output}}",
-      "output": { "document": "draft.md" }
+      "output": {
+        "document": "draft.md"
+      }
     },
     {
       "id": "final",
       "kind": "agent",
       "agent": "cutter",
-      "model": "google/gemini-3.6-flash",
+      "model": "role:fast",
       "input": "Cut this draft.\n\n{{steps.draft.output}}",
-      "output": { "document": "final.md" }
+      "output": {
+        "document": "final.md"
+      }
     }
   ],
   "outputs": {
