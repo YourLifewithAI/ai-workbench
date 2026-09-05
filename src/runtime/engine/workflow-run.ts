@@ -19,7 +19,11 @@ import type { RunTaint } from './taint.js';
  * parks the run here until a human decides. The engine implements this because it owns the run's state row.
  */
 export interface ReviewHost {
-  afterStep(input: { runId: string; stepId: string; blocking: boolean; versionId?: string | undefined; signal: AbortSignal }): Promise<{ redo: string } | null>;
+  afterStep(input: {
+    runId: string; stepId: string; blocking: boolean; versionId?: string | undefined; signal: AbortSignal;
+    /** `output: { document: null }`: an output nobody meant to read on its own. It skips the queue unless the step blocks (F4). */
+    intermediate?: boolean | undefined;
+  }): Promise<{ redo: string } | null>;
   /** A rejection the step has not answered yet — a resumed run must carry it, not start over blank. */
   pendingFeedback(runId: string, stepId: string): string | null;
 }
@@ -211,6 +215,7 @@ export class WorkflowExecutor {
           const again = await this.deps.review.afterStep({
             runId: input.runId, stepId: step.id, blocking: step.review === 'blocking',
             ...(outcome.versionId ? { versionId: outcome.versionId } : {}), signal,
+            intermediate: step.output?.document === null,
           });
           if (!again) return { skipped: false, value: outcome.value };
           // The gate names the step that answers the feedback: this one goes back to pending with the rest.

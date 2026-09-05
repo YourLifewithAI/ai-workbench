@@ -133,3 +133,8 @@ Schedules live in the `schedules` table and are edited in the Workflows screen. 
 > Amendment (RUN-14, 2026-09-05): a workflow's `schedule` block takes `enabled` (default `true`). A shipped
 > workflow that should never run unasked — the permissions review is the first — seeds its schedule row
 > paused; the owner switches it on from the Workflows screen or `workbench schedules`.
+
+> Amendment (F4, 2026-09-05): a step whose output is intermediate — `output: { document: null }` — opens no
+> review row when it completes. Its output was never meant to be read on its own: it feeds the next step, and
+> rating it beside the prose it fed would teach the queue to be ignored. A blocking step still parks the run
+> and lands in the queue whatever its `output` says, because the person has to see what they are deciding on.

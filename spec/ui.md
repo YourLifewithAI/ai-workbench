@@ -123,3 +123,7 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > paused on it. **Settings** — the Budgets card is a form for the three money caps (per run, per day, per
 > month); the rest of the block stays read-only there. `workbench spend` prints the same numbers, plus the last
 > thirty days by model and by what was run.
+
+> Amendment (F4, 2026-09-05): **Review** no longer shows a step's intermediate output (`output: { document:
+> null }`) as unreviewed; the auditor's JSON, a map's per-item drafts and the like stay out of the queue. A
+> blocking step is still shown, whatever its output setting.
