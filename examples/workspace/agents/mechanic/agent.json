@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "mechanic",
+  "name": "The Mechanic",
+  "description": "Works on a repository you have granted it: reads, edits on a run branch, runs the repository's own check, commits, pushes. A person merges.",
+  "instructions": {
+    "file": "instructions.md"
+  },
+  "modelPolicy": {
+    "primary": "google/gemini-3.8-flash",
+    "fallbacks": [
+      "google/gemini-3.6-flash"
+    ]
+  },
+  "permissions": {
+    "tools": {
+      "repo.read": "allow",
+      "repo.list": "allow",
+      "repo.write": "allow",
+      "git.status": "allow",
+      "git.diff": "allow",
+      "git.log": "allow",
+      "git.branch": "allow",
+      "git.commit": "allow",
+      "git.push": "allow",
+      "check": "allow"
+    }
+  },
+  "budgets": {
+    "maxModelCalls": 60,
+    "maxToolCalls": 200,
+    "maxWallClockMs": 3600000,
+    "toolCallTimeoutMs": 1200000
+  },
+  "review": "none",
+  "output": {
+    "kind": "text"
+  }
+}

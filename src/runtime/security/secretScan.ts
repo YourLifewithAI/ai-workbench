@@ -12,6 +12,31 @@ export const PATTERNS: SecretPattern[] = [
   { name: 'workbench-cred-env', regex: /WORKBENCH_CRED_[A-Z]+=\S{16,}/g },
 ];
 
+/**
+ * File *names* that hold credentials, whatever is in them. A repository grant never opens one (SEC-33): the
+ * value scanner above catches a key pasted into source, and this list catches the files keys live in by design.
+ * `.env.example` and its siblings are templates and are left alone.
+ */
+export const CREDENTIAL_FILE_PATTERNS: SecretPattern[] = [
+  { name: 'workbench-credentials', regex: /^credentials\.json$/i },
+  { name: 'workbench-token', regex: /^runtime\.token$/i },
+  { name: 'dotenv', regex: /^\.env(\..*)?$/i },
+  { name: 'private-key', regex: /\.(pem|key|p12|pfx|jks|keystore)$/i },
+  { name: 'ssh-key', regex: /^id_(rsa|dsa|ecdsa|ed25519)(\..*)?$/i },
+  { name: 'netrc', regex: /^_?\.?netrc$/i },
+  { name: 'registry-auth', regex: /^\.(npmrc|pypirc|git-credentials|htpasswd|boto|s3cfg)$/i },
+  { name: 'secrets-file', regex: /^secrets?\.(json|ya?ml|toml|env)$|\.secret$/i },
+  { name: 'service-account', regex: /^service-?account.*\.json$/i },
+];
+const CREDENTIAL_TEMPLATES = /^\.env\.(example|sample|template|dist)$/i;
+
+/** The pattern a file name matches, or null when it looks like an ordinary file. */
+export function credentialShaped(basename: string): string | null {
+  if (CREDENTIAL_TEMPLATES.test(basename)) return null;
+  for (const p of CREDENTIAL_FILE_PATTERNS) if (p.regex.test(basename)) return p.name;
+  return null;
+}
+
 export interface Finding { file: string; line: number; pattern: string }
 
 export function scanText(text: string, file = '<text>'): Finding[] {

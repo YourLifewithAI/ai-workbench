@@ -6,7 +6,7 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import {
-  RerunRequest, ApprovalDecisionRequest, CompareRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
+  RerunRequest, ApprovalDecisionRequest, CompareRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
@@ -19,6 +19,7 @@ import { exportDataset, importDataset } from '../evaluation/transfer.js';
 import { bundle, openBundle, parseWorkflowBundle, stripAgentTrust, BundleShapeError, BundleVersionError, MemoryBundle } from '../transfer/bundle.js';
 import { TERMINAL_EVENTS, type EventStore } from '../engine/events.js';
 import { securityHeaders, hostOriginGuard, bearerGuard } from '../security/auth.js';
+import { grantFor } from '../security/permissions.js';
 import type { Redactor } from '../security/redaction.js';
 import type { Db } from '../db/index.js';
 import type { Credentials } from '../security/credentials.js';
@@ -416,10 +417,19 @@ export function createApp(deps: AppDeps): Hono {
         approvalByDefault: t.approvalByDefault ?? false,
         usesNetwork: t.usesNetwork ?? false,
         origin: t.origin ?? null,
-        available: t.tier !== 'execute' || sandbox.available,
+        // The execute tier needs the sandbox — except the one tool that runs on the host by design (D-66).
+        available: t.tier !== 'execute' || t.runsOnHost === true || sandbox.available,
         inputSchema: toolSpec(t).inputSchema,
       })),
       matrix,
+      grants: [...ws.agents.values()].map((agent): AgentGrantSummary => {
+        const granted = grantFor(ws.config, agent.definition.id);
+        return {
+          agentId: agent.definition.id,
+          fs: { read: granted?.fs.read ?? [], write: granted?.fs.write ?? [] },
+          repos: (granted?.repos ?? []).map((r) => ({ path: r.path, branches: r.branches })),
+        };
+      }),
       denials: denials.map((d): ToolDenial => ({
         id: d.id, runId: d.run_id, stepId: d.step_id, agentId: d.agent_id, tool: d.tool,
         decision: d.decision, reason: d.reason, errorCode: d.error_code, ts: d.ts,
@@ -428,7 +438,7 @@ export function createApp(deps: AppDeps): Hono {
       sandbox: {
         available: sandbox.available,
         path: sandbox.path,
-        disabled: sandbox.available ? [] : tools.filter((t) => t.tier === 'execute').map((t) => t.id),
+        disabled: sandbox.available ? [] : tools.filter((t) => t.tier === 'execute' && !t.runsOnHost).map((t) => t.id),
         limits: sandbox.limits,
       },
       mcpServers: deps.mcp?.status() ?? [],

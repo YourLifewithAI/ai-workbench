@@ -70,6 +70,7 @@ Vocabularies: `runs.kind ∈ agent | workflow | experiment`; `runs.state ∈ que
 | `model-aborted` / `fallback-selected` / `provider-meta-dropped` | `{ modelId, reason }` / `{ from, to, error }` / `{ droppedBlocks }` |
 | `tool-requested` / `tool-completed` | `{ callId, tool, input }` / `{ callId, result }` |
 | `permission-decided` / `approval-requested` / `approval-decided` / `egress-denied` | `{ tool, decision, policy, hint? }` / `{ approvalId, tool, args, policy }` / `{ approvalId, decision, by, remembered? }` / `{ host, reason }` |
+| `repo-decided` (RUN-16) | `{ tool, repo, path, mode: 'read' \| 'write' \| 'list' \| 'branch' \| 'push', allowed, reason }` — the repository grant's answer on one path or branch name, beside the matrix's `permission-decided` |
 | `memory-retrieved` / `memory-written` / `memory-redacted` | `{ items: [{ id, scope, trust, content }] }` / `{ item }` / `{ itemId, eventSeqs }` |
 | `artifact-written` / `review-decided` / `budget-warning` | `{ documentId?, fileId?, versionId, path }` / `{ reviewId, action, feedback? }` / `{ budget, used, limit }` |
 | `run-completed` / `run-failed` / `run-cancelled` / `run-interrupted` / `run-queued` | `{ outputs, spent }` / `{ reason, error, partialOutputs? }` / `{ by }` / `{}` / `{ position }` |

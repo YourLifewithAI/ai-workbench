@@ -11,6 +11,9 @@ import { Redactor } from '../../security/redaction.js';
 import { defaultAssertFts5 } from '../../db/index.js';
 import { findDeno } from '../../sandbox/deno.js';
 import { priceFor } from '../../models/catalog.js';
+import { grantFor } from '../../security/permissions.js';
+import { GATE_FILE, readGate } from '../../repos/gate.js';
+import { findExecutable } from '../../util/exec.js';
 
 /** The tools that exist only when the sandbox does, named here so `doctor` can list them without a runtime. */
 const EXECUTE_TIER = ['code.execute', 'shell', 'fs.write'];
@@ -78,6 +81,36 @@ export function registerDoctor(program: Command, bootstrap: Bootstrap): void {
             detail: unpriced.length
               ? `no price on record for ${unpriced.map((m) => m.id).join(', ')} — unusable until one is entered in config/models.json (D-65)`
               : 'every cloud model has a price on record',
+          });
+
+          // Every repository a person has granted (D-66): is it there, is it a checkout, does it declare a gate.
+          const repositories: string[] = [];
+          let repoProblems = 0;
+          for (const agentId of Object.keys(ws.config.grants).sort()) {
+            for (const repo of grantFor(ws.config, agentId)?.repos ?? []) {
+              const problems: string[] = [];
+              if (!path.isAbsolute(repo.path)) problems.push('not an absolute path, so it grants nothing');
+              else if (!fs.existsSync(repo.path)) problems.push('does not exist');
+              else if (!fs.existsSync(path.join(repo.path, '.git'))) problems.push('is not a git checkout');
+              let gate = 'no gate';
+              if (!problems.length) {
+                try {
+                  gate = `gate: ${readGate(repo.path).check}`;
+                } catch (e) {
+                  gate = fs.existsSync(path.join(repo.path, GATE_FILE)) ? `${GATE_FILE} is broken: ${(e as Error).message}` : `no ${GATE_FILE}, so no check`;
+                }
+              }
+              repoProblems += problems.length;
+              repositories.push(`${agentId} → ${repo.path} (may push to ${repo.branches}; ${problems.length ? problems.join(', ') : gate})`);
+            }
+          }
+          const git = findExecutable('git', bootstrap.childEnvAllowlist['PATH']);
+          checks.push({
+            name: 'repositories',
+            ok: repoProblems === 0 && (repositories.length === 0 || git !== null),
+            detail: repositories.length
+              ? `${git ? '' : 'git is not on PATH, so the git tools refuse by name. '}${repositories.join('; ')}`
+              : 'none granted (grants.<agent>.repos in config/workbench.json)',
           });
 
           const live = await findLiveRuntime(wsPaths);

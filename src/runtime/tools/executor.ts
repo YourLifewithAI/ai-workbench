@@ -11,7 +11,7 @@ import { Broker, PolicyError } from '../security/broker.js';
 import { guardedFetch, NetDeniedError, type NetFetchDeps } from '../security/netfetch.js';
 import type { RunTaint } from '../engine/taint.js';
 import { EXTERNAL_TOOLS, PRIVATE_TOOLS } from '../engine/taint.js';
-import { EMPTY_PERMISSIONS, effectivePermissions, grantFor, narrowestMode, type ToolDecision } from '../security/permissions.js';
+import { ANY_REPO, EMPTY_PERMISSIONS, effectivePermissions, grantFor, narrowestMode, type ToolDecision } from '../security/permissions.js';
 import type { WorkbenchConfig } from '../../shared/workspace.js';
 import type { NetworkMode, Permissions } from '../../shared/permissions.js';
 import { toolError, type ToolContext, type ToolDefinition, type ToolResult } from '../../shared/tool.js';
@@ -21,10 +21,12 @@ import { childEnv } from '../security/childEnv.js';
 import { DEFAULT_LIMITS, runCommand, type Sandbox, type SandboxLimits } from '../sandbox/deno.js';
 import { bridgePreamble, bridgeResponse, newNonce, readBridgeLine } from '../sandbox/bridge.js';
 import type { CodeRunResult } from './builtin/code.js';
+import { repoHandle } from '../repos/access.js';
+import type { GitExec } from '../repos/git.js';
 import { Permissions as PermissionsSchema } from '../../shared/permissions.js';
 
 /** The widest ceiling there is: used when composing an agent's own policy without a particular tool in hand. */
-const ANY_TOOL = PermissionsSchema.parse({ fs: { read: ['/'], write: ['/'] }, net: { allow: [], allowLocalAddresses: true } });
+const ANY_TOOL = PermissionsSchema.parse({ fs: { read: ['/'], write: ['/'] }, net: { allow: [], allowLocalAddresses: true }, repos: [ANY_REPO] });
 
 export interface ToolCall { id: string; name: string; input: unknown }
 
@@ -60,6 +62,8 @@ export interface ExecutorDeps {
   /** PATH HOME TMPDIR LANG LC_* TZ — the only variables any child of this runtime ever inherits (D-33). */
   childEnvAllowlist?: Record<string, string> | undefined;
   sandboxLimits?: (() => SandboxLimits) | undefined;
+  /** The repository tools (RUN-16). `git: null` means git is not installed; the tools then refuse by name. */
+  repos?: { git: GitExec | null; maxOutputChars: () => number } | undefined;
 }
 
 export interface ExecuteInput {
@@ -347,6 +351,26 @@ export class ToolExecutor {
         can: (p, mode) => broker.can(p, mode),
       },
       net: { fetch: (url, init) => this.netFetch(tool, input, permissions, url, init) },
+      repo: repoHandle({
+        grants: permissions.repos,
+        workspaceDir: this.deps.workspaceDir,
+        env: childEnv(this.deps.childEnvAllowlist ?? {}),
+        git: this.deps.repos?.git ?? null,
+        agentId: input.agent.definition.id,
+        runId: input.runId,
+        signal: input.signal,
+        maxOutputChars: () => this.deps.repos?.maxOutputChars() ?? this.deps.config().context.maxToolResultChars,
+        writeScratch: async (name, data) => {
+          // Through the broker like every other scratch write: the directory is this run's own, not a shortcut.
+          const scratch = new Broker({ workspaceDir: this.deps.workspaceDir, permissions: EMPTY_PERMISSIONS, scratchDir: input.scratchDir });
+          await scratch.write(path.join(input.scratchDir, name), data);
+          return `scratch/${name}`;
+        },
+        onDecision: (d) => {
+          if (!d.allowed) this.deps.log.info({ tool: tool.id, runId: input.runId, ...d }, 'the repository grant refused something');
+          this.deps.events.append(input.runId, input.stepId, 'repo-decided', { tool: tool.id, ...d });
+        },
+      }),
       credentials: { get: (name) => (declared.has(name) ? this.deps.credentials.get(name) : undefined) },
       log: (message) => this.deps.log.info({ tool: tool.id, runId: input.runId }, message),
       signal: input.signal,

@@ -232,6 +232,13 @@ describe('SEC-23 without Deno there is no execution path at all', () => {
       expect(tools.sandbox.available).toBe(false);
       expect(tools.sandbox.disabled.sort()).toEqual(['code.execute', 'fs.write', 'shell']);
       for (const tool of tools.tools.filter((t) => t.tier === 'execute')) {
+        // The one exception, by design: `check` runs a repository's own declared gate on the host, outside
+        // the sandbox, because the gate spawns what a sandbox cannot (D-66, SEC-35). It takes no command
+        // from the agent, so a machine without Deno keeps it — and says so rather than hiding it.
+        if (tool.id === 'check') {
+          expect(tool.available, 'check runs on the host and does not need the sandbox').toBe(true);
+          continue;
+        }
         expect(tool.available, `${tool.id} is not available without a sandbox`).toBe(false);
       }
     } finally {

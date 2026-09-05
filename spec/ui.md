@@ -34,7 +34,7 @@ The UI is the owner's control surface, not the product. It must let a verifier a
 | **Review** | unreviewed outputs with rate / edit / reject-with-feedback / continue; blocking gates; approval cards (risk line, why, three buttons, narrowest remember default) | 05 · 06 |
 | **Models** | catalog with availability (Ollama polled), capabilities, context, pricing, data policy; greyed by network mode; enable/disable | 02 |
 | **Memory** | search by scope, inspect provenance and trust, delete with "also redact N traces" | 08 |
-| **Tools** | built-ins, MCP servers and their tools, sandbox status; the tool × agent grant matrix (requested vs granted); denial history; plugins with their manifests and the trusted-code warning | 06 · 09 (MCP, sandbox) · 11 (plugins) |
+| **Tools** | built-ins, MCP servers and their tools, sandbox status; the tool × agent grant matrix (requested vs granted); per agent, the paths it may read and write and the repositories it may edit with the branches each may push to (read-only; written by hand, D-66); denial history; plugins with their manifests and the trusted-code warning | 06 · 09 (MCP, sandbox) · 11 (plugins) · 16 (repositories) |
 | **Evaluate** | Compare (one step × N models side by side with latency, tokens, cost, variance, pick) with cost estimate first; datasets; experiments and results | 10 |
 | **Settings** | workspace path, providers configured, network mode, budgets, retention, escalation rate (read-only from `GET /settings` at first); credentials editor (writes the 0600 file; never displays); MCP server configuration; "show the welcome path again" | 00 (read-only) · 11 |
 

@@ -9,6 +9,7 @@ import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import type { Logger } from '../log/index.js';
 import type { ToolDefinition } from '../../shared/tool.js';
+import { Permissions } from '../../shared/permissions.js';
 import type { ModelAdapter } from '../models/adapter.js';
 
 export const PluginManifest = z.object({
@@ -98,6 +99,11 @@ export class PluginLoader {
           const tools = (Array.isArray(value) ? value : [value]) as ToolDefinition[];
           for (const tool of tools) {
             if (!tool || typeof tool.id !== 'string' || typeof tool.execute !== 'function') throw new Error('a tool plugin default-exports a ToolDefinition, or an array of them');
+            // The ceiling is data the plugin's author wrote, against whatever the schema was then. Parsed, so
+            // a key added since (`repos`, RUN-16) is present and defaulted rather than undefined at the intersection.
+            const ceiling = Permissions.safeParse(tool.maxPermissions ?? {});
+            if (!ceiling.success) throw new Error(`tool "${tool.id}" has a maxPermissions block the schema rejects: ${ceiling.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')}`);
+            tool.maxPermissions = ceiling.data;
             // The plugin's own name is in the tool id, so a grant is per plugin and per tool.
             out.tools.push({ ...tool, id: tool.id.startsWith(`${manifest.name}.`) ? tool.id : `${manifest.name}.${tool.id}` });
           }

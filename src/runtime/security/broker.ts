@@ -52,6 +52,17 @@ export function windowsUnsafe(segment: string): string | null {
   return null;
 }
 
+/** Every segment of a resolved path, on Windows, against the names the filesystem reads differently. */
+export function windowsUnsafePath(real: string): string | null {
+  if (!WINDOWS) return null;
+  const { root, dir, base } = path.parse(real);
+  for (const segment of [...dir.slice(root.length).split(path.sep), base].filter((x) => x.length > 0)) {
+    const complaint = windowsUnsafe(segment);
+    if (complaint) return complaint;
+  }
+  return null;
+}
+
 export interface BrokerPolicy {
   /** The workspace root. Every root and candidate is resolved under it. */
   workspaceDir: string;
@@ -76,13 +87,8 @@ export function checkPath(candidate: string, roots: string[], policy: BrokerPoli
   // Refused before anything else, and before the path is resolved: these are names the filesystem reads
   // differently from the way this checker would, and a checker that disagrees with the filesystem is a bypass
   // rather than a policy. The drive letter is the one legitimate colon, and `path.parse` has already taken it.
-  if (WINDOWS) {
-    const { root, dir, base } = path.parse(real);
-    for (const segment of [...dir.slice(root.length).split(path.sep), base].filter((x) => x.length > 0)) {
-      const complaint = windowsUnsafe(segment);
-      if (complaint) return { allowed: false, reason: complaint, realPath: real };
-    }
-  }
+  const unsafe = windowsUnsafePath(real);
+  if (unsafe) return { allowed: false, reason: unsafe, realPath: real };
 
   if (!contains(workspace, real)) {
     return { allowed: false, reason: `"${candidate}" is outside this workspace. Tools work inside the workspace only.`, realPath: real };
@@ -92,17 +98,8 @@ export function checkPath(candidate: string, roots: string[], policy: BrokerPoli
   const scratch = realpathOf(policy.scratchDir);
   if (contains(scratch, real)) return { allowed: true, reason: 'the run\'s own scratch directory', realPath: real };
 
-  const relative = path.relative(workspace, real);
-  const segments = relative.split(path.sep).filter((s) => s.length > 0);
-  const first = segments[0];
-  // The deny-list is checked on the *canonical* path, so a grant whose root lexically contains `agents/` cannot
-  // reach an agent's own definition through a symlink or a `..` that resolves back inside (SEC-11).
-  if (first && HARD_DENY.some((d) => same(d, first))) {
-    return { allowed: false, reason: `"${first}/" is never readable or writable by a tool: it holds the definitions and secrets that decide what tools may do.`, realPath: real };
-  }
-  if (segments.some((s) => DENIED_FILES.some((d) => same(d, s)))) {
-    return { allowed: false, reason: `"${path.basename(real)}" is never readable or writable by a tool.`, realPath: real };
-  }
+  const denied = workspaceDenied(workspace, real);
+  if (denied) return { allowed: false, reason: denied, realPath: real };
 
   for (const root of roots) {
     const rootReal = realpathOf(path.isAbsolute(root) ? root : path.resolve(policy.workspaceDir, root));
@@ -117,8 +114,27 @@ export function checkPath(candidate: string, roots: string[], policy: BrokerPoli
   };
 }
 
+/**
+ * The hard deny-list, on a canonical path already known to be inside the workspace. Checked on the *canonical*
+ * path, so a grant whose root lexically contains `agents/` cannot reach an agent's own definition through a
+ * symlink or a `..` that resolves back inside (SEC-11). Shared with the repository policy: a repository grant
+ * that happens to cover the workspace is still not a way to its config (SEC-33).
+ */
+export function workspaceDenied(workspace: string, real: string): string | null {
+  const relative = path.relative(workspace, real);
+  const segments = relative.split(path.sep).filter((s) => s.length > 0);
+  const first = segments[0];
+  if (first && HARD_DENY.some((d) => same(d, first))) {
+    return `"${first}/" is never readable or writable by a tool: it holds the definitions and secrets that decide what tools may do.`;
+  }
+  if (segments.some((s) => DENIED_FILES.some((d) => same(d, s)))) {
+    return `"${path.basename(real)}" is never readable or writable by a tool.`;
+  }
+  return null;
+}
+
 /** Resolves as far as the path exists, so a write to a file that is not there yet is still checked properly. */
-function realpathOf(target: string): string {
+export function realpathOf(target: string): string {
   let current = path.resolve(target);
   const trailing: string[] = [];
   for (;;) {
@@ -133,13 +149,13 @@ function realpathOf(target: string): string {
   }
 }
 
-function contains(root: string, candidate: string): boolean {
+export function contains(root: string, candidate: string): boolean {
   if (same(root, candidate)) return true;
   const relative = path.relative(root, candidate);
   return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
-function same(a: string, b: string): boolean {
+export function same(a: string, b: string): boolean {
   // On Windows the name the filesystem opens is the name with trailing dots and spaces removed, so that is
   // the name the deny list has to be compared against — not the string the caller happened to write.
   const norm = (x: string): string => {

@@ -4,6 +4,7 @@
 import { Permissions } from '../../shared/permissions.js';
 import type { NetworkMode } from '../../shared/permissions.js';
 import type { WorkbenchConfig } from '../../shared/workspace.js';
+import { narrowerBranches, type RepoGrant } from '../../shared/repo.js';
 
 /** `offline < local-only < allowlist < unrestricted`; the effective mode is the minimum over every layer. */
 const MODE_ORDER: Record<NetworkMode, number> = { offline: 0, 'local-only': 1, allowlist: 2, unrestricted: 3 };
@@ -36,7 +37,30 @@ export function intersect(a: Permissions, b: Permissions): Permissions {
     tools: intersectTools(a.tools, b.tools),
     // Either layer may demand an approval; neither can waive the other's.
     approvalRequired: [...new Set([...a.approvalRequired, ...b.approvalRequired])],
+    repos: intersectRepos(a.repos, b.repos),
   };
+}
+
+/** The widest repository grant there is: a tool ceiling, or a ceiling that said nothing about repositories. */
+export const ANY_REPO: RepoGrant = { path: '/', branches: '**' };
+
+/**
+ * A repository survives only if both layers cover it — the narrower root, and the narrower branch pattern.
+ * Two patterns neither of which implies the other leave nothing: no branch satisfies both (D-66).
+ */
+function intersectRepos(a: RepoGrant[] | undefined, b: RepoGrant[] | undefined): RepoGrant[] {
+  const out: RepoGrant[] = [];
+  // A plugin's ceiling is an object its author wrote before this key existed; a missing list grants nothing.
+  for (const left of a ?? []) {
+    for (const right of b ?? []) {
+      const path = under(left.path, right.path) ? left.path : under(right.path, left.path) ? right.path : null;
+      if (path === null) continue;
+      const branches = narrowerBranches(left.branches, right.branches);
+      if (branches === null) continue;
+      if (!out.some((r) => r.path === path && r.branches === branches)) out.push({ path, branches });
+    }
+  }
+  return out.sort((x, y) => x.path.localeCompare(y.path) || x.branches.localeCompare(y.branches));
 }
 
 export function intersectAll(...layers: (Permissions | undefined)[]): Permissions {
@@ -64,6 +88,7 @@ function asCeiling(ceiling: Permissions | undefined): Permissions | undefined {
       read: ceiling.fs.read.length ? ceiling.fs.read : ['/'],
       write: ceiling.fs.write.length ? ceiling.fs.write : ['/'],
     },
+    repos: ceiling.repos.length ? ceiling.repos : [ANY_REPO],
   };
 }
 

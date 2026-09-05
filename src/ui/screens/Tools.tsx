@@ -175,7 +175,7 @@ export function Tools() {
             </dl>
           </Card>
           <div className="mt-2 overflow-x-auto" tabIndex={0}>
-            <table className="w-full text-left text-sm">
+            <table className="w-full text-left text-sm" data-testid="network-agents">
               <caption className="sr-only">The effective network policy for each agent</caption>
               <thead>
                 <tr className="border-b border-gray-200 text-gray-700 dark:border-gray-800 dark:text-gray-300">
@@ -206,6 +206,52 @@ export function Tools() {
                             : agent.allow.length
                               ? <span className="font-mono text-xs break-all">{agent.allow.join(', ')}</span>
                               : <span className="text-gray-700 dark:text-gray-300">nothing: the allowlist is empty</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <h2 className="mt-8 text-lg font-medium">What they may reach on disk</h2>
+          <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
+            The other half of a grant: the workspace paths an agent may read and write, and the repositories it may
+            edit on a branch. A repository tool works only inside a granted checkout and only on the branches named
+            here; nothing an agent does there reaches <span className="font-mono text-xs">main</span> without a person
+            merging it. These are written by you, in <span className="font-mono text-xs">config/workbench.json</span>.
+          </p>
+          <div className="mt-2 overflow-x-auto" tabIndex={0}>
+            <table className="w-full text-left text-sm" data-testid="disk-grants">
+              <caption className="sr-only">Paths and repositories granted to each agent</caption>
+              <thead>
+                <tr className="border-b border-gray-200 text-gray-700 dark:border-gray-800 dark:text-gray-300">
+                  <th scope="col" className="py-2 pr-3 font-medium">Agent</th>
+                  <th scope="col" className="py-2 pr-3 font-medium">Reads</th>
+                  <th scope="col" className="py-2 pr-3 font-medium">Writes</th>
+                  <th scope="col" className="py-2 pr-3 font-medium">Repositories</th>
+                </tr>
+              </thead>
+              <tbody>
+                {q.data.grants.map((grant) => (
+                  <tr key={grant.agentId} className="border-b border-gray-100 align-top dark:border-gray-800">
+                    <th scope="row" className="py-2 pr-3 font-normal">{grant.agentId}</th>
+                    <td className="py-2 pr-3">
+                      {grant.fs.read.length ? <span className="font-mono text-xs break-all">{grant.fs.read.join(', ')}</span> : <span className="text-gray-700 dark:text-gray-300">its project only</span>}
+                    </td>
+                    <td className="py-2 pr-3">
+                      {grant.fs.write.length ? <span className="font-mono text-xs break-all">{grant.fs.write.join(', ')}</span> : <span className="text-gray-700 dark:text-gray-300">its project only</span>}
+                    </td>
+                    <td className="py-2 pr-3">
+                      {grant.repos.length ? (
+                        <ul className="space-y-1">
+                          {grant.repos.map((repo) => (
+                            <li key={`${repo.path}:${repo.branches}`}>
+                              <span className="font-mono text-xs break-all">{repo.path}</span>
+                              <span className="ml-2 text-xs text-gray-700 dark:text-gray-300">may push to <span className="font-mono">{repo.branches}</span></span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : <span className="text-gray-700 dark:text-gray-300">none</span>}
                     </td>
                   </tr>
                 ))}

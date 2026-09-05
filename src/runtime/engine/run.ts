@@ -16,6 +16,7 @@ import { MAX_REJECTIONS, ReviewStore, type ReviewDecision } from '../review/stor
 import { ApprovalStore, type ApprovalDecision } from '../approvals/store.js';
 import { ToolExecutor, type ApprovalHost } from '../tools/executor.js';
 import { builtinTools } from '../tools/registry.js';
+import { gitExec } from '../repos/git.js';
 import { searchProvider, type MockSearchFixture } from '../search/index.js';
 import { RunTaint } from './taint.js';
 import { MemoryStore } from '../memory/store.js';
@@ -211,6 +212,8 @@ export class Engine {
         },
       }),
       approvals: this.approvalHost(),
+      // git is found once, at startup, on the explicit PATH — never `process.env` (D-33).
+      repos: { git: gitExec(deps.childEnvAllowlist?.['PATH']), maxOutputChars: () => deps.workspace().config.context.maxToolResultChars },
       ...(deps.sandbox ? { sandbox: deps.sandbox } : {}),
       ...(deps.childEnvAllowlist ? { childEnvAllowlist: deps.childEnvAllowlist } : {}),
       ...(deps.net ? {

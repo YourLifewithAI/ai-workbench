@@ -9,6 +9,7 @@ import { webTools, type WebToolDeps } from './builtin/web.js';
 import { memoryTools, type MemoryToolDeps } from './builtin/memory.js';
 import { fileTools, type FileToolDeps } from './builtin/files.js';
 import { codeTools, type CodeToolDeps } from './builtin/code.js';
+import { repoTools } from './builtin/repo.js';
 
 export interface RegistryDeps {
   artifacts: ArtifactStore;
@@ -40,6 +41,8 @@ export function builtinTools(deps: RegistryDeps): Map<string, ToolDefinition> {
     ...(deps.memory ? memoryTools(deps.memory) : []),
     ...(deps.files ? fileTools(deps.files) : []),
     ...(deps.code ? codeTools(deps.code) : []),
+    // Always in the catalogue, granted to nobody: a repository grant is the only thing that makes one usable.
+    ...repoTools(),
   ];
   return new Map(tools.map((t) => [t.id, t]));
 }

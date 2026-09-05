@@ -242,6 +242,13 @@ export interface CommandInput {
   env: Record<string, string>;
   limits: SandboxLimits;
   signal: AbortSignal;
+  /**
+   * Run `command` as one line through the platform shell. Off for everything an agent chooses — `shell`'s
+   * command and arguments are an array so there is nothing to quote wrong — and on for exactly one caller: a
+   * repository's own gate, a line a person wrote into `.workbench/repo.json` that no tool can edit (SEC-35).
+   * `npm run check` is that line, and on Windows `npm` is a `.cmd` that only a shell can start.
+   */
+  shell?: boolean | undefined;
 }
 
 /**
@@ -256,6 +263,7 @@ export function runCommand(input: CommandInput): Promise<Omit<SandboxResult, 'ok
       cwd: input.cwd,
       env: input.env,
       stdio: ['ignore', 'pipe', 'pipe'],
+      ...(input.shell ? { shell: true } : {}),
     });
     let stdout = '';
     let stderr = '';
