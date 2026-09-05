@@ -167,3 +167,12 @@ Import trust is defined in `agents-and-prompts.md` (D-34) and exports in `data-m
 > - **A `kind: 'tool'` workflow step runs under a grant named for the workflow** — `grants.<workflowId>` — rather than inventing a wider door than an agent gets. The workspace needs an agent definition with the workflow's id to hold that grant; otherwise the step is refused with a message saying so.
 
 > Amendment (RUN-12, 2026-09-03): an approval row carries an `ordinal` — where the call sat in the response that asked for it — so a batched card lists its actions in ask order. ULIDs were tried first and are wrong for this: they are only monotonic within a millisecond when a monotonic factory makes them, and two parallel tool calls land in the same millisecond.
+
+> Amendment (RUN-16 plan, 2026-09-05): D-66 adds a fourth grant kind, `repos`, and the tools it unlocks.
+> By tier: **read** — `repo.read`, `repo.list`, `git.status`, `git.diff`, `git.log`; **write** — `repo.write`,
+> `git.branch`, `git.commit`, `git.push`; **execute** — `check`. `check` is execute-tier but is *not* a sandbox
+> tool: it runs the repository's declared gate on the host, because the gate is the owner's own command and
+> spawns things a sandbox cannot. It exists only under a repository grant, takes no command from the agent,
+> and gets `childEnv()` like any child (SEC-35). `git.push` and `repo.write` are refused by name outside the
+> grant's branch pattern and root (SEC-33, SEC-34). The Tools screen lists repository grants beside path grants
+> and says which branches each may push to.

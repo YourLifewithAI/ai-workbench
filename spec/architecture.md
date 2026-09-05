@@ -90,7 +90,8 @@ Loading: `workspace.json`, `config/workbench.json` (any subset of keys; the rest
   "tools":     { "http": { "maxResponseBytes": 2097152, "timeoutMs": 20000 } },
   "mcp":       { "servers": [] },
   "push":      { "enabled": true, "events": ["approval-requested", "review-blocking", "run-failed", "scheduled-completed"] },
-  "grants":    { "<agentId>": { /* Permissions actually granted to that agent */ } },
+  "grants":    { "<agentId>": { /* Permissions actually granted to that agent; from RUN-16 also
+                                   repos: [{ "path": "/abs/checkout", "branches": "run/*" }] (D-66) */ } },
   "remembered": [ { "tool": "http.request", "host": "api.example.com" } ] }
 ```
 

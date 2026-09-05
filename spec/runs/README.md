@@ -61,3 +61,13 @@ Everything an agent needs is in at most ten bounded files. Done is a command, no
 > advance. Their record is the commit message and the PR, not a `runlog/` handoff, because there is no brief
 > for a handoff to answer. A maintenance branch that turns out to need a brief — a real feature, a decision
 > nobody has made — stops and becomes one (that is how RUN-13, RUN-14 and RUN-15 were written).
+
+> Amendment (owner decision, 2026-09-05): the next runs are **15, 16, 17, then 13 and 14** — and 13 and 14 are
+> executed *by the workbench*, not by the coding harness this project was built in (D-67). RUN-15 first because
+> a key for a second provider is useless until the catalog can learn what that provider offers. RUN-16 gives an
+> agent a repository, git, and the repository's own check command under a grant a person wrote (D-66). RUN-17
+> ships `coding-run`, the workflow that reads a brief and drives it to a branch a person merges. From then on
+> the protocol above is unchanged and the agent running it is different: a brief is dispatched with
+> `workbench run workflow coding-run --input brief=spec/runs/RUN-nn.md`, the handoff lands in `runlog/` as a
+> document, and the person's part is the merge. The first two briefs to go through it are the two already
+> written, which is also how RUN-17 is verified.
