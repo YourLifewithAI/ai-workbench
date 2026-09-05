@@ -69,3 +69,10 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > - **Touch targets are at least 44px tall below `md`** and shrink above it: `Button`'s `sm` size is `min-h-11 md:min-h-8`, and the same applies to the theme selector and the network banner's one-click switch. The e2e measures every button, link, select and checkbox on each phone screen rather than trusting the classes.
 > - **The Runs list is cards on a phone and a table on a desktop.** A five-column table on a 390px screen is a sideways scroll, which is how a phone layout fails. Long document paths in the Library wrap (`table-fixed` + `break-all`) for the same reason: one unbroken path pushes the whole page sideways.
 > - The keyboard-shortcut hints are hidden below `md`: there is no keyboard to hint at.
+
+> Amendment (RUN-15, 2026-09-05): the Models screen's one action is **Check for changes** — it polls local
+> endpoints and asks every provider with a credential what it offers — and what it finds is a list of findings
+> above the catalog, each with the provider's own name for the model rendered as text, the agents and steps that
+> pin a retired one, and two buttons: accept (a catalog write, a new model landing disabled) and dismiss. A model
+> an agent pins that the provider no longer offers wears a *pinned but retired* badge; one with no price on
+> record wears *price unknown* and is not selectable.

@@ -2,7 +2,7 @@
 // the agent names an ordered policy, the catalog says what each model can do, and the mode says what is reachable.
 import type { CatalogEntry, ContentBlock, Message, ModelsFile } from '../../shared/model.js';
 import type { NetworkMode } from '../../shared/permissions.js';
-import { findModel } from '../models/catalog.js';
+import { findModel, priceFor } from '../models/catalog.js';
 
 export interface Candidate { entry: CatalogEntry; adapterId: string }
 export interface Rejection { id: string; reason: string }
@@ -67,6 +67,10 @@ export function selectCandidates(opts: SelectOptions): Selection {
     if (!entry.enabled) { rejected.push({ id, reason: 'disabled in the catalog' }); continue; }
     const adapterId = opts.forceAdapter ?? entry.adapter;
     if (!opts.hasAdapter(adapterId)) { rejected.push({ id, reason: `no "${adapterId}" adapter is installed in this runtime` }); continue; }
+    // A cloud model with no price on record would cost $0, and a run that costs nothing cannot be stopped by
+    // any cap — so it is not selectable at all, whichever adapter serves it (D-65). The mock override does not
+    // exempt it: cost under the mock is still computed from the requested id's price rows.
+    if (entry.locality === 'cloud' && !priceFor(entry, new Date())) { rejected.push({ id, reason: 'no price on record; a cloud model with no price cannot be selected (D-65)' }); continue; }
     // The mock serves any id and opens no socket, so mode and capability gates do not apply to it.
     if (opts.forceAdapter !== 'mock') {
       const unreachable = reachableInMode(entry, opts.mode);

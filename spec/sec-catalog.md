@@ -41,6 +41,7 @@ Every run reads this file for the ids its brief lists (D-38). Each entry is a te
 | SEC-33 | A repository grant never covers `.git/` internals (`config`, `hooks`, `objects`, `refs`), any credentials-shaped file, or a path that resolves outside the granted root — each refused by name (D-66) | 16 |
 | SEC-34 | `git.push` to a branch outside the grant's pattern is refused, `main` first among them; no merge tool exists; a coding agent cannot move `main` (D-66) | 16 |
 | SEC-35 | `check` runs only the command declared in the repository's `.workbench/repo.json`; an agent-supplied command is not an input; the child gets `childEnv()` and no credential (D-66) | 16 |
+| SEC-36 | A provider's model listing is a proposal and untrusted text: refresh writes nothing; accepting writes only the id, numbers and any stated price, never the display name or description; that text reaches no compiled prompt and renders as text; findings pass through the redactor like any body (D-64) | 15 |
 
 > Amendment (RUN-19, 2026-09-04): SEC-05 and SEC-07 are written in POSIX terms, and Windows CI showed both
 > asserting the platform rather than the promise.

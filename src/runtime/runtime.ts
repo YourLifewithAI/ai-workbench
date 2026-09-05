@@ -37,7 +37,12 @@ import { AnthropicAdapter } from './models/adapters/anthropic/index.js';
 import { OpenAiCompatibleAdapter } from './models/adapters/openai-compatible/index.js';
 import { createApp } from './api/app.js';
 import { ArtifactStore } from './artifacts/store.js';
-import { listModels, pollLocalEndpoints, type PollResult } from './models/availability.js';
+import { listModels, pollLocalEndpoints, providerOf, type PollResult } from './models/availability.js';
+import { applyFinding, diffProvider, pinsFor } from './models/discovery.js';
+import type { CatalogFinding, DiscoveryReport } from '../shared/api/index.js';
+import { ModelsFile } from '../shared/model.js';
+import { EgressDeniedError } from './security/egress.js';
+import { ModelError } from './models/errors.js';
 import { createEgressFetch } from './security/egress.js';
 import { directFetch } from './models/fetch.js';
 import type { ModelListResponse } from '../shared/api/index.js';
@@ -90,6 +95,8 @@ export class Runtime {
   private readonly shutdown = new AbortController();
   readonly mockUpstream = new MockUpstream();
   private polled: PollResult | null = null;
+  /** The last refresh's findings, minus what a person has accepted or dismissed since (D-64). */
+  private findings: CatalogFinding[] | null = null;
   private stopped = false;
   readonly scheduler: Scheduler;
   readonly push: PushStore;
@@ -157,6 +164,8 @@ export class Runtime {
       mcp: { status: () => this.mcp.status() },
       reloadAgents: () => this.reloadAgents(),
       models: (refresh) => this.models(refresh),
+      acceptFinding: (id) => this.acceptFinding(id),
+      dismissFinding: (id) => this.dismissFinding(id),
       artifacts,
       setNetworkMode: (mode) => this.setNetworkMode(mode),
       setGrant: (agentId, permissions) => this.setGrant(agentId, permissions),
@@ -269,6 +278,7 @@ export class Runtime {
       }, { purpose: 'model', declared: true, categories: [] });
       this.polled = await pollLocalEndpoints(this.workspace.catalog, fetchImpl);
     }
+    const discovery = refresh ? await this.discover() : undefined;
     const models = listModels({
       catalog: this.workspace.catalog,
       mode: this.workspace.config.network.mode,
@@ -276,7 +286,92 @@ export class Runtime {
       hasCredential: (provider) => this.credentials.get(provider) !== undefined,
       reachableEndpoints: this.polled.reachable,
     });
-    return { models, networkMode: this.workspace.config.network.mode, pulled: Object.fromEntries(this.polled.pulled) };
+    return {
+      models, networkMode: this.workspace.config.network.mode, pulled: Object.fromEntries(this.polled.pulled),
+      findings: this.findings ?? [],
+      ...(discovery ? { discovery } : {}),
+    };
+  }
+
+  /**
+   * Ask every provider that can be asked what it offers, and turn the differences into findings (D-64).
+   * Nothing here writes: a finding is a proposal until `acceptFinding`. In offline mode nothing is asked and
+   * no socket opens — the refusal is reported per provider as `NetworkPolicy`, the same code a model call gets.
+   */
+  private async discover(): Promise<DiscoveryReport> {
+    const report: DiscoveryReport = { checked: [], errors: [] };
+    const mock = this.opts.providerOverride === 'mock';
+    // provider → adapter. From the catalog first; then any adapter that can list speaks for a provider of its
+    // own name, so a workspace with no google entries at all can still learn what google offers.
+    const providers = new Map<string, string>();
+    if (mock) {
+      for (const p of this.mockAdapter.discoveryProviders()) providers.set(p, 'mock');
+    } else {
+      for (const entry of this.workspace.catalog.models) if (entry.adapter !== 'mock') providers.set(providerOf(entry.id), entry.adapter);
+      for (const id of this.registry.ids()) if (this.registry.get(id)?.listModels && !providers.has(id)) providers.set(id, id);
+    }
+
+    const config = this.workspace.config;
+    const pins = pinsFor({
+      agents: [...this.workspace.agents.values()].map((a) => ({ id: a.definition.id, primary: a.definition.modelPolicy.primary, fallbacks: a.definition.modelPolicy.fallbacks })),
+      workflows: [...this.workspace.workflows.values()].map((w) => ({ id: w.definition.id, steps: w.definition.steps.map((s) => ({ id: s.id, model: (s as { model?: string | undefined }).model })) })),
+    });
+    const dismissed = new Map((this.db.prepare('SELECT finding_id, facts_hash FROM catalog_finding_dismissals').all() as { finding_id: string; facts_hash: string }[]).map((r) => [r.finding_id, r.facts_hash]));
+    const found: CatalogFinding[] = [];
+    const now = new Date();
+
+    for (const [provider, adapterId] of providers) {
+      const adapter = this.registry.get(adapterId);
+      if (!adapter?.listModels) continue; // cannot list: its models stay hand-declared, and that is not an error
+      const apiKey = mock ? 'mock' : this.credentials.get(provider);
+      if (!apiKey) continue; // not asked: a provider with no key has nothing to compare against
+      if (config.network.mode === 'offline') {
+        report.errors.push({ provider, code: 'NetworkPolicy', message: 'Network mode is offline, so nothing was asked and no socket was opened.' });
+        continue;
+      }
+      report.checked.push(provider);
+      const fetchImpl = createEgressFetch({
+        real: this.opts.fetch ?? directFetch,
+        policy: () => ({ mode: config.network.mode, allow: config.network.allow, allowLocalAddresses: config.network.allowLocalAddresses, runtimePort: this.portRef.current }),
+        record: () => undefined, // a listing carries none of the workspace's data
+      }, { purpose: 'model', declared: true, categories: [] });
+      try {
+        const discovered = await adapter.listModels({ fetch: fetchImpl, apiKey, runId: undefined, provider });
+        found.push(...diffProvider({ catalog: this.workspace.catalog, provider, adapter: mock ? 'google' : adapterId, discovered, pins, now }));
+      } catch (e) {
+        const code = e instanceof EgressDeniedError ? 'NetworkPolicy' : e instanceof ModelError ? e.code : 'Unknown';
+        report.errors.push({ provider, code, message: (e as Error).message });
+      }
+    }
+    // Under the mock, a scripted listing's `adapter` should be the adapter the provider really uses, so an
+    // accepted entry is runnable once a key exists rather than pinned to the mock forever.
+    if (mock) for (const f of found) f.adapter = this.workspace.catalog.models.find((m) => providerOf(m.id) === f.provider)?.adapter ?? f.provider;
+    this.findings = found.filter((f) => dismissed.get(f.id) !== f.factsHash);
+    return report;
+  }
+
+  /** Accepts one finding: the catalog is rewritten exactly as a hand edit would, validated first (D-64). */
+  async acceptFinding(id: string): Promise<ModelListResponse | null> {
+    const finding = this.findings?.find((f) => f.id === id);
+    if (!finding) return null;
+    const next = ModelsFile.parse(applyFinding(this.workspace.catalog, finding, new Date()));
+    fs.writeFileSync(this.workspace.paths.modelsJson, JSON.stringify(next, null, 2) + '\n');
+    // In place: the engine and the tools hold a reference to this catalog, the same way they hold the config.
+    this.workspace.catalog.models.splice(0, this.workspace.catalog.models.length, ...next.models);
+    this.findings = this.findings!.filter((f) => f.id !== id);
+    this.polled = null;
+    this.log.info({ finding: id, kind: finding.kind, model: finding.modelId }, 'catalog finding accepted');
+    return this.models(false);
+  }
+
+  /** Dismisses one finding until the provider's facts behind it change (D-64). */
+  async dismissFinding(id: string): Promise<ModelListResponse | null> {
+    const finding = this.findings?.find((f) => f.id === id);
+    if (!finding) return null;
+    this.db.prepare('INSERT INTO catalog_finding_dismissals (finding_id, facts_hash, dismissed_at) VALUES (?, ?, ?) ON CONFLICT(finding_id) DO UPDATE SET facts_hash = excluded.facts_hash, dismissed_at = excluded.dismissed_at')
+      .run(id, finding.factsHash, new Date().toISOString());
+    this.findings = this.findings!.filter((f) => f.id !== id);
+    return this.models(false);
   }
 
   /** Writes the mode into config/workbench.json so it survives a restart, then applies it in place. */

@@ -10,6 +10,7 @@ import { checkSecretFile } from '../../security/secretFile.js';
 import { Redactor } from '../../security/redaction.js';
 import { defaultAssertFts5 } from '../../db/index.js';
 import { findDeno } from '../../sandbox/deno.js';
+import { priceFor } from '../../models/catalog.js';
 
 /** The tools that exist only when the sandbox does, named here so `doctor` can list them without a runtime. */
 const EXECUTE_TIER = ['code.execute', 'shell', 'fs.write'];
@@ -67,6 +68,16 @@ export function registerDoctor(program: Command, bootstrap: Bootstrap): void {
             detail: exposed.length === 0
               ? 'the credentials, runtime token and push keys are readable only by you'
               : exposed.map(([label, , r]) => `${label}: ${r.detail}${r.fix ? `. Run: ${r.fix}` : ''}`).join('; '),
+          });
+
+          // A cloud model with no price would cost $0, and no cap can stop a run that costs nothing (D-65).
+          const unpriced = ws.catalog.models.filter((m) => m.locality === 'cloud' && m.adapter !== 'mock' && !priceFor(m, new Date()));
+          checks.push({
+            name: 'pricing',
+            ok: unpriced.length === 0,
+            detail: unpriced.length
+              ? `no price on record for ${unpriced.map((m) => m.id).join(', ')} — unusable until one is entered in config/models.json (D-65)`
+              : 'every cloud model has a price on record',
           });
 
           const live = await findLiveRuntime(wsPaths);

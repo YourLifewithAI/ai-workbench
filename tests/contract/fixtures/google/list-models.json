@@ -1,0 +1,13 @@
+[
+  {
+    "method": "GET",
+    "url": "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+    "requestHash": "authored",
+    "status": 200,
+    "statusText": "OK",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": "{\"models\": [{\"name\": \"models/gemini-3.8-flash\", \"displayName\": \"Gemini 3.8 Flash\", \"description\": \"Fast, general purpose.\", \"inputTokenLimit\": 1048576, \"outputTokenLimit\": 65536, \"supportedGenerationMethods\": [\"generateContent\", \"countTokens\"]}, {\"name\": \"models/gemini-3.6-flash\", \"displayName\": \"Gemini 3.6 Flash\", \"inputTokenLimit\": 1048576, \"outputTokenLimit\": 65536, \"supportedGenerationMethods\": [\"generateContent\"]}, {\"name\": \"models/gemini-3.1-pro-preview\", \"displayName\": \"Gemini 3.1 Pro Preview\", \"inputTokenLimit\": 2097152, \"outputTokenLimit\": 65536, \"supportedGenerationMethods\": [\"generateContent\"]}, {\"name\": \"models/text-embedding-005\", \"displayName\": \"Text Embedding 005\", \"supportedGenerationMethods\": [\"embedContent\"]}]}"
+  }
+]

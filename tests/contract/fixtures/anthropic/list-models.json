@@ -1,0 +1,13 @@
+[
+  {
+    "method": "GET",
+    "url": "https://api.anthropic.com/v1/models?limit=1000",
+    "requestHash": "authored",
+    "status": 200,
+    "statusText": "OK",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": "{\"data\": [{\"type\": \"model\", \"id\": \"claude-opus-5\", \"display_name\": \"Claude Opus 5\", \"created_at\": \"2026-05-01T00:00:00Z\"}, {\"type\": \"model\", \"id\": \"claude-sonnet-5\", \"display_name\": \"Claude Sonnet 5\", \"created_at\": \"2026-05-01T00:00:00Z\"}, {\"type\": \"model\", \"id\": \"claude-haiku-4-5\", \"display_name\": \"Claude Haiku 4.5\", \"created_at\": \"2025-10-01T00:00:00Z\"}], \"has_more\": false, \"first_id\": \"claude-opus-5\", \"last_id\": \"claude-haiku-4-5\"}"
+  }
+]

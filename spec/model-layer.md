@@ -131,3 +131,11 @@ Native, no SDK. It serves any catalog id (so `--provider mock` keeps per-step mo
 > whole call.
 
 With no matching fixture the mock echoes the last user text. It streams when asked, honors cancellation, and records every call in memory so tests can assert call counts. When its catalog entry has a `baseUrl`, the mock performs a real HTTP round trip to it through the injected `fetch`; the mock adapter itself starts a tiny loopback listener ("mock upstream") on an OS-assigned port at runtime start and the catalog entry's `baseUrl` is rewritten to it, so egress logging, redaction, the declared-endpoint path, and the Privacy Inspector are exercised end to end without a cloud provider and without touching the runtime's own port. Under `--provider mock`, cost is still computed from the *requested* catalog id's price rows, so budget tests work; `mock/echo` has no pricing and costs 0. Every DoD, e2e test, and example runs on it with zero keys and zero cost.
+
+> Amendment (RUN-15, 2026-09-05): `ModelAdapter` gains an optional `listModels(ctx)` returning `DiscoveredModel[]`
+> — the provider's own ids, display names, token limits and, only when the provider states them, prices. Optional
+> is the point: an adapter without it is not broken, its models stay hand-declared. The mock lists what
+> `<workspace>/fixtures/discovery/*.json` scripts for a named provider, so under `--provider mock` discovery is
+> mocked the way every other external service is (D-37). The contract suite has a `list-models` case that runs
+> for adapters that declare it, against a recorded or authored exchange like every other case. A cloud entry
+> whose `pricing` has no row in effect is `price-unknown`: listed with that reason, and not selectable (D-65).

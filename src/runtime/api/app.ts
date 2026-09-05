@@ -60,6 +60,9 @@ export interface AppDeps {
   reloadAgents: () => { loaded: number; errors: BrokenAgent[] };
   /** The catalog with availability; `refresh` re-polls local endpoints first. */
   models: (refresh: boolean) => Promise<ModelListResponse>;
+  /** Null when there is no such finding on the last refresh (D-64). */
+  acceptFinding: (id: string) => Promise<ModelListResponse | null>;
+  dismissFinding: (id: string) => Promise<ModelListResponse | null>;
   /** The one-click network switch (ui.md §UX rules): writes the mode to config and reloads it. */
   setNetworkMode: (mode: SetNetworkModeRequest['mode']) => void;
   /** A human granting or withdrawing a tool. This is the authority; what an agent's file asks for is not. */
@@ -619,6 +622,21 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get('/api/v1/models', async (c) => json(c, await deps.models(false)));
   app.post('/api/v1/models/refresh', async (c) => json(c, await deps.models(true)));
+  // A finding is a proposal; these two are the only ways it becomes anything else, and both are a person's click.
+  app.post('/api/v1/models/findings/:id/accept', async (c) => {
+    const id = c.req.param('id');
+    try {
+      const result = await deps.acceptFinding(id);
+      return result ? json(c, result) : fail(c, 'not_found', `No finding "${id}" on the last refresh. Check for changes again.`, 404);
+    } catch (e) {
+      return fail(c, 'validation', `Accepting "${id}" would leave config/models.json invalid: ${(e as Error).message}`, 400);
+    }
+  });
+  app.post('/api/v1/models/findings/:id/dismiss', async (c) => {
+    const id = c.req.param('id');
+    const result = await deps.dismissFinding(id);
+    return result ? json(c, result) : fail(c, 'not_found', `No finding "${id}" on the last refresh. Check for changes again.`, 404);
+  });
 
   // The Privacy Inspector's data: every attempt this run made to leave the machine, and who holds the result.
   app.get('/api/v1/runs/:id/privacy', (c) => {

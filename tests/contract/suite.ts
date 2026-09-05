@@ -47,6 +47,24 @@ export function runContractSuite(name: string, make: () => ContractCase): void {
       await body(c, ctxFor(c, fixture));
     };
 
+    it('lists what the provider offers, when it can', async () => {
+      const c = make();
+      if (!c.adapter.listModels) {
+        console.log(`contract: ${name}/list-models skipped — this adapter cannot list, and its models stay hand-declared (D-64)`);
+        return;
+      }
+      await withCase('list-models', async (cc, ctx) => {
+        const models = await cc.adapter.listModels!(ctx);
+        expect(models.length, 'a provider that can list offers something').toBeGreaterThan(0);
+        for (const m of models) {
+          expect(typeof m.id, 'an id is a string').toBe('string');
+          expect(m.id.length).toBeGreaterThan(0);
+          expect(m.id, 'the provider prefix is stripped so the catalog id is provider/<id>').not.toMatch(/^models\//);
+          if (m.contextTokens !== undefined) expect(m.contextTokens).toBeGreaterThan(0);
+        }
+      });
+    });
+
     it('generates text and reports usage', async () => {
       await withCase('text', async (c, ctx) => {
         const res = await c.adapter.generate(c.model, request(), ctx);

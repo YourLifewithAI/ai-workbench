@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import type { CatalogEntry, ContentBlock, ModelEvent, ModelRequest, ModelResponse, Usage } from '../../../../shared/model.js';
-import { FinishReason, ModelErrorCode } from '../../../../shared/model.js';
+import { FinishReason, ModelErrorCode, DiscoveredModel } from '../../../../shared/model.js';
 import type { ModelErrorCode as ModelErrorCodeType } from '../../../../shared/model.js';
 import type { AdapterContext, ModelAdapter } from '../../adapter.js';
 import { ModelError, modelError } from '../../errors.js';
@@ -42,6 +42,13 @@ export type Fixture = z.infer<typeof Fixture>;
 
 export interface MockCall { modelId: string; runId: string | undefined; fixture: string | null; request: Omit<ModelRequest, 'abortSignal'>; ts: string }
 
+/**
+ * A scripted provider listing, in `<workspace>/fixtures/discovery/<name>.json` (D-37 for D-64). Under
+ * `--provider mock` discovery asks the mock for each provider these files name, the way every other external
+ * service is mocked under that flag. A subdirectory on purpose: the strict fixture loader above must not see it.
+ */
+const DiscoveryFixture = z.strictObject({ provider: z.string().min(1), models: z.array(DiscoveredModel) });
+
 export class MockAdapter implements ModelAdapter {
   readonly id = 'mock';
   readonly calls: MockCall[] = [];
@@ -66,6 +73,27 @@ export class MockAdapter implements ModelAdapter {
   private modelName(catalogId: string): string {
     const slash = catalogId.indexOf('/');
     return slash === -1 ? catalogId : catalogId.slice(slash + 1);
+  }
+
+  private discoveryFixtures(): { provider: string; models: DiscoveredModel[] }[] {
+    if (!this.fixturesDir) return [];
+    const dir = path.join(this.fixturesDir, 'discovery');
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort().map((name) => {
+      const parsed = DiscoveryFixture.safeParse(JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8')));
+      if (!parsed.success) throw new Error(`${path.join(dir, name)}: invalid discovery fixture: ${parsed.error.issues.map((i) => i.message).join('; ')}`);
+      return parsed.data;
+    });
+  }
+
+  /** The providers the scripted listings speak for. Empty when nothing is scripted, which is the usual case. */
+  discoveryProviders(): string[] {
+    return [...new Set(this.discoveryFixtures().map((f) => f.provider))];
+  }
+
+  /** What the scripted listing for `ctx.provider` says; every file for that provider, concatenated. */
+  async listModels(ctx: AdapterContext): Promise<DiscoveredModel[]> {
+    return this.discoveryFixtures().filter((f) => ctx.provider === undefined || f.provider === ctx.provider).flatMap((f) => f.models);
   }
 
   private lastUserText(req: ModelRequest): string {

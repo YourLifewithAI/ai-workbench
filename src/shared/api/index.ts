@@ -114,7 +114,7 @@ export const ModelStatus = z.object({
   adapter: z.string(),
   locality: z.string(),
   enabled: z.boolean(),
-  availability: z.enum(['ready', 'no-credential', 'blocked-by-mode', 'unreachable', 'disabled', 'no-adapter']),
+  availability: z.enum(['ready', 'no-credential', 'blocked-by-mode', 'unreachable', 'disabled', 'no-adapter', 'price-unknown']),
   reason: z.string().nullable(),
   capabilities: z.record(z.string(), z.unknown()),
   pricing: z.array(z.record(z.string(), z.unknown())),
@@ -123,7 +123,49 @@ export const ModelStatus = z.object({
 });
 export type ModelStatus = z.infer<typeof ModelStatus>;
 
-export const ModelListResponse = z.object({ models: z.array(ModelStatus), networkMode: z.string(), pulled: z.record(z.string(), z.array(z.string())) });
+/** Who pins a model: an agent's policy, or a workflow step's override. Carried on a `retired` finding (D-64). */
+export const CatalogFindingPin = z.object({
+  agentId: z.string().optional(),
+  role: z.enum(['primary', 'fallback']).optional(),
+  workflowId: z.string().optional(),
+  stepId: z.string().optional(),
+});
+export type CatalogFindingPin = z.infer<typeof CatalogFindingPin>;
+
+/**
+ * One thing a provider's listing says that the catalog does not (D-64). `displayName` and `description` are
+ * the provider's text and are data: shown as text, never written to the catalog, never in a prompt.
+ * `proposed` is exactly what accepting would write, so the screen can show it before a person agrees.
+ */
+export const CatalogFinding = z.object({
+  id: z.string(),
+  kind: z.enum(['new', 'retired', 'repriced', 'drift']),
+  modelId: z.string(),
+  adapter: z.string(),
+  provider: z.string(),
+  factsHash: z.string(),
+  detail: z.string(),
+  displayName: z.string().optional(),
+  description: z.string().optional(),
+  pinnedBy: z.array(CatalogFindingPin),
+  proposed: z.record(z.string(), z.unknown()).optional(),
+});
+export type CatalogFinding = z.infer<typeof CatalogFinding>;
+
+export const DiscoveryReport = z.object({
+  /** Providers that were actually asked. A provider with no credential or an adapter that cannot list is not here. */
+  checked: z.array(z.string()),
+  errors: z.array(z.object({ provider: z.string(), code: z.string(), message: z.string() })),
+});
+export type DiscoveryReport = z.infer<typeof DiscoveryReport>;
+
+export const ModelListResponse = z.object({
+  models: z.array(ModelStatus),
+  networkMode: z.string(),
+  pulled: z.record(z.string(), z.array(z.string())),
+  findings: z.array(CatalogFinding).default([]),
+  discovery: DiscoveryReport.optional(),
+});
 export type ModelListResponse = z.infer<typeof ModelListResponse>;
 
 /** One row of the Privacy Inspector: where a run's data went, what kind it was, and what came of the attempt. */

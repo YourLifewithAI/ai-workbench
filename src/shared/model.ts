@@ -124,6 +124,23 @@ export const PriceRow = z.object({
 });
 export type PriceRow = z.infer<typeof PriceRow>;
 
+/**
+ * What a provider says it offers, as an adapter reports it (D-64). `id` is the provider's own name for the
+ * model, without any `models/` prefix. Every text field is untrusted: it is shown as text, it is never written
+ * into the catalog, and it reaches no prompt. Pricing is present only when the provider states it — most
+ * list endpoints do not, and absent beats guessed (D-65).
+ */
+export const DiscoveredModel = z.object({
+  id: z.string().min(1),
+  displayName: z.string().optional(),
+  description: z.string().optional(),
+  contextTokens: z.number().int().positive().optional(),
+  maxOutputTokens: z.number().int().positive().optional(),
+  capabilities: ModelCapabilities.partial().optional(),
+  pricing: z.array(PriceRow).optional(),
+});
+export type DiscoveredModel = z.infer<typeof DiscoveredModel>;
+
 export const DataPolicy = z.object({
   trainsOnContent: z.enum(['yes', 'no', 'unknown']),
   retentionDays: z.number().int().nonnegative().optional(),
