@@ -68,6 +68,15 @@ test('Welcome runs the example and reaches its trace; Settings is read-only and 
   await expectNoA11yViolations(page, 'Settings');
 });
 
+test('Welcome names the companion and opens it with its project chosen (F6)', async ({ page }) => {
+  await page.goto(base() + '/welcome#token=' + token());
+  await expect(page.getByRole('heading', { name: /Meet your companion/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Open the companion' }).click();
+  await expect(page.getByRole('heading', { name: 'Companion' })).toBeVisible();
+  await expect(page.getByLabel('Target project')).toHaveValue('companion');
+  await expectNoA11yViolations(page, 'Companion');
+});
+
 test('keyboard-only navigation reaches every route; both themes and reduced motion apply', async ({ page }) => {
   await page.goto(base() + '/welcome#token=' + token());
   await expect(page.getByRole('heading', { name: 'Welcome' })).toBeVisible();

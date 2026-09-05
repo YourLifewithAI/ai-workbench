@@ -1,0 +1,7 @@
+{
+  "match": { "systemIncludes": "Companion" },
+  "respond": {
+    "text": "**Asked:** whether to keep going tonight or stop.\n\n**Said:** stop at a commit boundary. You have shipped more this week than the plan asked for, and the next piece is one you want to be awake for. I am not certain the morning is better than the evening for it; I am certain that a half-finished commit is worse than either.\n\n**Remembered:** that you prefer the uncertain thing said plainly over a confident guess.",
+    "usage": { "input": 900, "output": 120 }
+  }
+}

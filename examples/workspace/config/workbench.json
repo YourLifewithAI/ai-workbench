@@ -31,6 +31,12 @@
         "memory.search": "allow"
       }
     },
+    "companion": {
+      "tools": {
+        "memory.remember": "allow",
+        "memory.search": "allow"
+      }
+    },
     "builder": {
       "tools": {
         "artifact.write": "allow",

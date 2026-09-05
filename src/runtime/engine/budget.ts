@@ -23,6 +23,19 @@ export interface BudgetStop {
 
 const WARN_AT = 0.8;
 
+/**
+ * An agent's own daily and monthly caps (F6): checked against what runs of that agent have spent, on top of the
+ * workspace's caps against the workspace's total. A companion with $2 a day is stopped by its own $2, not by
+ * the workspace having spent $2 on something else.
+ */
+export interface OwnCaps {
+  subject: string;
+  dailySpendCapUsd: number;
+  monthlySpendCapUsd: number;
+  spentTodayUsd: () => number;
+  spentThisMonthUsd: () => number;
+}
+
 export class RunBudget {
   readonly spent: Spent = { modelCalls: 0, toolCalls: 0, costUsd: 0, wallClockMs: 0 };
   private readonly warned = new Set<BudgetKind>();
@@ -40,12 +53,14 @@ export class RunBudget {
      * still stop the step even when the step's own are untouched (D-20).
      */
     private readonly parent?: RunBudget | undefined,
+    /** The agent's own daily and monthly caps, when it has any (F6). */
+    private readonly own?: OwnCaps | undefined,
   ) {}
 
   /** A budget for one step: its own limits, never wider than this one's, spending counted in both. */
   child(override: BudgetOverride | undefined): RunBudget {
     if (!override) return this;
-    return new RunBudget(narrowBudgets(this.limits, override), this.startedMs, this.spentTodayUsd, this.spentThisMonthUsd, this);
+    return new RunBudget(narrowBudgets(this.limits, override), this.startedMs, this.spentTodayUsd, this.spentThisMonthUsd, this, this.own);
   }
 
   get wallClockMs(): number {
@@ -104,6 +119,16 @@ export class RunBudget {
     const today = this.spentTodayUsd();
     if (this.limits.dailySpendCapUsd > 0 && today >= this.limits.dailySpendCapUsd) {
       return { reason: 'daily_cap_reached', budget: 'dailySpendCapUsd', allowWrapUp: false, scope, message: `Today's spending cap ($${this.limits.dailySpendCapUsd.toFixed(2)}) is already used up ($${today.toFixed(2)} so far). Raise dailySpendCapUsd in Settings, or wait until tomorrow.` };
+    }
+    if (this.own) {
+      const ownMonth = this.own.monthlySpendCapUsd > 0 ? this.own.spentThisMonthUsd() : 0;
+      if (this.own.monthlySpendCapUsd > 0 && ownMonth >= this.own.monthlySpendCapUsd) {
+        return { reason: 'monthly_cap_reached', budget: 'monthlySpendCapUsd', allowWrapUp: false, scope, message: `${this.own.subject}'s own monthly cap ($${this.own.monthlySpendCapUsd.toFixed(2)}) is already used up ($${ownMonth.toFixed(2)} so far). Raise monthlySpendCapUsd in the agent's budgets, or wait for the month to turn.` };
+      }
+      const ownToday = this.own.dailySpendCapUsd > 0 ? this.own.spentTodayUsd() : 0;
+      if (this.own.dailySpendCapUsd > 0 && ownToday >= this.own.dailySpendCapUsd) {
+        return { reason: 'daily_cap_reached', budget: 'dailySpendCapUsd', allowWrapUp: false, scope, message: `${this.own.subject}'s own daily cap ($${this.own.dailySpendCapUsd.toFixed(2)}) is already used up ($${ownToday.toFixed(2)} so far). Raise dailySpendCapUsd in the agent's budgets, or wait until tomorrow.` };
+      }
     }
     if (this.spent.costUsd >= this.limits.maxCostUsd) {
       return { reason: 'budget_exceeded', budget: 'maxCostUsd', allowWrapUp: true, scope, message: `This ${scope} reached its cost budget ($${this.limits.maxCostUsd.toFixed(2)}).` };

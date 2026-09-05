@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { Estimate } from '../components/Estimate.js';
@@ -82,7 +82,9 @@ export function AgentDetail() {
   const projects = useQuery({ queryKey: ['projects'], queryFn: api.projects, staleTime: 60_000 });
   const [input, setInput] = useState('');
   const [model, setModel] = useState('');
-  const [project, setProject] = useState('');
+  // The Welcome path opens the companion with its project chosen; anyone else starts with none.
+  const [searchParams] = useSearchParams();
+  const [project, setProject] = useState(searchParams.get('project') ?? '');
   const [useMock, setUseMock] = useState<boolean | null>(null);
   const settings = useQuery({ queryKey: ['settings'], queryFn: api.settings, staleTime: 60_000 });
   const navigate = useNavigate();
