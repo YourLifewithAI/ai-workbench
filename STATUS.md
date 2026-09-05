@@ -1,6 +1,6 @@
 # STATUS
 
-**Current run:** RUN-18: awaiting verification @ <sha> · RUN-14 awaiting verification @ 288da01 · RUN-13 awaiting verification @ 57d39fe · RUN-17 awaiting verification @ fed2ff2 · RUN-16 awaiting verification @ 63df105 · RUN-00 … RUN-12, RUN-15 and the maintenance branches are merged · awaiting the owner's verification scripts
+**Current run:** RUN-18: awaiting verification @ d866994 · RUN-14 awaiting verification @ 288da01 · RUN-13 awaiting verification @ 57d39fe · RUN-17 awaiting verification @ fed2ff2 · RUN-16 awaiting verification @ 63df105 · RUN-00 … RUN-12, RUN-15 and the maintenance branches are merged · awaiting the owner's verification scripts
 **Last verified:** every run merged to `main` with CI green on **Linux, macOS and Windows**, plus Docker and a machine without a sandbox; the owner's scripts in each `runlog/` are still outstanding
 **Gates:** `npm run check` green (unit 113 · security 154 · contract 51) · every `tests/dod/RUN-*.test.ts` suite green on all three platforms (DoD 07-2 is live-only) · `npm run e2e` 44 passed · Docker smoke and a no-sandbox job: CI
 

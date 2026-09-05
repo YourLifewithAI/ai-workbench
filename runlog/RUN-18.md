@@ -1,6 +1,6 @@
 # RUN-18 handoff — Project spaces
 
-**Branch:** `run/18-project-spaces` · **Head:** `<sha>` · **Status:** awaiting verification
+**Branch:** `run/18-project-spaces` · **Head:** `d866994` · **Status:** awaiting verification
 
 ## Built
 - `src/shared/project.ts` — the `ProjectSpace` schema (`schemaVersion`, `name?`, `description?`, `goals?`, `agents[]`, `tools[]?`, `memory[]`) and `EMPTY_SPACE`; strict, so a key that could only widen (there is none) is a validation error.
