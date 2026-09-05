@@ -38,6 +38,9 @@ DoD 1: a plan document, `run/99-fixture`, two commits by `mechanic` (the fix, th
 - SEC-33, 34 and 35 re-verified end to end through the workflow: DoD 1 (the deny on `spec/runs/`, the push of a run branch and only that), DoD 2 and 3 (`check` run by a tool step under the same grant; the commit and push by name). `tests/security/sec-33-35-repos.test.ts` gained the `deny` intersection and the prefix rule (a sibling whose name is a prefix is not under it).
 - Note for the record: the parked step is a *review*, not an approval. It does not expire into a denial the way SEC-12 approvals do (RUN-05); a branch waits for the person indefinitely, which is the intended behaviour for code.
 
+## Bugs found by the tests
+- **Windows had no PATH in the child-environment allowlist** when the runtime was started from a shell that spells it `Path` — which is most of them. `readBootstrap` kept the key by exact name, so git and Deno were "not on PATH" on a machine that had both: the coding run's e2e case failed on windows-latest at its first `git.branch`, and `doctor` on the owner's machine said the sandbox was missing. The allowlist is now matched without regard to case on Windows and stored under one spelling (`src/runtime/bootstrap.ts`, `tests/unit/bootstrap.test.ts`). Every Windows verification of RUN-16 passed because the CI runner's own environment happened to spell it `PATH`.
+
 ## Spec amendments made
 - `spec/workflows-and-execution.md` — `onReject`; a step's own budget ends the step; tool steps under a named agent.
 - `spec/tools-and-security.md` — `deny` on a repository grant.
