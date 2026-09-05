@@ -18,6 +18,43 @@ export const CreateRunRequest = z.object({
 export type CreateRunRequest = z.infer<typeof CreateRunRequest>;
 export const CreateRunResponse = z.object({ runId: z.string() });
 
+// ---- what a run will cost, before it runs (F2) ---------------------------------------------------
+
+/** The same shape as a run request: what would be started, so the estimate is about that and nothing else. */
+export const EstimateRequest = z.object({
+  kind: RunKind,
+  id: z.string(),
+  inputs: z.record(z.string(), z.unknown()).default({}),
+  overrides: z.record(z.string(), z.unknown()).optional(),
+});
+export type EstimateRequest = z.infer<typeof EstimateRequest>;
+
+export const StepEstimate = z.object({
+  stepId: z.string(),
+  agentId: z.string().nullable(),
+  /** The model the step would run on right now, or null when nothing is ready (then the step costs nothing here and fails there). */
+  modelId: z.string().nullable(),
+  /** Tokens the compiled prompt comes to, from its size; a reference to an upstream step counts as a typical output. */
+  promptTokens: z.number().int(),
+  outputTokens: z.number().int(),
+  /** One clean call, and a run with a few tool rounds or retries. */
+  lowUsd: z.number(),
+  highUsd: z.number(),
+  note: z.string().nullable(),
+});
+export type StepEstimate = z.infer<typeof StepEstimate>;
+
+export const EstimateResponse = z.object({
+  steps: z.array(StepEstimate),
+  promptTokens: z.number().int(),
+  lowUsd: z.number(),
+  highUsd: z.number(),
+  /** The cap the run would actually stop at, so the estimate is read against it. */
+  maxCostUsd: z.number(),
+  caveat: z.string(),
+});
+export type EstimateResponse = z.infer<typeof EstimateResponse>;
+
 export const RunSummary = z.object({
   id: z.string(), kind: RunKind, state: RunState,
   agentId: z.string().optional(), workflowId: z.string().optional(), project: z.string().optional(),

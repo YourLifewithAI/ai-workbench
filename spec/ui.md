@@ -112,3 +112,8 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > ordered list, each model's readiness in a word, move up, move down, remove, an *Add a model* pick list from
 > the catalogue, and *Now:* the model the role comes to. One *Save models* for the card. **Agents** shows a role
 > beside what it resolves to (`role:fast → anthropic/claude-haiku-4-5`) and, on the agent's page, *Would run on*.
+
+> Amendment (F2, 2026-09-05): both run forms — an agent's and a workflow's — show **what the run will cost
+> before it runs**: *About $0.01 to $0.03 · ~1.2k tokens in · beats on anthropic/claude-sonnet-5, …*, with the
+> caveat and the cap the run would stop at, live as the inputs change. On the mock the line says there is no
+> bill. A step whose role has nothing ready is named there before the button is pressed.
