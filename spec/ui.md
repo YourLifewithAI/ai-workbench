@@ -178,3 +178,17 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > **Agents** — with `?project=` in the URL the list opens with *This project's agents* and then *Others*, and the
 > project travels to the agent's run form. **Review** — a `nowhere` finding (a grant no project allows) is
 > labelled *allowed nowhere* and its button takes the grant back, never the ceiling.
+
+> Amendment (RUN-19, 2026-09-06, D-71): at `md` and above the primary navigation is **the village**. `/village` is
+> *the square*: the full map, and under it the town hall's notice board — the Dashboard's *Needs you* and
+> *Running*, every running run with its budget and Cancel, and the empty state offering *Run a workflow*. Inside
+> any other screen the rail is *the street*: the same twelve buildings in navigation order, the current one lit,
+> and an *Interior* band over the screen naming where you are with *Back to the village*, which returns focus to
+> the village's title. A building is a link whose only text is its screen's name, clipped from sight; hover or
+> focus opens a box with the name and the screen's one-line summary, and Esc closes it. Rule 12 stands: nothing
+> moves on its own. The front door: `/` goes to the village once the welcome path is done, and to the Dashboard
+> on a phone, which is also the installed app's `start_url`. Below `md` nothing in this document's phone
+> amendments changed. The buildings: Welcome the gate, Dashboard the town hall, Library the library, Workflows
+> the workshop, Agents the lodge, Runs the records office, Review the post office, Models the stables, Memory
+> the well, Tools the smithy, Evaluate the observatory, Settings the windmill. Restyling it is editing a file:
+> `docs/village.md`.

@@ -6,7 +6,11 @@ Models are a replaceable substrate. Everything private — config, agents, runs,
 workspace directory you own. The runtime is one process on one port that never faces the public internet, and
 every capability it has is denied until you grant it.
 
-**Status:** RUN-00 … RUN-12 are built. See [`STATUS.md`](STATUS.md) for what is verified and what is not, and
+On a desktop the workbench opens onto a village: one building for each part of it, standing on a small floating
+world. Hover a house to read what it is for; enter it to work there. A phone gets the same twelve screens as a
+list. Restyling the village is editing a file — [`docs/village.md`](docs/village.md) says which.
+
+**Status:** RUN-00 … RUN-19 are built. See [`STATUS.md`](STATUS.md) for what is verified and what is not, and
 [`runlog/`](runlog/) for what each run actually did.
 
 ## Ten minutes

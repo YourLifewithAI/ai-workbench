@@ -8,11 +8,11 @@ import { money } from '../../shared/summary.js';
 import type { DashboardResponse } from '../../shared/api/index.js';
 import { api } from '../lib/api.js';
 import { ApprovalCard } from '../components/ApprovalCard.js';
-import { BudgetLine } from '../components/BudgetBar.js';
 import { EmptyState } from '../components/EmptyState.js';
+import { RunningRuns } from '../components/RunningRuns.js';
 import { Button } from '../components/ui/button.js';
-import { Badge, Card } from '../components/ui/card.js';
-import { CANCELLABLE, stateTone, useLiveRuns } from './Runs.js';
+import { Card } from '../components/ui/card.js';
+import { useLiveRuns } from './Runs.js';
 import { ScreenTitle, SectionTitle, Subheading } from '../components/ui/text.js';
 
 export function Dashboard() {
@@ -20,7 +20,6 @@ export function Dashboard() {
   useLiveRuns(['dashboard']);
   const client = useQueryClient();
   const navigate = useNavigate();
-  const cancel = useMutation({ mutationFn: (id: string) => api.cancelRun(id), onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }) });
   const resume = useMutation({ mutationFn: (id: string) => api.resumeRun(id), onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }) });
   const offline = useMutation({ mutationFn: () => api.setNetworkMode('offline'), onSuccess: () => client.invalidateQueries() });
   const decide = useMutation({
@@ -131,28 +130,7 @@ export function Dashboard() {
               Nothing is running. Start one from <Link to="/workflows" className="text-blue-700 underline underline-offset-4 dark:text-sky-300">Workflows</Link> or <Link to="/agents" className="text-blue-700 underline underline-offset-4 dark:text-sky-300">Agents</Link>.
             </p>
           ) : (
-            <ul className="mt-2 space-y-2">
-              {d.running.map((r) => (
-                <li key={r.id}>
-                  <Card>
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-sm">
-                          <Link to={`/runs/${r.id}`} className="font-medium underline-offset-4 hover:underline">{r.workflowId ?? r.agentId ?? r.id}</Link>{' '}
-                          <Badge tone={stateTone(r.state)}>{r.state}</Badge>
-                        </p>
-                        <BudgetLine run={r} className="mt-2" />
-                      </div>
-                      {CANCELLABLE.has(r.state) ? (
-                        <Button size="sm" variant="secondary" onClick={() => cancel.mutate(r.id)} disabled={cancel.isPending}>
-                          Cancel<span className="sr-only"> run {r.id}</span>
-                        </Button>
-                      ) : null}
-                    </div>
-                  </Card>
-                </li>
-              ))}
-            </ul>
+            <RunningRuns runs={d.running} keys={['dashboard']} className="mt-2" />
           )}
 
           <SectionTitle className="mt-8">Today and this month</SectionTitle>

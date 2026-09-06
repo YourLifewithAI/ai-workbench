@@ -1,24 +1,15 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { cn } from '../lib/cn.js';
+import { SCREENS } from '../lib/screens.js';
+import { MD, useMediaQuery } from '../lib/media.js';
 import { readTheme, saveTheme, type Theme } from '../lib/theme.js';
+import { Interior } from '../village/Interior.js';
+import { VillageMap } from '../village/VillageMap.js';
 import { NetworkBanner } from './NetworkBanner.js';
 import { Mark } from './ui/mark.js';
 
-export const SCREENS: { path: string; label: string; shipsIn: string; summary: string }[] = [
-  { path: '/welcome', label: 'Welcome', shipsIn: 'RUN-00', summary: 'The first-run path.' },
-  { path: '/dashboard', label: 'Dashboard', shipsIn: 'RUN-05', summary: 'What needs you, what is running, and what today cost.' },
-  { path: '/library', label: 'Library', shipsIn: 'RUN-03', summary: 'Projects, documents, and every version your agents produce.' },
-  { path: '/workflows', label: 'Workflows', shipsIn: 'RUN-04', summary: 'Multi-step workflows with a live graph and a run form built from their inputs.' },
-  { path: '/agents', label: 'Agents', shipsIn: 'RUN-01', summary: 'Agent definitions, versions, model policies, and their run form.' },
-  { path: '/runs', label: 'Runs', shipsIn: 'RUN-00', summary: 'Every run with what it cost and produced.' },
-  { path: '/review', label: 'Review', shipsIn: 'RUN-05', summary: 'Outputs waiting for a rating and approvals waiting for a decision.' },
-  { path: '/models', label: 'Models', shipsIn: 'RUN-02', summary: 'The model catalog with pricing, capabilities, and data policy.' },
-  { path: '/memory', label: 'Memory', shipsIn: 'RUN-08', summary: 'What agents remember, with provenance and trust.' },
-  { path: '/tools', label: 'Tools', shipsIn: 'RUN-06', summary: 'Built-in tools, MCP servers, the grant matrix, and denial history.' },
-  { path: '/evaluate', label: 'Evaluate', shipsIn: 'RUN-10', summary: 'Compare models side by side; datasets and experiments.' },
-  { path: '/settings', label: 'Settings', shipsIn: 'RUN-00', summary: 'Workspace, providers, network mode, budgets.' },
-];
+export { SCREENS } from '../lib/screens.js';
 
 /**
  * What a phone gets on the tab bar. The rest is still reachable — the full list is one tap away under "More" —
@@ -30,14 +21,18 @@ export function Shell() {
   const [theme, setTheme] = useState<Theme>(() => readTheme());
   const [moreOpen, setMoreOpen] = useState(false);
   useEffect(() => { saveTheme(theme); }, [theme]);
+  // The village exists at `md` and above (D-71): the square at /village, the street beside every other screen.
+  // Below that this is the phone, and nothing about it changed.
+  const wide = useMediaQuery(MD);
+  const square = wide && useLocation().pathname === '/village';
 
   // In tab-bar order, not navigation order: on a phone the queue you came to clear comes before the archive.
   const tabs = PHONE_TABS.map((path) => SCREENS.find((s) => s.path === path)).filter((s): s is (typeof SCREENS)[number] => s !== undefined);
 
   return (
-    <div className="flex min-h-full flex-col md:flex-row">
+    <div className={cn('flex min-h-full flex-col', square ? 'md:flex-col' : 'md:flex-row')}>
       <a href="#main" className="skip-link">Skip to content</a>
-      <header className="border-b border-gray-200 md:w-56 md:border-b-0 md:border-r dark:border-gray-800">
+      <header className={cn('border-b border-gray-200 dark:border-gray-800', square ? 'md:w-full' : 'md:w-56 md:border-b-0 md:border-r')}>
         <div className="flex items-center justify-between px-4 py-3">
           <span className="flex items-center gap-2 text-base font-semibold"><Mark />AI Workbench</span>
           <label className="text-xs text-gray-600 dark:text-gray-400">
@@ -51,6 +46,7 @@ export function Shell() {
         </div>
         {/* The full list is the desktop navigation, and on a phone it is what "More" opens. */}
         <nav aria-label="Primary" className={cn('px-2 pb-3 md:block', moreOpen ? 'block' : 'hidden')}>
+          {wide ? <VillageMap size={square ? 'full' : 'compact'} /> : (
           <ul className="flex flex-wrap gap-1 md:flex-col">
             {SCREENS.map((s) => (
               <li key={s.path}>
@@ -64,12 +60,14 @@ export function Shell() {
               </li>
             ))}
           </ul>
+          )}
         </nav>
       </header>
       <div className="flex min-w-0 flex-1 flex-col">
         <NetworkBanner />
         {/* The bottom bar covers the last stretch of the page, so the content ends above it rather than under it. */}
         <main id="main" tabIndex={-1} className="flex-1 p-4 pb-24 md:p-6 md:pb-6">
+          {wide && !square ? <Interior /> : null}
           <Outlet />
         </main>
 

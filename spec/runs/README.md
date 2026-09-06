@@ -53,7 +53,7 @@ Everything an agent needs is in at most ten bounded files. Done is a command, no
 > scheduled. It came from the first live run failing on a retired model. Like RUN-13 and RUN-14 it blocks
 > nothing already built.
 
-> Amendment (RUN-19, 2026-09-04): not every branch is a numbered run. Once the brief list was exhausted,
+> Amendment (maintenance branches, 2026-09-04): not every branch is a numbered run. Once the brief list was exhausted,
 > work continued as maintenance branches with no brief of their own — `run/16-cred-message` through
 > `run/21-rerun` — each one a defect found by using the thing or by a platform that had never run the suite.
 > They keep the branch naming and the gates (`npm run check`, the DoD suites, `npm run e2e`, one PR each) and
@@ -85,3 +85,11 @@ Everything an agent needs is in at most ten bounded files. Done is a command, no
 > Amendment (2026-09-05): the finish list's last item, project spaces (F5), is a run: **RUN-18** (D-69), built
 > after the look items, here by the coding harness as RUN-13 and RUN-14 were. Its brief is the one most worth
 > the owner's eye before it starts; the owner may strike or reshape it until the branch exists.
+
+> Amendment (owner decision, 2026-09-06): after the first owner-run verification (`docs/verification-weekend.md`,
+> `spec/runs/NEXT.md`), the look is decided and it is a village (D-71). Three runs, in order: **RUN-19** the
+> village; **RUN-20** the villagers — agents as figures placed by their runs, and what finished while the owner
+> was away; **RUN-21** the rooms — projects and agents as rooms inside their buildings, carrying N-1 and N-2.
+> Their branches are `run/19-village`, `run/20-villagers` and `run/21-rooms`; the maintenance branches that once
+> reused the numbers 19–21 are unrelated to them. N-3 (the mock says what it is) ships as a fix branch before
+> RUN-20. The redesign changes the desktop only: everything RUN-12 gave the phone stays as it is.

@@ -6,6 +6,42 @@
 @theme {
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+  /*
+   * The village's colours (D-71), an afternoon. The evening values are under `.dark` below, one for one — the
+   * DoD refuses a token that exists in only one theme. The art reads these and nothing else, so restyling the
+   * village is editing this block; `docs/village.md` says how.
+   */
+  --color-village-sky: #eef3ea;
+  --color-village-ground: #a9d18b;
+  --color-village-ground-2: #9fc97f;
+  --color-village-earth: #b8865a;
+  --color-village-earth-shade: #8f6540;
+  --color-village-road: #d9c39a;
+  --color-village-road-edge: #c1a97e;
+  --color-village-water: #7cc4e8;
+  --color-village-water-deep: #4f9fd0;
+  --color-village-rock: #b9b3a8;
+  --color-village-rock-shade: #8e887d;
+  --color-village-wall: #f6e9d2;
+  --color-village-wall-light: #fdf6e8;
+  --color-village-wall-shade: #d9c6a6;
+  --color-village-stone: #cfc6b8;
+  --color-village-stone-shade: #a59a88;
+  --color-village-roof: #d9634a;
+  --color-village-roof-2: #e8785f;
+  --color-village-roof-shade: #a8442f;
+  --color-village-wood: #8a5a34;
+  --color-village-wood-shade: #5f3d22;
+  --color-village-window: #a9d6f0;
+  --color-village-glow: #ffd166;
+  --color-village-tree: #5a9b4d;
+  --color-village-tree-light: #7fbb6a;
+  --color-village-tree-shade: #3f7a36;
+  --color-village-shadow: #3d3a2a;
+  --color-village-lamp: #ffb703;
+  --color-village-tip: #fffdf8;
+  --color-village-tip-text: #1f2937; /* 12.6:1 on tip */
 }
 
 :root {
@@ -15,6 +51,38 @@
 .dark {
   --ring: #7dd3fc; /* sky-300 on gray-950: 11:1 */
   color-scheme: dark;
+
+  /* The village in the evening: lit windows, long shadows, cool ground, warm lamps. */
+  --color-village-sky: #0f1626;
+  --color-village-ground: #2f5a3a;
+  --color-village-ground-2: #29513a;
+  --color-village-earth: #4a3a2c;
+  --color-village-earth-shade: #2f241b;
+  --color-village-road: #6b6a63;
+  --color-village-road-edge: #55544c;
+  --color-village-water: #3b6f9c;
+  --color-village-water-deep: #274d73;
+  --color-village-rock: #6d7077;
+  --color-village-rock-shade: #484b52;
+  --color-village-wall: #cdbfa5;
+  --color-village-wall-light: #ddd0b8;
+  --color-village-wall-shade: #9a8d76;
+  --color-village-stone: #9b958a;
+  --color-village-stone-shade: #6e695f;
+  --color-village-roof: #a24b39;
+  --color-village-roof-2: #b45a47;
+  --color-village-roof-shade: #6f3225;
+  --color-village-wood: #6b4527;
+  --color-village-wood-shade: #45301c;
+  --color-village-window: #ffd166;
+  --color-village-glow: #ffd166;
+  --color-village-tree: #3f7a44;
+  --color-village-tree-light: #56945a;
+  --color-village-tree-shade: #2a5330;
+  --color-village-shadow: #06090f;
+  --color-village-lamp: #ffd166;
+  --color-village-tip: #111827;
+  --color-village-tip-text: #f3f4f6; /* 15:1 on tip */
 }
 
 html, body, #root { height: 100%; }

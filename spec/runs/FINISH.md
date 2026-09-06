@@ -48,8 +48,18 @@ at a time.
 - **A drag-and-drop workflow editor**: never (D-62).
 - **The live verifications** in `STATUS.md`: the owner's, when the owner has time.
 
+## D. The village
+
+Decided with the owner on 2026-09-06 (D-71), after the first owner-run verification.
+
+| # | Item | What | Size |
+|---|---|---|---|
+| V1 | **The village** (RUN-19) | The twelve screens as buildings on an isometric diorama: the square at `/village`, the street beside every screen, a hover box instead of text on the houses; the picture as data a person or an agent can restyle. | L |
+| V2 | **The villagers** (RUN-20) | Agents as figures placed by their runs' state; the town hall board says what finished while the owner was away; the workspace stream carries ids-only step, approval and review events. | M |
+| V3 | **The rooms** (RUN-21) | Projects and agents as rooms inside their buildings; N-1 (agents edited on a screen) and N-2 (the terminal made optional) land there. | L |
+
 ## Order
 
 F1 → F7 → F2 → F3 → F4 → F8 → F9 → F6, then L1 → L2 → L3 → L4 → L6 → L7 → L5, then F5 as a run. F1 first
 because nothing else is usable on one key without it; F5 last because it is the largest and the one most
-worth the owner's eye before it starts.
+worth the owner's eye before it starts. Then, decided 2026-09-06: N-3 as a fix, and V1 → V2 → V3 as runs.

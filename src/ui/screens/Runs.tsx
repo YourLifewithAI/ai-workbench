@@ -129,11 +129,12 @@ export function Runs() {
   );
 }
 
-function CancelButton({ runId }: { runId: string }) {
+/** Cancel one run and refetch the queries that show it; the Dashboard and the town hall board pass their own keys. */
+export function CancelButton({ runId, keys = ['runs'] }: { runId: string; keys?: string[] }) {
   const client = useQueryClient();
   const cancel = useMutation({
     mutationFn: () => api.cancelRun(runId),
-    onSuccess: () => client.invalidateQueries({ queryKey: ['runs'] }),
+    onSuccess: () => { for (const key of keys) void client.invalidateQueries({ queryKey: [key] }); },
   });
   return (
     <Button variant="secondary" size="sm" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
