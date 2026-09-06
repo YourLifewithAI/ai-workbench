@@ -51,6 +51,15 @@ names, never assembled from parts, because Tailwind only generates what it can r
 What a drawing may not contain: `<title>`, `<text>`, `<desc>`, a `role`, a `tabIndex`, a link, a `data:` URL, an
 external `url(…)`. The DoD reads every file in `art/` for those.
 
+## A word about the summaries
+
+Each screen's one-line summary lives in `src/ui/lib/screens.ts` and is shown twice on every page — in the
+hover box on its building, and in the band inside the building. That makes it *global text*: a phrase you put
+there appears on every screen, and can collide with a browser test that looks for that phrase somewhere else.
+It happened once already — "network mode" in the Settings summary matched a check that meant the `Network
+mode` label on Settings itself. If the full browser suite starts failing on a strict-mode violation after you
+reword a summary, that is the cause, and rewording it again is the fix.
+
 ## Colour: the tokens
 
 Each `--color-village-*` token in `src/ui/styles.css` appears twice — the afternoon in `@theme`, the evening in

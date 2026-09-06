@@ -15,5 +15,5 @@ export const SCREENS: Screen[] = [
   { path: '/memory', label: 'Memory', shipsIn: 'RUN-08', summary: 'What agents remember, with provenance and trust.' },
   { path: '/tools', label: 'Tools', shipsIn: 'RUN-06', summary: 'Built-in tools, MCP servers, the grant matrix, and denial history.' },
   { path: '/evaluate', label: 'Evaluate', shipsIn: 'RUN-10', summary: 'Compare models side by side; datasets and experiments.' },
-  { path: '/settings', label: 'Settings', shipsIn: 'RUN-00', summary: 'Workspace, providers, network mode, budgets.' },
+  { path: '/settings', label: 'Settings', shipsIn: 'RUN-00', summary: 'Workspace, providers, the network, and budgets.' },
 ];

@@ -39,6 +39,17 @@ $ npm run build && npm run e2e
 ## Spec amendments made
 - `spec/decisions.md` D-71 · `spec/ui.md` RUN-19 amendment · `spec/runs/README.md` relabel + owner decision · `spec/runs/FINISH.md` §D · `spec/runs/NEXT.md` note · `README.md`.
 
+## Deviations, added after the first CI round
+- `check (macos-latest)` failed once on the new dark-mode axe scan — `color-contrast` on
+  `.text-blue-700` and `.bg-blue-700` — and nowhere else. Not a contrast defect: `transition-colors`
+  animates `color` over 150ms, so immediately after the theme select the light blue is still painted on
+  the dark ground. Measured: settled light `oklch(0.488 …)`, immediately after the switch
+  `oklab(0.499 …)`, and the dark value `oklch(0.828 …)` only at ~340ms. axe scanned inside that window
+  on that runner and read the fade. The scan now runs under reduced motion, which `styles.css` collapses
+  to nothing, so what is checked is the colour at rest. Nothing was loosened or skipped.
+- This is the first axe scan in dark mode in the repo; the other 43 never change theme, so none of them
+  can hit it.
+
 ## Known gaps
 - `src/ui/screens/Runs.tsx:23` — `useLiveRuns` still opens one stream per screen; the Shell-level hoist is RUN-20's.
 - `src/runtime/api/app.ts:624` — `dashboard.running` omits `waiting_approval`; RUN-20 fixes it (the board inherits it today).

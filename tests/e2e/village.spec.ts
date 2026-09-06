@@ -72,12 +72,17 @@ test('@run-19 every building is a link named for its screen, in order, with its 
   await expect(settingsTip).toBeHidden();
   await expect(settings).toBeFocused();
 
-  // The evening, and stillness.
+  // The evening, and stillness. Reduced motion goes on *before* the theme changes, and not to make the test
+  // easier: `transition-colors` animates `color` over 150ms, so for that moment the light blue is still
+  // painted on the dark ground, and axe scanning inside the window reads a contrast failure that no one ever
+  // sees settle. (It did exactly that on the macOS runner and nowhere else — the fade is shorter than axe's
+  // own injection on a slower machine.) Under reduced motion `styles.css` collapses the transition to nothing,
+  // so what is scanned is the colour at rest, which is the colour the rule is about.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.selectOption('select[aria-label="Theme"]', 'dark');
   expect(await page.evaluate(() => document.documentElement.classList.contains('dark'))).toBe(true);
   await expectNoA11yViolations(page, 'Village in the evening');
   await page.selectOption('select[aria-label="Theme"]', 'system');
-  await page.emulateMedia({ reducedMotion: 'reduce' });
   const durations = await page.evaluate(() => [document.querySelector('nav a'), document.querySelector('[role="tooltip"]')].map((el) => getComputedStyle(el!).transitionDuration));
   for (const d of durations) expect(ms(d), `transition-duration ${d}`).toBeLessThanOrEqual(0.01);
 });
