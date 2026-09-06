@@ -119,3 +119,16 @@ test('@run-12 the Library reads on a phone', async ({ page }) => {
   expect(overflow).toBeLessThanOrEqual(0);
   await expectNoA11yViolations(page, 'Library on a phone');
 });
+
+test('@run-19 below md the village does not exist, and the front door is the Dashboard', async ({ page }) => {
+  // The village is the desktop's front door (D-71); a phone keeps every layout RUN-12 gave it.
+  await page.goto(base() + '/village#token=' + token());
+  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible();
+  await expect(page.locator('[data-village]')).toHaveCount(0);
+  await expect(page.locator('[data-interior]')).toHaveCount(0);
+  await page.evaluate(() => window.localStorage.setItem('workbench.welcome-done', '1'));
+  await page.goto(base() + '/#token=' + token());
+  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+  await expectTouchTargets(page, 'Dashboard from the front door');
+});

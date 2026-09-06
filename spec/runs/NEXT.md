@@ -5,6 +5,9 @@ were his. The bug it found is fixed (D-70). These are the rest: three build item
 question. None of them are defects — they are the difference between software that works and
 software that can be lived in.
 
+> Where these land (2026-09-06): N-1 and N-2 become rooms in **RUN-21** (`spec/runs/RUN-21.md`); N-3 is a fix
+> branch before RUN-20. The owner may pull N-1 forward as its own run, in which case RUN-21 only gives it a room.
+
 ## N-1 — Agents are edited on a screen
 
 > "I will not edit the agents on disk. Finding the folders and the files will end up being a hard
