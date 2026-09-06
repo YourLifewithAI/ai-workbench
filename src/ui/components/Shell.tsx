@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { cn } from '../lib/cn.js';
 import { SCREENS } from '../lib/screens.js';
+import { MD, useMediaQuery } from '../lib/media.js';
 import { readTheme, saveTheme, type Theme } from '../lib/theme.js';
+import { Interior } from '../village/Interior.js';
+import { VillageMap } from '../village/VillageMap.js';
 import { NetworkBanner } from './NetworkBanner.js';
 import { Mark } from './ui/mark.js';
 
@@ -18,14 +21,18 @@ export function Shell() {
   const [theme, setTheme] = useState<Theme>(() => readTheme());
   const [moreOpen, setMoreOpen] = useState(false);
   useEffect(() => { saveTheme(theme); }, [theme]);
+  // The village exists at `md` and above (D-71): the square at /village, the street beside every other screen.
+  // Below that this is the phone, and nothing about it changed.
+  const wide = useMediaQuery(MD);
+  const square = wide && useLocation().pathname === '/village';
 
   // In tab-bar order, not navigation order: on a phone the queue you came to clear comes before the archive.
   const tabs = PHONE_TABS.map((path) => SCREENS.find((s) => s.path === path)).filter((s): s is (typeof SCREENS)[number] => s !== undefined);
 
   return (
-    <div className="flex min-h-full flex-col md:flex-row">
+    <div className={cn('flex min-h-full flex-col', square ? 'md:flex-col' : 'md:flex-row')}>
       <a href="#main" className="skip-link">Skip to content</a>
-      <header className="border-b border-gray-200 md:w-56 md:border-b-0 md:border-r dark:border-gray-800">
+      <header className={cn('border-b border-gray-200 dark:border-gray-800', square ? 'md:w-full' : 'md:w-56 md:border-b-0 md:border-r')}>
         <div className="flex items-center justify-between px-4 py-3">
           <span className="flex items-center gap-2 text-base font-semibold"><Mark />AI Workbench</span>
           <label className="text-xs text-gray-600 dark:text-gray-400">
@@ -39,6 +46,7 @@ export function Shell() {
         </div>
         {/* The full list is the desktop navigation, and on a phone it is what "More" opens. */}
         <nav aria-label="Primary" className={cn('px-2 pb-3 md:block', moreOpen ? 'block' : 'hidden')}>
+          {wide ? <VillageMap size={square ? 'full' : 'compact'} /> : (
           <ul className="flex flex-wrap gap-1 md:flex-col">
             {SCREENS.map((s) => (
               <li key={s.path}>
@@ -52,12 +60,14 @@ export function Shell() {
               </li>
             ))}
           </ul>
+          )}
         </nav>
       </header>
       <div className="flex min-w-0 flex-1 flex-col">
         <NetworkBanner />
         {/* The bottom bar covers the last stretch of the page, so the content ends above it rather than under it. */}
         <main id="main" tabIndex={-1} className="flex-1 p-4 pb-24 md:p-6 md:pb-6">
+          {wide && !square ? <Interior /> : null}
           <Outlet />
         </main>
 

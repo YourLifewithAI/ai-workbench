@@ -44,7 +44,7 @@ export const Village = z.strictObject({
 export type Village = z.infer<typeof Village>;
 
 /** A building's picture is this many tiles wide and tall, anchored with its feet on its tile's front corner. */
-export const ART_TILES = 1.5;
+export const ART_TILES = 1.7;
 /** The smallest unobscured pointer target WCAG 2.2 asks for (target-size, AA). */
 export const TARGET_PX = 24;
 
