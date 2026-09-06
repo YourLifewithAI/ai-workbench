@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "grid": { "w": 12, "h": 12 },
+  "tile": { "w": 64, "h": 32 },
+  "buildings": [
+    { "screen": "/welcome", "art": "gate", "x": 11, "y": 11 },
+    { "screen": "/dashboard", "art": "townHall", "x": 2, "y": 2 },
+    { "screen": "/library", "art": "library", "x": 1, "y": 8 },
+    { "screen": "/workflows", "art": "workshop", "x": 6, "y": 0 },
+    { "screen": "/agents", "art": "lodge", "x": 9, "y": 2 },
+    { "screen": "/runs", "art": "records", "x": 5, "y": 10 },
+    { "screen": "/review", "art": "postOffice", "x": 0, "y": 4 },
+    { "screen": "/models", "art": "stables", "x": 11, "y": 6 },
+    { "screen": "/memory", "art": "well", "x": 3, "y": 6 },
+    { "screen": "/tools", "art": "smithy", "x": 7, "y": 4 },
+    { "screen": "/evaluate", "art": "observatory", "x": 8, "y": 9 },
+    { "screen": "/settings", "art": "windmill", "x": 10, "y": 0 }
+  ],
+  "props": [
+    { "art": "pine", "x": 0, "y": 0 },
+    { "art": "pine", "x": 0, "y": 1 },
+    { "art": "tree", "x": 4, "y": 0 },
+    { "art": "tree", "x": 0, "y": 11 },
+    { "art": "pine", "x": 1, "y": 11 },
+    { "art": "tree", "x": 3, "y": 9 },
+    { "art": "bush", "x": 4, "y": 4 },
+    { "art": "rock", "x": 8, "y": 6 },
+    { "art": "rock", "x": 2, "y": 10 },
+    { "art": "tree", "x": 10, "y": 9 },
+    { "art": "pine", "x": 11, "y": 8 },
+    { "art": "bush", "x": 6, "y": 6 },
+    { "art": "lamp", "x": 7, "y": 8 },
+    { "art": "lamp", "x": 4, "y": 3 },
+    { "art": "tree", "x": 9, "y": 4 },
+    { "art": "fence", "x": 1, "y": 0 },
+    { "art": "fence", "x": 2, "y": 0 },
+    { "art": "fence", "x": 3, "y": 0 }
+  ],
+  "paths": [
+    [[11, 10], [8, 7], [6, 5], [4, 4], [3, 3]],
+    [[6, 5], [7, 6], [8, 8]],
+    [[6, 5], [5, 7], [3, 8]],
+    [[6, 5], [8, 3]]
+  ],
+  "water": [
+    [[0, 6], [2, 7], [4, 8], [6, 9], [8, 11]]
+  ],
+  "places": { "square": [6, 5], "board": [3, 4] }
+}

@@ -1,24 +1,12 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { cn } from '../lib/cn.js';
+import { SCREENS } from '../lib/screens.js';
 import { readTheme, saveTheme, type Theme } from '../lib/theme.js';
 import { NetworkBanner } from './NetworkBanner.js';
 import { Mark } from './ui/mark.js';
 
-export const SCREENS: { path: string; label: string; shipsIn: string; summary: string }[] = [
-  { path: '/welcome', label: 'Welcome', shipsIn: 'RUN-00', summary: 'The first-run path.' },
-  { path: '/dashboard', label: 'Dashboard', shipsIn: 'RUN-05', summary: 'What needs you, what is running, and what today cost.' },
-  { path: '/library', label: 'Library', shipsIn: 'RUN-03', summary: 'Projects, documents, and every version your agents produce.' },
-  { path: '/workflows', label: 'Workflows', shipsIn: 'RUN-04', summary: 'Multi-step workflows with a live graph and a run form built from their inputs.' },
-  { path: '/agents', label: 'Agents', shipsIn: 'RUN-01', summary: 'Agent definitions, versions, model policies, and their run form.' },
-  { path: '/runs', label: 'Runs', shipsIn: 'RUN-00', summary: 'Every run with what it cost and produced.' },
-  { path: '/review', label: 'Review', shipsIn: 'RUN-05', summary: 'Outputs waiting for a rating and approvals waiting for a decision.' },
-  { path: '/models', label: 'Models', shipsIn: 'RUN-02', summary: 'The model catalog with pricing, capabilities, and data policy.' },
-  { path: '/memory', label: 'Memory', shipsIn: 'RUN-08', summary: 'What agents remember, with provenance and trust.' },
-  { path: '/tools', label: 'Tools', shipsIn: 'RUN-06', summary: 'Built-in tools, MCP servers, the grant matrix, and denial history.' },
-  { path: '/evaluate', label: 'Evaluate', shipsIn: 'RUN-10', summary: 'Compare models side by side; datasets and experiments.' },
-  { path: '/settings', label: 'Settings', shipsIn: 'RUN-00', summary: 'Workspace, providers, network mode, budgets.' },
-];
+export { SCREENS } from '../lib/screens.js';
 
 /**
  * What a phone gets on the tab bar. The rest is still reachable — the full list is one tap away under "More" —
