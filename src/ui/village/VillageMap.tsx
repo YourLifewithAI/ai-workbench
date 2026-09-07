@@ -83,14 +83,19 @@ function Building({ b, screen, size, style }: { b: VillageBuilding; screen: Scre
         onKeyDown={(e) => { if (e.key === 'Escape' && !dismissed) { setDismissed(true); e.stopPropagation(); } }}
         className={({ isActive }) => cn(
           'block rounded-md',
-          full ? 'h-full w-full' : 'flex min-h-12 min-w-12 items-center justify-center px-1 hover:bg-gray-100 dark:hover:bg-gray-800',
+          full ? 'h-full w-full' : 'flex min-h-12 min-w-12 items-center gap-2 px-1 hover:bg-gray-100 dark:hover:bg-gray-800',
           !full && isActive && 'bg-gray-100 dark:bg-gray-800',
         )}
       >
         {({ isActive }) => (
           <>
-            <Art name={b.art as ArtName} active={isActive} className={full ? 'h-full w-full' : 'h-12 w-12'} />
-            <span className="sr-only">{screen.label}</span>
+            <Art name={b.art as ArtName} active={isActive} className={full ? 'h-full w-full' : 'h-12 w-12 shrink-0'} />
+            {/* On the square the name is read out and never shown — the houses carry no text (D-71). In the
+                street there is room for it, and twelve unlabelled sprites in a column are a guessing game, so
+                the same span becomes visible. It is a *swap*, never a second copy: this stays the link's only
+                text node, so `textContent` is exactly the screen's name and the twelve-link contract that
+                shell.spec and village.spec read holds in both sizes. */}
+            <span className={full ? 'sr-only' : 'truncate text-sm font-medium'}>{screen.label}</span>
           </>
         )}
       </NavLink>

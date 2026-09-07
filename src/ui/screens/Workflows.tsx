@@ -10,6 +10,7 @@ import { Estimate } from '../components/Estimate.js';
 import { Button } from '../components/ui/button.js';
 import { Badge, Card } from '../components/ui/card.js';
 import { CardTitle, Prose, ScreenTitle, SectionTitle, Subheading } from '../components/ui/text.js';
+import { MOCK_NOTE } from '../lib/mock.js';
 
 export function Workflows() {
   const q = useQuery({ queryKey: ['workflows'], queryFn: api.workflows });
@@ -297,6 +298,7 @@ function RunForm({ workflow }: { workflow: WorkflowDetailShape }) {
         <input type="checkbox" checked={mock} onChange={(e) => setUseMock(e.target.checked)} className="h-6 w-6" />
         Use the mock provider (free, no key)
       </label>
+      {mock ? <p className="text-sm text-gray-600 dark:text-gray-400">{MOCK_NOTE}</p> : null}
       {!mock && !hasKey ? (
         <p className="text-sm text-amber-700 dark:text-amber-300">
           No provider key is configured, so a real run will fail at its first model call. Add one in{' '}

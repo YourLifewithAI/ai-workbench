@@ -70,9 +70,17 @@ interface ModelCapabilities {
   toolCalling: 'none' | 'basic' | 'parallel';
   structuredOutput: 'none' | 'json' | 'schema';
   streaming: boolean; reasoning: 'none' | 'opaque' | 'visible';
+  thinking?: 'adaptive' | 'budget' | 'none';
   contextTokens: number; maxOutputTokens?: number;
 }
 ```
+
+`reasoning` is what comes *back*; `thinking` is how it is *asked for*, and the two are not the same fact.
+Providers change the request shape by model generation — Anthropic did at Claude 4.6, where a model began taking
+`{ type: 'adaptive' }` and refusing the fixed `budgetTokens` an older one still requires — while both
+generations answer the same way, so `reasoning` cannot tell them apart. **An entry that does not declare
+`thinking` is asked for none:** a call without the parameter is a plain call, a call with the wrong one is a 400
+that kills the step. Deriving it from `reasoning !== 'none'` took every Anthropic fallback down once already.
 
 Capabilities are catalog data, declared per model and verified by the contract suite. The engine filters candidates by the agent's requirements and never asks "which model is best".
 
@@ -80,12 +88,17 @@ Capabilities are catalog data, declared per model and verified by the contract s
 
 ```ts
 type ModelErrorCode = 'Authentication' | 'RateLimit' | 'ContextLength' | 'ModelUnavailable'
-  | 'ContentFilter' | 'Network' | 'Timeout' | 'NetworkPolicy' | 'SchemaValidation' | 'Unknown';
+  | 'ContentFilter' | 'Unsupported' | 'Network' | 'Timeout' | 'NetworkPolicy' | 'SchemaValidation' | 'Unknown';
 interface ModelError { code: ModelErrorCode; message: string; retryable: boolean;
   action: 'retry' | 'fallback' | 'abort'; providerError?: Meta }
 ```
 
-Errors are raised as `<Code>Error` classes (`RateLimitError`, `NetworkPolicyError`, …) carrying this shape. Default `code → action`: `RateLimit`, `Timeout`, `Network` → `retry`; `ModelUnavailable`, `ContentFilter`, `ContextLength`, `Unknown` → `fallback`; `Authentication`, `NetworkPolicy` → `abort`; `SchemaValidation` → one repair turn then `retry`. A fixture's `error` field uses the code; adapters may override the action per provider. Selection (D-06): candidates = the step's `model` override if present, else the agent's `modelPolicy.primary`, followed by the agent's `fallbacks[]`; each is filtered by the agent's `modelPolicy.requires` and the current network mode. A call retries the same model up to twice with backoff when `action = 'retry'`, then moves to the next candidate when `action = 'fallback'`, only between steps or before the first token of a step. A step that already streamed output is aborted (`model-aborted`) and rerun on the next candidate from its start. Every transition is an event.
+`Unsupported` is the model saying no to part of a well-formed request — a thinking mode of the wrong
+generation, a tool shape it does not implement — as distinct from `ModelUnavailable`, which is the model not
+being there. Both fall back, because the next candidate may accept what this one refused, but only one of them
+means "try again later".
+
+Errors are raised as `<Code>Error` classes (`RateLimitError`, `NetworkPolicyError`, …) carrying this shape. Default `code → action`: `RateLimit`, `Timeout`, `Network` → `retry`; `ModelUnavailable`, `ContentFilter`, `ContextLength`, `Unsupported`, `Unknown` → `fallback`; `Authentication`, `NetworkPolicy` → `abort`; `SchemaValidation` → one repair turn then `retry`. A fixture's `error` field uses the code; adapters may override the action per provider. Selection (D-06): candidates = the step's `model` override if present, else the agent's `modelPolicy.primary`, followed by the agent's `fallbacks[]`; each is filtered by the agent's `modelPolicy.requires` and the current network mode. A call retries the same model up to twice with backoff when `action = 'retry'`, then moves to the next candidate when `action = 'fallback'`, only between steps or before the first token of a step. A step that already streamed output is aborted (`model-aborted`) and rerun on the next candidate from its start. Every transition is an event.
 
 ## Catalog (D-08)
 

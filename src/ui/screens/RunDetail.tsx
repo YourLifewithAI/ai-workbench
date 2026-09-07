@@ -13,6 +13,7 @@ import { BudgetBar } from '../components/BudgetBar.js';
 import { RunGraph } from '../components/RunGraph.js';
 import { CANCELLABLE, stateTone } from './Runs.js';
 import { ScreenTitle, SectionTitle, Subheading } from '../components/ui/text.js';
+import { MOCK_NOTE, usedMock } from '../lib/mock.js';
 
 const TERMINAL = new Set(['run-completed', 'run-failed', 'run-cancelled', 'run-interrupted']);
 
@@ -68,6 +69,7 @@ export function RunDetail() {
 
   const agentName = agents.data?.agents.find((a) => a.id === run.data?.agentId)?.name;
   const summary = useMemo(() => (run.data ? summarizeRun(run.data, events, agentName) : null), [run.data, events, agentName]);
+  const mocked = useMemo(() => usedMock(events.filter((e) => e.type === 'model-started' || e.type === 'model-completed').map((e) => String(e.payload['modelId'] ?? ''))), [events]);
 
   return (
     <section aria-labelledby="screen-title">
@@ -76,6 +78,9 @@ export function RunDetail() {
       {run.isError ? <p role="alert" className="mt-3 text-red-700 dark:text-red-300">{run.error.message}</p> : null}
 
       {summary ? <SummaryCard summary={summary} className="mt-4" /> : null}
+      {/* N-3: a run on the mock answered from a fixture, and the run page is where someone comes to ask why the
+          answer ignored the prompt. Say it here too, in the same words as the tick that started it. */}
+      {mocked ? <p className="mt-3 text-sm text-gray-600 dark:text-gray-400">This run used the mock provider. {MOCK_NOTE}</p> : null}
 
       {run.data ? (
         <>

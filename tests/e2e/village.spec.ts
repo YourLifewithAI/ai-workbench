@@ -96,7 +96,16 @@ test('@run-19 entering a building shows where you are and the way back, and Back
   await expect(band).toContainText('Projects, documents, and every version your agents produce.');
   // Inside, the street: the same twelve, in the same order, still links.
   await expect(page.locator('[data-village="compact"]')).toHaveCount(1);
-  await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('link')).toHaveText(LABELS);
+  const street = page.getByRole('navigation', { name: 'Primary' }).getByRole('link');
+  await expect(street).toHaveText(LABELS);
+  // And here the name is *shown*, beside its house: twelve unlabelled sprites in a column are a guessing game.
+  // It is the same single span the square clips to a pixel — a swap, never a second copy — which is what keeps
+  // `textContent` exactly the screen's name in both sizes, and so keeps the shell's twelve-link contract true.
+  for (const [i, label] of LABELS.entries()) {
+    const name = street.nth(i).locator('span');
+    await expect(name, `${label} has one name in the street`).toHaveCount(1);
+    expect(await name.evaluate((el) => el.getBoundingClientRect().width), `${label}: the name is shown`).toBeGreaterThan(1);
+  }
   await expectNoA11yViolations(page, 'Library inside its building');
   await band.getByRole('link', { name: 'Back to the village' }).click();
   await expect(page.getByRole('heading', { name: 'Village' })).toBeVisible();
