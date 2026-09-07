@@ -26,6 +26,7 @@ export class RateLimitError extends ModelError { constructor(m: string, o?: Mode
 export class ContextLengthError extends ModelError { constructor(m: string, o?: ModelErrorOptions) { super('ContextLength', m, o); } }
 export class ModelUnavailableError extends ModelError { constructor(m: string, o?: ModelErrorOptions) { super('ModelUnavailable', m, o); } }
 export class ContentFilterError extends ModelError { constructor(m: string, o?: ModelErrorOptions) { super('ContentFilter', m, o); } }
+export class UnsupportedError extends ModelError { constructor(m: string, o?: ModelErrorOptions) { super('Unsupported', m, o); } }
 export class NetworkError extends ModelError { constructor(m: string, o?: ModelErrorOptions) { super('Network', m, o); } }
 export class TimeoutError extends ModelError { constructor(m: string, o?: ModelErrorOptions) { super('Timeout', m, o); } }
 export class NetworkPolicyError extends ModelError { constructor(m: string, o?: ModelErrorOptions) { super('NetworkPolicy', m, o); } }
@@ -34,7 +35,7 @@ export class UnknownModelError extends ModelError { constructor(m: string, o?: M
 
 const CLASSES: Record<ModelErrorCode, new (m: string, o?: ModelErrorOptions) => ModelError> = {
   Authentication: AuthenticationError, RateLimit: RateLimitError, ContextLength: ContextLengthError,
-  ModelUnavailable: ModelUnavailableError, ContentFilter: ContentFilterError, Network: NetworkError,
+  ModelUnavailable: ModelUnavailableError, ContentFilter: ContentFilterError, Unsupported: UnsupportedError, Network: NetworkError,
   Timeout: TimeoutError, NetworkPolicy: NetworkPolicyError, SchemaValidation: SchemaValidationError, Unknown: UnknownModelError,
 };
 

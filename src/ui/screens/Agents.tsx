@@ -8,6 +8,7 @@ import { Button } from '../components/ui/button.js';
 import { Badge, Card } from '../components/ui/card.js';
 import { CardTitle, Prose, ScreenTitle, SectionTitle } from '../components/ui/text.js';
 import type { AgentSummary } from '../../shared/api/index.js';
+import { MOCK_NOTE } from '../lib/mock.js';
 
 export function Agents() {
   const q = useQuery({ queryKey: ['agents'], queryFn: api.agents });
@@ -144,10 +145,13 @@ export function AgentDetail() {
                     {projects.data?.map((p) => <option key={p.slug} value={p.slug}>{p.slug}</option>)}
                   </select>
                 </div>
-                <label className="flex items-center gap-2 py-2 text-sm">
-                  <input type="checkbox" checked={mock} onChange={(e) => setUseMock(e.target.checked)} className="h-6 w-6" />
-                  Use the mock provider (free, no key)
-                </label>
+                <div className="py-2">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={mock} onChange={(e) => setUseMock(e.target.checked)} className="h-6 w-6" />
+                    Use the mock provider (free, no key)
+                  </label>
+                  {mock ? <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{MOCK_NOTE}</p> : null}
+                </div>
                 <Button type="submit" disabled={!input.trim() || start.isPending}>{start.isPending ? 'Starting…' : 'Run'}</Button>
               </div>
             </form>

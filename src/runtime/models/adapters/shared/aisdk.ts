@@ -156,6 +156,10 @@ function codeFor(status: number | undefined, message: string, body: string | und
   if (status === 404) return 'ModelUnavailable';
   if (status === 400 && /token count|too long|exceeds the maximum|context length/i.test(haystack)) return 'ContextLength';
   if (status === 400 && /safety|blocked/i.test(haystack)) return 'ContentFilter';
+  // A 400 that names a thing this model will not take — "adaptive thinking is not supported on this model" is
+  // the one that cost us a run. The model is there and answered; it is the request it refuses, so the next
+  // candidate is worth trying and the trace should say which part it refused rather than `Unknown`.
+  if (status === 400 && /\bunsupported\b|\bnot supported\b|\bdoes not support\b|\bunrecognized\b|\bunexpected (?:keyword|parameter|field|argument)\b|\bunknown (?:parameter|field|argument)\b/i.test(haystack)) return 'Unsupported';
   if (status !== undefined && status >= 500) return 'ModelUnavailable';
   if (/timed? ?out|ETIMEDOUT/i.test(haystack)) return 'Timeout';
   if (/blocked by the egress|network is not available|NetworkPolicy/i.test(haystack)) return 'NetworkPolicy';

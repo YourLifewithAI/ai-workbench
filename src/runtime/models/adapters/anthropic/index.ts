@@ -14,6 +14,15 @@ const API_VERSION = '2023-06-01';
 
 export const ANTHROPIC_ADAPTER_ID = 'anthropic';
 
+/** Anthropic's older thinking form takes a fixed budget: at least 1024 tokens, and it must leave room to answer. */
+const MIN_THINKING_BUDGET = 1024;
+const DEFAULT_THINKING_BUDGET = 4096;
+function budgetFor(model: CatalogEntry): number {
+  const ceiling = model.capabilities.maxOutputTokens;
+  if (ceiling === undefined) return DEFAULT_THINKING_BUDGET;
+  return Math.max(MIN_THINKING_BUDGET, Math.min(DEFAULT_THINKING_BUDGET, Math.floor(ceiling / 2)));
+}
+
 export class AnthropicAdapter extends AiSdkAdapter {
   readonly id = ANTHROPIC_ADAPTER_ID;
 
@@ -70,13 +79,24 @@ export class AnthropicAdapter extends AiSdkAdapter {
     return out;
   }
 
+  /**
+   * How to ask for thinking, which Anthropic changed at Claude 4.6: from there on a model takes
+   * `{ type: 'adaptive' }` and rejects a fixed budget, while an older one — Haiku 4.5, say — takes
+   * `budgetTokens` and rejects `adaptive` with a 400 that kills the step. The catalog says which
+   * (`capabilities.thinking`), because only the catalog knows: `reasoning` describes what comes *back*, and
+   * both generations answer the same way. **An entry that does not say gets no thinking parameter at all** —
+   * a plain call still works, a wrongly-shaped one does not, and this whole field exists because guessing the
+   * generation from `reasoning !== 'none'` took the fast and cheap roles down for every Anthropic fallback.
+   * `providerOptions.anthropic.thinking` still overrides, so a model the catalog has wrong is one field away
+   * from working.
+   */
   protected providerOptions(model: CatalogEntry, req: ModelRequest): NonNullable<Parameters<typeof generateText>[0]['providerOptions']> {
     const defaults: Record<string, unknown> = {};
     if (model.capabilities.reasoning !== 'none') {
-      // Adaptive thinking is the only mode current Claude models accept: a fixed `budgetTokens` is rejected
-      // outright. `summarized` is what puts the reasoning in the trace; the default returns it empty.
-      // A model old enough to need the fixed-budget form can say so with providerOptions.anthropic.thinking.
-      defaults['thinking'] = { type: 'adaptive', display: 'summarized' };
+      // `summarized` is what puts the reasoning in the trace; the default returns it empty. The budget form
+      // takes neither that nor anything else beyond its size — keep it to what the older API accepts.
+      if (model.capabilities.thinking === 'adaptive') defaults['thinking'] = { type: 'adaptive', display: 'summarized' };
+      else if (model.capabilities.thinking === 'budget') defaults['thinking'] = { type: 'enabled', budgetTokens: budgetFor(model) };
     }
     return providerOptionsFor('anthropic', defaults, req);
   }

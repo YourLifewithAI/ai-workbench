@@ -78,6 +78,10 @@ export type ModelResponse = z.infer<typeof ModelResponse>;
 
 export const ModelErrorCode = z.enum([
   'Authentication', 'RateLimit', 'ContextLength', 'ModelUnavailable', 'ContentFilter',
+  // The request was well-formed but this model will not take some part of it — a thinking mode of the wrong
+  // generation, a tool shape it does not implement. Distinct from ModelUnavailable, which means the model is
+  // not there: this one is there and said no, and the next candidate may well say yes.
+  'Unsupported',
   'Network', 'Timeout', 'NetworkPolicy', 'SchemaValidation', 'Unknown',
 ]);
 export type ModelErrorCode = z.infer<typeof ModelErrorCode>;
@@ -96,6 +100,7 @@ export type ModelErrorShape = z.infer<typeof ModelErrorShape>;
 export const DEFAULT_ERROR_ACTION: Record<ModelErrorCode, ModelErrorAction> = {
   RateLimit: 'retry', Timeout: 'retry', Network: 'retry',
   ModelUnavailable: 'fallback', ContentFilter: 'fallback', ContextLength: 'fallback', Unknown: 'fallback',
+  Unsupported: 'fallback',
   Authentication: 'abort', NetworkPolicy: 'abort',
   SchemaValidation: 'retry',
 };
@@ -119,6 +124,14 @@ export const ModelCapabilities = z.object({
   structuredOutput: z.enum(['none', 'json', 'schema']),
   streaming: z.boolean(),
   reasoning: z.enum(['none', 'opaque', 'visible']),
+  // How this model wants extended thinking *asked for*, which is not what `reasoning` says. `reasoning` is
+  // whether thinking comes back and in what form; this is the shape of the request that produces it, and
+  // providers change that shape by model generation. Anthropic changed it at Claude 4.6: from there on a model
+  // takes `{ type: 'adaptive' }` and rejects a fixed budget, while an older one takes `budgetTokens` and
+  // rejects `adaptive`. Absent means **do not ask**: a call with no thinking parameter is a plain call, where
+  // a call with the wrong one is a 400 that kills the step. Assuming a generation is what broke the fast and
+  // cheap roles once already, so the default is to say nothing rather than to guess.
+  thinking: z.enum(['adaptive', 'budget', 'none']).optional(),
   contextTokens: z.number().int().positive(),
   maxOutputTokens: z.number().int().positive().optional(),
 });
