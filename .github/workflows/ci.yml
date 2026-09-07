@@ -23,9 +23,10 @@ jobs:
         # `no-sandbox` and `timezone` below must run on, so it is not a portability nicety — it is where
         # three of this workflow's six jobs live and where the shipped container runs.
         #
-        # macOS is deferred (D-39 amendment, 2026-09-07): nobody is developing for it, the POSIX paths it
-        # shares are covered by ubuntu, and it was the slowest job and the one platform-only failure this
-        # project has had. Put `macos-latest` back in this list to restore it — that is the whole change.
+        # macOS is deferred (D-39 amendment, 2026-09-07): nobody is developing for it, and the POSIX paths it
+        # shares are the ones ubuntu already proves. It is not the slow one — windows is, by minutes — so this
+        # buys a job's worth of compute and one platform's worth of failure surface, not a faster merge.
+        # Put `macos-latest` back in this list to restore it; that is the whole change.
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:

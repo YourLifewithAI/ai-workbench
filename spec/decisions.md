@@ -62,10 +62,12 @@ Settled (62). Each has a one-line rationale. D-46 onward come from `research.md`
   > Windows and asked to put the other platforms on hold. Linux stays, because it is not a portability
   > nicety here: `docker`, `no-sandbox` and `timezone` are three of this workflow's six jobs and all three
   > must run on it, the shipped container *is* Debian (D-60), and it is the fastest answer in the matrix.
-  > macOS goes, because nothing is being developed for it — every platform branch in `src/` is
-  > `if (win32) … else <the POSIX default>`, so macOS runs the same code ubuntu proves — and it was both the
-  > slowest job and the only platform-only failure this project has had. **Support is unchanged; only the
-  > proof is.** The claim in `README.md` and `spec/architecture.md` is now "Windows and Linux tested, macOS
+  > macOS goes, because nothing is being developed for it: every platform branch in `src/` is
+  > `if (win32) … else <the POSIX default>`, so macOS runs the same code ubuntu proves, and it is the one
+  > platform-only failure this project has had. It is **not** the slow one — measured over two runs it came in
+  > at 7m35s and 5m52s against ubuntu's 6m50s and 6m42s, while windows ran past ten minutes on both — so what
+  > this buys is a job's worth of compute and one platform's worth of failure surface, not a shorter wait.
+  > The wait is windows, and windows is the point. **Support is unchanged; only the proof is.** The claim in `README.md` and `spec/architecture.md` is now "Windows and Linux tested, macOS
   > untested". Restoring it is one word: put `macos-latest` back in the `check` matrix.
   >
   > What was deliberately *not* done: none of the POSIX code paths were removed. They are the `else` half of
