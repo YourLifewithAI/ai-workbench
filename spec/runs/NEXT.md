@@ -5,8 +5,10 @@ were his. The bug it found is fixed (D-70). These are the rest: three build item
 question. None of them are defects — they are the difference between software that works and
 software that can be lived in.
 
-> Where these land (2026-09-06): N-1 and N-2 become rooms in **RUN-21** (`spec/runs/RUN-21.md`); N-3 is a fix
-> branch before RUN-20. The owner may pull N-1 forward as its own run, in which case RUN-21 only gives it a room.
+> Where these land (2026-09-07): N-1 and N-2 become rooms in **RUN-21** (`spec/runs/RUN-21.md`); N-3 shipped
+> on the fix branch that corrected the Anthropic thinking capability. The owner may pull N-1 forward as its
+> own run, in which case RUN-21 only gives it a room. The look is **RUN-22** (`spec/runs/RUN-22.md`), and the
+> owner has put it after the rooms: "rooms first, look later."
 
 ## N-1 — Agents are edited on a screen
 
