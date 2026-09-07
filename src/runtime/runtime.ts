@@ -460,6 +460,11 @@ export class Runtime {
     fs.writeFileSync(this.workspace.paths.modelsJson, JSON.stringify(next, null, 2) + '\n');
     // In place: the engine and the tools hold a reference to this catalog, the same way they hold the config.
     this.workspace.catalog.models.splice(0, this.workspace.catalog.models.length, ...next.models);
+    // Both lists: `findings` is what this call returns, but `models()` rebuilds it from `providerFindings`
+    // on the next load, so a provider finding removed only from the derived list would come straight back.
+    // A shipped finding needs no such removal — once the catalog matches, or the dismissal is recorded, the
+    // recompute simply stops producing it.
+    this.providerFindings = this.providerFindings.filter((f) => f.id !== id);
     this.findings = (this.findings ?? []).filter((f) => f.id !== id);
     this.polled = null;
     this.log.info({ finding: id, kind: finding.kind, model: finding.modelId }, 'catalog finding accepted');
@@ -497,6 +502,11 @@ export class Runtime {
     if (!finding) return null;
     this.db.prepare('INSERT INTO catalog_finding_dismissals (finding_id, facts_hash, dismissed_at) VALUES (?, ?, ?) ON CONFLICT(finding_id) DO UPDATE SET facts_hash = excluded.facts_hash, dismissed_at = excluded.dismissed_at')
       .run(id, finding.factsHash, new Date().toISOString());
+    // Both lists: `findings` is what this call returns, but `models()` rebuilds it from `providerFindings`
+    // on the next load, so a provider finding removed only from the derived list would come straight back.
+    // A shipped finding needs no such removal — once the catalog matches, or the dismissal is recorded, the
+    // recompute simply stops producing it.
+    this.providerFindings = this.providerFindings.filter((f) => f.id !== id);
     this.findings = (this.findings ?? []).filter((f) => f.id !== id);
     return this.models(false);
   }
