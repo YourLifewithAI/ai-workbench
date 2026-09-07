@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import { resolveRoles, rolesReferenced } from '../../models/roles.js';
 import { statusFor } from '../../models/availability.js';
 import { findModel } from '../../models/catalog.js';
+import { diffShipped } from '../../models/discovery.js';
+import { ModelsFile } from '../../../shared/model.js';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import type { Command } from 'commander';
@@ -25,6 +27,33 @@ import { guarded, out, outJson, resolveWorkspace, wantsJson } from '../context.j
 
 interface Check { name: string; ok: boolean; detail: string }
 
+/**
+ * The shipped catalog against the workspace's copy, as one line. Not a failure — a workspace is allowed to be
+ * its own — but it is the difference between "the fix reached me" and "the fix reached the code and stopped".
+ */
+function catalogCheck(ws: { catalog: ModelsFile; paths: { modelsJson: string } }, defaultsDir: string): Check {
+  let shipped: ModelsFile;
+  try {
+    shipped = ModelsFile.parse(JSON.parse(fs.readFileSync(path.join(defaultsDir, 'models.json'), 'utf8')));
+  } catch (e) {
+    return { name: 'catalog', ok: false, detail: `the shipped catalog at ${defaultsDir} could not be read: ${(e as Error).message}` };
+  }
+  const findings = diffShipped({ catalog: ws.catalog, shipped, pins: new Map(), now: new Date() });
+  if (!findings.length) return { name: 'catalog', ok: true, detail: `${ws.catalog.models.length} model(s), up to date with the shipped catalog` };
+  const counts = { new: 0, drift: 0, repriced: 0 } as Record<string, number>;
+  for (const f of findings) counts[f.kind] = (counts[f.kind] ?? 0) + 1;
+  const parts = [
+    counts['new'] ? `${counts['new']} model(s) it does not have` : '',
+    counts['drift'] ? `${counts['drift']} entr(ies) with a stale or missing capability` : '',
+    counts['repriced'] ? `${counts['repriced']} unpriced entr(ies) the shipped catalog prices` : '',
+  ].filter(Boolean);
+  return {
+    name: 'catalog',
+    ok: false,
+    detail: `${ws.paths.modelsJson} is behind the shipped catalog: ${parts.join(', ')}. Review them on Models, or with \`workbench models list\`; each is accepted or dismissed one at a time. This line reports the file as it stands, so a finding you dismissed on the screen still counts here.`,
+  };
+}
+
 export function registerDoctor(program: Command, bootstrap: Bootstrap): void {
   program
     .command('doctor')
@@ -45,6 +74,10 @@ export function registerDoctor(program: Command, bootstrap: Bootstrap): void {
           checks.push({ name: 'workspace', ok: true, detail: `${ws.paths.dir} ("${ws.file.name}"), ${ws.agents.size} agent(s): ${[...ws.agents.keys()].join(', ') || 'none'}` });
           if (broken.length) checks.push({ name: 'agents', ok: false, detail: broken.join('; ') });
           checks.push({ name: 'network', ok: true, detail: `mode ${ws.config.network.mode}` });
+          // Is this workspace's catalog behind the one the workbench ships? `init` copies it once and nothing
+          // updates it, so a corrected fact — a new model, a capability field that did not exist when the
+          // workspace was made, a price where there was none — stops here unless someone is told.
+          checks.push(catalogCheck(ws, pkg.defaults));
           const creds = loadCredentials(ws.paths.credentialsJson, new Redactor());
           const credWarnings = creds.warnings();
           // A warning only matters once there is a key to protect; an empty file on Windows is nothing to say.

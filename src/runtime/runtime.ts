@@ -48,7 +48,7 @@ import { OpenAiCompatibleAdapter } from './models/adapters/openai-compatible/ind
 import { createApp } from './api/app.js';
 import { ArtifactStore } from './artifacts/store.js';
 import { listModels, pollLocalEndpoints, providerOf, type PollResult } from './models/availability.js';
-import { applyFinding, diffProvider, pinsFor } from './models/discovery.js';
+import { applyFinding, diffProvider, diffShipped, pinsFor } from './models/discovery.js';
 import type { CatalogFinding, CreateWorkflowRequest, DeleteWorkflowResponse, DiscoveryReport, EstimateRequest, EstimateResponse, PermissionFinding, ProjectSpaceResponse } from '../shared/api/index.js';
 import { estimateAgentRun, estimateWorkflowRun } from './engine/estimate.js';
 import { Workflow, type LoadedWorkflow } from '../shared/workflow.js';
@@ -109,6 +109,14 @@ export class Runtime {
   private polled: PollResult | null = null;
   /** The last refresh's findings, minus what a person has accepted or dismissed since (D-64). */
   private findings: CatalogFinding[] | null = null;
+  /**
+   * Provider findings alone, kept so a plain load can rebuild `findings` without asking a provider again.
+   * The shipped-catalog half costs nothing — it is two files compared in memory — so it is recomputed on
+   * every load rather than hidden behind *Check for changes*: a workspace that is behind should say so the
+   * moment the screen opens, not only when someone thinks to ask.
+   */
+  private providerFindings: CatalogFinding[] = [];
+  private shipped: ModelsFile | null = null;
   private stopped = false;
   readonly scheduler: Scheduler;
   readonly push: PushStore;
@@ -325,6 +333,7 @@ export class Runtime {
       this.polled = await pollLocalEndpoints(this.workspace.catalog, fetchImpl);
     }
     const discovery = refresh ? await this.discover() : undefined;
+    this.findings = [...this.providerFindings, ...this.shippedFindings()];
     const models = listModels({
       catalog: this.workspace.catalog,
       mode: this.workspace.config.network.mode,
@@ -366,10 +375,7 @@ export class Runtime {
     const realAdapter = (provider: string): string =>
       this.workspace.catalog.models.find((m) => providerOf(m.id) === provider)?.adapter ?? config.discovery.providers[provider]?.adapter ?? provider;
 
-    const pins = pinsFor({
-      agents: [...this.workspace.agents.values()].map((a) => ({ id: a.definition.id, primary: a.definition.modelPolicy.primary, fallbacks: a.definition.modelPolicy.fallbacks })),
-      workflows: [...this.workspace.workflows.values()].map((w) => ({ id: w.definition.id, steps: w.definition.steps.map((s) => ({ id: s.id, model: (s as { model?: string | undefined }).model })) })),
-    });
+    const pins = this.pins();
     const dismissed = new Map((this.db.prepare('SELECT finding_id, facts_hash FROM catalog_finding_dismissals').all() as { finding_id: string; facts_hash: string }[]).map((r) => [r.finding_id, r.facts_hash]));
     const found: CatalogFinding[] = [];
     const now = new Date();
@@ -402,19 +408,59 @@ export class Runtime {
         report.errors.push({ provider, code, message: (e as Error).message });
       }
     }
-    this.findings = found.filter((f) => dismissed.get(f.id) !== f.factsHash);
+    this.providerFindings = found.filter((f) => dismissed.get(f.id) !== f.factsHash);
     return report;
+  }
+
+  /** Every model id this workspace pins, from agent policies and workflow step overrides. */
+  private pins(): ReturnType<typeof pinsFor> {
+    return pinsFor({
+      agents: [...this.workspace.agents.values()].map((a) => ({ id: a.definition.id, primary: a.definition.modelPolicy.primary, fallbacks: a.definition.modelPolicy.fallbacks })),
+      workflows: [...this.workspace.workflows.values()].map((w) => ({ id: w.definition.id, steps: w.definition.steps.map((s) => ({ id: s.id, model: (s as { model?: string | undefined }).model })) })),
+    });
+  }
+
+  /**
+   * The shipped catalog against this workspace's copy. Local, free, and so recomputed on every load rather
+   * than behind a button: `init` seeds `config/models.json` once and nothing updates it, so without this a
+   * workspace silently keeps whatever the catalog said the day it was made.
+   *
+   * Read once and held: the shipped file cannot change while the process runs.
+   */
+  private shippedFindings(): CatalogFinding[] {
+    try {
+      this.shipped ??= ModelsFile.parse(JSON.parse(fs.readFileSync(path.join(this.pkg.defaults, 'models.json'), 'utf8')));
+    } catch (e) {
+      // A packaging fault must not take the Models screen down with it; it is a log line, not an outage.
+      this.log.warn({ err: (e as Error).message }, 'the shipped catalog could not be read, so the workspace cannot be compared with it');
+      return [];
+    }
+    const dismissed = new Map((this.db.prepare('SELECT finding_id, facts_hash FROM catalog_finding_dismissals').all() as { finding_id: string; facts_hash: string }[]).map((r) => [r.finding_id, r.facts_hash]));
+    return diffShipped({ catalog: this.workspace.catalog, shipped: this.shipped, pins: this.pins(), now: new Date() })
+      .filter((f) => dismissed.get(f.id) !== f.factsHash);
+  }
+
+  /**
+   * The finding this id names, whether or not `models()` has run in this process. Provider findings exist only
+   * after a refresh — asking a provider again for an accept would be a second network call and a different
+   * answer — but a shipped finding is derived from two files and can always be recomputed, which is what lets
+   * `workbench models accept` work in a one-shot CLI process that never called `models()`.
+   */
+  private findingFor(id: string): CatalogFinding | undefined {
+    return this.findings?.find((f) => f.id === id)
+      ?? this.providerFindings.find((f) => f.id === id)
+      ?? (id.startsWith('shipped:') ? this.shippedFindings().find((f) => f.id === id) : undefined);
   }
 
   /** Accepts one finding: the catalog is rewritten exactly as a hand edit would, validated first (D-64). */
   async acceptFinding(id: string): Promise<ModelListResponse | null> {
-    const finding = this.findings?.find((f) => f.id === id);
+    const finding = this.findingFor(id);
     if (!finding) return null;
     const next = ModelsFile.parse(applyFinding(this.workspace.catalog, finding, new Date()));
     fs.writeFileSync(this.workspace.paths.modelsJson, JSON.stringify(next, null, 2) + '\n');
     // In place: the engine and the tools hold a reference to this catalog, the same way they hold the config.
     this.workspace.catalog.models.splice(0, this.workspace.catalog.models.length, ...next.models);
-    this.findings = this.findings!.filter((f) => f.id !== id);
+    this.findings = (this.findings ?? []).filter((f) => f.id !== id);
     this.polled = null;
     this.log.info({ finding: id, kind: finding.kind, model: finding.modelId }, 'catalog finding accepted');
     return this.models(false);
@@ -447,11 +493,11 @@ export class Runtime {
 
   /** Dismisses one finding until the provider's facts behind it change (D-64). */
   async dismissFinding(id: string): Promise<ModelListResponse | null> {
-    const finding = this.findings?.find((f) => f.id === id);
+    const finding = this.findingFor(id);
     if (!finding) return null;
     this.db.prepare('INSERT INTO catalog_finding_dismissals (finding_id, facts_hash, dismissed_at) VALUES (?, ?, ?) ON CONFLICT(finding_id) DO UPDATE SET facts_hash = excluded.facts_hash, dismissed_at = excluded.dismissed_at')
       .run(id, finding.factsHash, new Date().toISOString());
-    this.findings = this.findings!.filter((f) => f.id !== id);
+    this.findings = (this.findings ?? []).filter((f) => f.id !== id);
     return this.models(false);
   }
 

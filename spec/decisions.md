@@ -1,6 +1,6 @@
 # Decisions
 
-Settled (62). Each has a one-line rationale. D-46 onward come from `research.md`. Cite as `D-nn`. Changing one is a spec amendment, not a code comment.
+Settled (63). Each has a one-line rationale. D-46 onward come from `research.md`. Cite as `D-nn`. Changing one is a spec amendment, not a code comment.
 
 ## Model layer
 
@@ -105,3 +105,5 @@ Settled (62). Each has a one-line rationale. D-46 onward come from `research.md`
 > cap). A run past it fails before its first model call, by name; every schedule pauses while the month is
 > used up and resumes when the month turns or the cap is raised. The three money caps — per run, per day, per
 > month — are set on Settings, not in a file. The daily cap is unchanged.
+
+- **D-72** The catalog this workbench ships is a **source of findings**, compared with a workspace's own copy on every load of the Models screen and reported by `doctor`. It proposes; it never writes. It fills blanks and offers corrections, but never overwrites a price someone typed, and never touches an entry someone disabled. — *`init` copies `defaults/models.json` once and nothing updated it afterwards, so a corrected fact reached the code and stopped at the workspace boundary: the day `capabilities.thinking` shipped, the adapter fix reached the owner and the catalog fact it depends on did not. A provider cannot close this — no API reports how it wants to be asked — so the shipped catalog had to become a source in its own right, using the same findings a person accepts or dismisses one at a time (D-64).*
