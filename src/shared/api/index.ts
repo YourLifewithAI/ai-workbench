@@ -189,6 +189,12 @@ export type CatalogFindingPin = z.infer<typeof CatalogFindingPin>;
 export const CatalogFinding = z.object({
   id: z.string(),
   kind: z.enum(['new', 'retired', 'repriced', 'drift']),
+  /**
+   * Where the claim came from. `provider` is the provider's own listing; `shipped` is the catalog this
+   * workbench ships, which a workspace was seeded from at `init` and which nothing updated afterwards. The
+   * two need telling apart on the screen: one is news about the world, the other is a correction to a copy.
+   */
+  source: z.enum(['provider', 'shipped']).default('provider'),
   modelId: z.string(),
   adapter: z.string(),
   provider: z.string(),
