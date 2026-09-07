@@ -16,10 +16,17 @@ jobs:
   check:
     strategy:
       # One platform failing must not cancel the others: the whole point of a matrix is learning which
-      # platforms differ, and fail-fast turns three answers into one.
+      # platforms differ, and fail-fast turns two answers into one.
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Windows is the owner's machine. Linux is the fast answer, and it is also what `docker`,
+        # `no-sandbox` and `timezone` below must run on, so it is not a portability nicety — it is where
+        # three of this workflow's six jobs live and where the shipped container runs.
+        #
+        # macOS is deferred (D-39 amendment, 2026-09-07): nobody is developing for it, the POSIX paths it
+        # shares are covered by ubuntu, and it was the slowest job and the one platform-only failure this
+        # project has had. Put `macos-latest` back in this list to restore it — that is the whole change.
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

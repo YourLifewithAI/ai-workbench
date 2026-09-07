@@ -123,7 +123,7 @@ The shipped `Dockerfile` builds the runtime and SPA into one image that runs `wo
 
 ## Platforms (D-39)
 
-Linux and macOS are supported and tested in CI (GitHub Actions, both OSes, `npm run check` and `npm run e2e`). Windows is best-effort via WSL2. Node ≥ 22. Deno ≥ 2 is optional and enables the execute tier of tools. Ids are ULIDs; timestamps are ISO 8601 UTC.
+**Windows and Linux are tested in CI** (GitHub Actions, `npm run check` and `npm run e2e` on both). Windows is the platform this is built for; Linux is where the container runs (D-60) and where the `docker`, `no-sandbox` and `timezone` jobs live. **macOS is supported but no longer tested** — deferred by owner decision, D-39's amendment, and restored by putting `macos-latest` back in the `check` matrix. Node ≥ 22. Deno ≥ 2 is optional and enables the execute tier of tools. Ids are ULIDs; timestamps are ISO 8601 UTC.
 
 > Amendment (D-68, 2026-09-05): `config/workbench.json` gains `models: { roles: { <name>: [<catalog id>, …] } }`.
 > A role is an ordered list; an agent or a step may name `role:<name>`; the first ready member runs. The shipped

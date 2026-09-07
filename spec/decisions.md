@@ -58,6 +58,19 @@ Settled (62). Each has a one-line rationale. D-46 onward come from `research.md`
 - **D-37** The mock provider is native (no SDK), scripted by fixture files, serves any catalog id, and supports streaming, tool calls, errors, latency, and refusals. `--provider mock` also mocks every other external service. It is the only provider CI uses; live contract runs are opt-in. — *Every definition of done is executable without keys.*
 - **D-38** Every run ships its own negative tests (the SEC catalog) as acceptance criteria. — *Security is not a phase.*
 - **D-39** Platforms: Linux, macOS **and Windows** supported and tested — all three in CI. Node >= 22; Deno >= 2 optional. On Windows the credentials file is protected by an ACL applied on write and verified on read (there are no POSIX mode bits), and the path checker compares the name the filesystem will open rather than the string it was handed: trailing dots and spaces are stripped, alternate data streams and reserved device names are refused. — *A Windows user appeared, which was the unlock trigger in `vision.md`; best-effort-via-WSL2 stopped being honest the moment someone ran it natively.*
+  > **Amendment (owner decision, 2026-09-07): macOS is no longer tested in CI.** The owner is building for
+  > Windows and asked to put the other platforms on hold. Linux stays, because it is not a portability
+  > nicety here: `docker`, `no-sandbox` and `timezone` are three of this workflow's six jobs and all three
+  > must run on it, the shipped container *is* Debian (D-60), and it is the fastest answer in the matrix.
+  > macOS goes, because nothing is being developed for it — every platform branch in `src/` is
+  > `if (win32) … else <the POSIX default>`, so macOS runs the same code ubuntu proves — and it was both the
+  > slowest job and the only platform-only failure this project has had. **Support is unchanged; only the
+  > proof is.** The claim in `README.md` and `spec/architecture.md` is now "Windows and Linux tested, macOS
+  > untested". Restoring it is one word: put `macos-latest` back in the `check` matrix.
+  >
+  > What was deliberately *not* done: none of the POSIX code paths were removed. They are the `else` half of
+  > every platform branch, they are what the Docker image runs, and deleting them would be work that costs
+  > protection (`secretFile.ts` chmods the credentials file to 0600 there) rather than saving any.
 - **D-40** License Apache-2.0; no vendored provider SDK source. — *A human decision, made.*
 - **D-41** A fresh repository is seeded from this `spec/`. Agent Hub is ported as example content (three instruction sets, a bible as a project document, model-per-step), not refactored. — *The old repository's history contains a leaked key and the app is four files.*
 - **D-42** No calendar framing anywhere; progress is measured by green definitions of done. — *Agents write the code.*
