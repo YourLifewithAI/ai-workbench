@@ -93,3 +93,10 @@ Everything an agent needs is in at most ten bounded files. Done is a command, no
 > Their branches are `run/19-village`, `run/20-villagers` and `run/21-rooms`; the maintenance branches that once
 > reused the numbers 19–21 are unrelated to them. N-3 (the mock says what it is) ships as a fix branch before
 > RUN-20. The redesign changes the desktop only: everything RUN-12 gave the phone stays as it is.
+
+> Amendment (owner decision, 2026-09-07): RUN-19 shipped, and the owner's answer to it was that the picture is
+> flatter than he wants. The look becomes a lit 3D diorama — one set of geometry, the theme changing the light
+> rather than the drawing (**RUN-22**, `run/22-diorama`) — and he has put it *after* the rooms: "rooms first,
+> look later." So the order is **RUN-21**, then RUN-20 and RUN-22 in whichever order suits, noting that RUN-22
+> first means the villagers are drawn once. N-3 shipped early, on the fix branch that corrected the Anthropic
+> thinking capability, rather than waiting for RUN-20.

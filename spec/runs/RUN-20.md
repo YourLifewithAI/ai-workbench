@@ -2,6 +2,11 @@
 
 *Draft, written with RUN-19. The owner may strike or reshape it before `run/20-villagers` exists.*
 
+> **Order note (RUN-22).** The village's art is being remade as a lit 3D diorama (`spec/runs/RUN-22.md`).
+> A figure is a DOM button positioned by `project()`, so nothing in this brief depends on what is painted
+> underneath — but *how a figure looks* does. If RUN-22 lands first, the villagers are drawn once, in the
+> new art. If this run lands first, they are drawn twice. That is the only reason to prefer one order.
+
 **Goal.** The agents live in the village. Each is a figure that stands where its work is — at the workshop while a workflow runs, at the town hall door when it needs you, at the records office when its run stopped, at the lodge when it is waiting for work — and the town hall's notice board says what finished while you were away. The owner's words: "If I've been away, the sprites representing each agent that has been running a task while I was gone."
 
 **Reads.** D-62, D-71, `ui.md` (rule 12 and the RUN-19 amendment), `tools-and-security.md` §Approvals, `api-and-cli.md` (the workspace stream, `/dashboard`), `data-model.md` (the `settings` table), `src/shared/village.ts`, `runlog/RUN-19.md`.
