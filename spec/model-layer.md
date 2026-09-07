@@ -61,6 +61,7 @@ type JsonSchema = Record<string, unknown>;                            // JSON Sc
 2. **Structured output dialects.** `structuredOutput` is a capability enum, not a boolean. The engine always validates the response against `outputSchema` itself and performs one repair turn on failure, whatever the provider claims.
 3. **Cache control.** Cache breakpoints are `providerMeta` on blocks; adapters that support caching apply them, others ignore them. `usage.cachedInput` is normalized when reported.
 4. **Streaming deltas.** The event set is fixed (D-03). An adapter that cannot produce tool-call deltas emits `tool-call-start` and `tool-call-end` only.
+5. **Tool names.** Our tools are named with a dot — `web.search`, `memory.search` — and that name is what a grant, the Tools screen, an agent definition and every trace use. Anthropic requires `^[a-zA-Z0-9_-]{1,128}$` and OpenAI the same to 64 characters, so a dotted name is rejected with the whole request; Google accepts it, which is what kept this hidden until an Anthropic call first carried a tool. The dot is translated at the adapter boundary and nowhere else: the model is offered `web_search`, everything that comes back is translated home again, and the engine, the permission check and the trace never learn it happened. The mapping is built per request from the tools actually offered, so it is reversible, and a name that was never offered comes back untouched — a model inventing a tool is refused by its real name rather than quietly rewritten into one that exists.
 
 ## Capabilities
 

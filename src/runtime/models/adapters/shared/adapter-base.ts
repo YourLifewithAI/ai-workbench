@@ -4,7 +4,7 @@ import { generateText, streamText, type LanguageModel, type ModelMessage, type S
 import type { CatalogEntry, ContentBlock, ModelEvent, ModelRequest, ModelResponse, Usage } from '../../../../shared/model.js';
 import type { AdapterContext, ModelAdapter } from '../../adapter.js';
 import { ModelError, modelError } from '../../errors.js';
-import { mapContent, mapFinishReason, mapUsage, toModelMessages, toSdkTools, translateError } from './aisdk.js';
+import { IDENTITY_NAMING, mapContent, mapFinishReason, mapUsage, toModelMessages, toSdkTools, translateError, wireSafeNaming, type ToolNaming } from './aisdk.js';
 
 export abstract class AiSdkAdapter implements ModelAdapter {
   abstract readonly id: string;
@@ -25,17 +25,27 @@ export abstract class AiSdkAdapter implements ModelAdapter {
    * The system prompt and the transcript as the SDK wants them. A provider that caches prefixes overrides this
    * to split the system at `req.cacheBoundary` and mark its breakpoints; the default sends one system string.
    */
-  protected promptFor(req: ModelRequest): { instructions: string | SystemModelMessage[]; messages: ModelMessage[] } {
-    return { instructions: req.system, messages: toModelMessages(req.messages) };
+  protected promptFor(req: ModelRequest, naming: ToolNaming = IDENTITY_NAMING): { instructions: string | SystemModelMessage[]; messages: ModelMessage[] } {
+    return { instructions: req.system, messages: toModelMessages(req.messages, naming) };
   }
 
-  private callOptions(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext) {
-    const prompt = this.promptFor(req);
+  /**
+   * How this provider's tool names are spelled. Dotted names — `web.search` — are rejected by Anthropic and
+   * OpenAI alike, so the default is to translate them at the wire and translate everything back on the way in.
+   * An adapter whose provider takes the canonical name can return `IDENTITY_NAMING`, but none needs to: the
+   * safe spelling is one every provider accepts.
+   */
+  protected naming(req: ModelRequest): ToolNaming {
+    return wireSafeNaming(req.tools ?? []);
+  }
+
+  private callOptions(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext, naming: ToolNaming) {
+    const prompt = this.promptFor(req, naming);
     return {
       model: this.languageModel(model, ctx),
       instructions: prompt.instructions,
       messages: prompt.messages,
-      ...(req.tools && req.tools.length ? { tools: toSdkTools(req.tools) } : {}),
+      ...(req.tools && req.tools.length ? { tools: toSdkTools(req.tools, naming) } : {}),
       ...(req.maxOutputTokens !== undefined ? { maxOutputTokens: req.maxOutputTokens } : {}),
       ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
       providerOptions: this.providerOptions(model, req),
@@ -45,10 +55,11 @@ export abstract class AiSdkAdapter implements ModelAdapter {
   }
 
   async generate(model: CatalogEntry, req: ModelRequest, ctx: AdapterContext): Promise<ModelResponse> {
+    const naming = this.naming(req);
     try {
-      const result = await generateText(this.callOptions(model, req, ctx));
+      const result = await generateText(this.callOptions(model, req, ctx, naming));
       return {
-        content: mapContent(result.content, this.id),
+        content: mapContent(result.content, this.id, naming),
         finishReason: mapFinishReason(result.finishReason, req.abortSignal),
         usage: mapUsage(result.usage),
         ...(result.providerMetadata ? { providerMeta: result.providerMetadata as Record<string, unknown> } : {}),
@@ -63,8 +74,9 @@ export abstract class AiSdkAdapter implements ModelAdapter {
     let text = '';
     let reasoning = '';
     let reasoningMeta: Record<string, unknown> | undefined;
+    const naming = this.naming(req);
     try {
-      const result = streamText(this.callOptions(model, req, ctx));
+      const result = streamText(this.callOptions(model, req, ctx, naming));
       for await (const part of result.fullStream) {
         switch (part.type) {
           case 'text-delta':
@@ -77,13 +89,13 @@ export abstract class AiSdkAdapter implements ModelAdapter {
             yield { type: 'reasoning-delta', text: part.text };
             break;
           case 'tool-input-start':
-            yield { type: 'tool-call-start', id: part.id, name: part.toolName };
+            yield { type: 'tool-call-start', id: part.id, name: naming.toCanonical(part.toolName) };
             break;
           case 'tool-input-delta':
             yield { type: 'tool-call-delta', id: part.id, inputText: part.delta };
             break;
           case 'tool-call':
-            content.push({ type: 'tool-call', id: part.toolCallId, name: part.toolName, input: part.input });
+            content.push({ type: 'tool-call', id: part.toolCallId, name: naming.toCanonical(part.toolName), input: part.input });
             yield { type: 'tool-call-end', id: part.toolCallId, input: part.input };
             break;
           case 'error':

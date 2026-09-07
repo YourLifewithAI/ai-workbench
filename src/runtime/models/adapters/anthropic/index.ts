@@ -6,7 +6,7 @@ import type { CatalogEntry, DiscoveredModel, ModelRequest } from '../../../../sh
 import type { AdapterContext } from '../../adapter.js';
 import { modelError } from '../../errors.js';
 import { AiSdkAdapter } from '../shared/adapter-base.js';
-import { providerOptionsFor, toModelMessages } from '../shared/aisdk.js';
+import { IDENTITY_NAMING, providerOptionsFor, toModelMessages, type ToolNaming } from '../shared/aisdk.js';
 import { discovered, listingError } from '../shared/listing.js';
 
 const LIST_URL = 'https://api.anthropic.com/v1/models';
@@ -43,7 +43,7 @@ export class AnthropicAdapter extends AiSdkAdapter {
    * message, so the transcript up to the previous turn is read back too. The harness sits after the first
    * breakpoint, which is what lets its budget line change on every call without costing the cache.
    */
-  protected override promptFor(req: ModelRequest): { instructions: string | SystemModelMessage[]; messages: ModelMessage[] } {
+  protected override promptFor(req: ModelRequest, naming: ToolNaming = IDENTITY_NAMING): { instructions: string | SystemModelMessage[]; messages: ModelMessage[] } {
     const breakpoint = { anthropic: { cacheControl: { type: 'ephemeral' as const } } };
     const boundary = req.cacheBoundary !== undefined && req.cacheBoundary > 0 && req.cacheBoundary < req.system.length ? req.cacheBoundary : null;
     const stable = boundary === null ? req.system : req.system.slice(0, boundary);
@@ -52,7 +52,9 @@ export class AnthropicAdapter extends AiSdkAdapter {
       ...(stable ? [{ role: 'system' as const, content: stable, providerOptions: breakpoint }] : []),
       ...(volatile ? [{ role: 'system' as const, content: volatile }] : []),
     ];
-    const transcript = toModelMessages(req.messages);
+    // The naming has to reach here too: a replayed tool call carries its name to the provider on every turn
+    // after the first, so sanitising only the declarations would fail on turn two and nowhere else.
+    const transcript = toModelMessages(req.messages, naming);
     const last = transcript[transcript.length - 1];
     if (last) transcript[transcript.length - 1] = { ...last, providerOptions: breakpoint } as ModelMessage;
     return { instructions, messages: transcript };
