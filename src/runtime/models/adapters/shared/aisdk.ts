@@ -24,7 +24,46 @@ export function providerOptionsFor(providerKey: string, defaults: Record<string,
   return { ...rest, [providerKey]: { ...defaults, ...requested } } as SdkProviderOptions;
 }
 
-export function toModelMessages(messages: Message[]): ModelMessage[] {
+/**
+ * A tool's name on the wire, and back again.
+ *
+ * Our tools are named with a dot — `web.search`, `memory.search`, `fs.read` — and that name is the one in the
+ * grants file, on the Tools screen, in every trace and every agent definition. It is *not* a name two of the
+ * three providers accept: Anthropic requires `^[a-zA-Z0-9_-]{1,128}$` and OpenAI the same to 64, so a request
+ * carrying one is rejected outright with `tools.0.custom.name: String should match pattern`. Google happens to
+ * allow it, which is why this hid until an Anthropic call got far enough to carry a tool.
+ *
+ * So the dot is translated at the boundary and nowhere else — the canonical name keeps its dot everywhere a
+ * person or a grant can see it (D-01: nothing provider-shaped crosses this boundary), and the model is offered
+ * `web_search`. Everything that comes back is translated straight home again, so the engine, the permission
+ * check and the trace never learn that this happened.
+ */
+export interface ToolNaming { toWire(canonical: string): string; toCanonical(wire: string): string }
+
+export const IDENTITY_NAMING: ToolNaming = { toWire: (n) => n, toCanonical: (n) => n };
+
+/**
+ * The mapping for one request. Built from the tools actually offered, so it is total and reversible: two
+ * canonical names that would flatten to the same wire name are told apart with a numeric suffix rather than
+ * silently merged, and the order is the caller's, so the same tool set always produces the same names and a
+ * cached prefix stays cached.
+ */
+export function wireSafeNaming(specs: ToolSpec[]): ToolNaming {
+  const out = new Map<string, string>();
+  const back = new Map<string, string>();
+  for (const spec of specs) {
+    const base = spec.name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 128) || 'tool';
+    let wire = base;
+    for (let n = 2; back.has(wire); n++) wire = `${base.slice(0, 128 - String(n).length - 1)}_${n}`;
+    out.set(spec.name, wire);
+    back.set(wire, spec.name);
+  }
+  // A name we never offered comes back unchanged: a model inventing a tool is the engine's to refuse by its
+  // real name, not something to quietly rewrite into one that exists.
+  return { toWire: (n) => out.get(n) ?? n, toCanonical: (n) => back.get(n) ?? n };
+}
+
+export function toModelMessages(messages: Message[], naming: ToolNaming = IDENTITY_NAMING): ModelMessage[] {
   return messages.map((m): ModelMessage => {
     switch (m.role) {
       case 'system':
@@ -35,7 +74,7 @@ export function toModelMessages(messages: Message[]): ModelMessage[] {
           content: m.content.filter((b) => b.type === 'tool-result').map((b) => ({
             type: 'tool-result' as const,
             toolCallId: b.callId,
-            toolName: (b.providerMeta?.['toolName'] as string | undefined) ?? 'tool',
+            toolName: naming.toWire((b.providerMeta?.['toolName'] as string | undefined) ?? 'tool'),
             output: b.ok ? { type: 'json' as const, value: b.output as never } : { type: 'error-json' as const, value: b.output as never },
           })),
         };
@@ -45,7 +84,7 @@ export function toModelMessages(messages: Message[]): ModelMessage[] {
           content: m.content.flatMap((b): AssistantPart[] => {
             if (b.type === 'text') return [{ type: 'text', text: b.text }];
             if (b.type === 'reasoning') return b.text ? [{ type: 'reasoning', text: b.text, ...(b.providerMeta ? { providerOptions: b.providerMeta as SdkProviderOptions } : {}) }] : [];
-            if (b.type === 'tool-call') return [{ type: 'tool-call', toolCallId: b.id, toolName: b.name, input: b.input }];
+            if (b.type === 'tool-call') return [{ type: 'tool-call', toolCallId: b.id, toolName: naming.toWire(b.name), input: b.input }];
             return [];
           }),
         };
@@ -64,15 +103,15 @@ export function toModelMessages(messages: Message[]): ModelMessage[] {
 }
 
 /** Tool specs only: the SDK's own execute loop is never used, so no tool here has an implementation (model-layer.md). */
-export function toSdkTools(specs: ToolSpec[]): ToolSet {
+export function toSdkTools(specs: ToolSpec[], naming: ToolNaming = IDENTITY_NAMING): ToolSet {
   const out: ToolSet = {};
   for (const spec of [...specs].sort((a, b) => a.name.localeCompare(b.name))) {
-    out[spec.name] = defineTool({ description: spec.description, inputSchema: jsonSchema(spec.inputSchema as never) });
+    out[naming.toWire(spec.name)] = defineTool({ description: spec.description, inputSchema: jsonSchema(spec.inputSchema as never) });
   }
   return out;
 }
 
-export function mapContent(content: SdkContent, providerId: string): ContentBlock[] {
+export function mapContent(content: SdkContent, providerId: string, naming: ToolNaming = IDENTITY_NAMING): ContentBlock[] {
   const out: ContentBlock[] = [];
   for (const part of content) {
     switch (part.type) {
@@ -84,10 +123,10 @@ export function mapContent(content: SdkContent, providerId: string): ContentBloc
         out.push({ type: 'reasoning', text: part.text, opaque: true, providerId, ...(part.providerMetadata ? { providerMeta: part.providerMetadata as Record<string, unknown> } : {}) });
         break;
       case 'tool-call':
-        out.push({ type: 'tool-call', id: part.toolCallId, name: part.toolName, input: part.input });
+        out.push({ type: 'tool-call', id: part.toolCallId, name: naming.toCanonical(part.toolName), input: part.input });
         break;
       case 'tool-result':
-        out.push({ type: 'tool-result', callId: part.toolCallId, ok: true, output: part.output, providerMeta: { toolName: part.toolName } });
+        out.push({ type: 'tool-result', callId: part.toolCallId, ok: true, output: part.output, providerMeta: { toolName: naming.toCanonical(part.toolName) } });
         break;
       case 'file':
         out.push({ type: 'file', mimeType: part.file.mediaType, name: 'output', data: new Uint8Array(part.file.uint8Array) });
