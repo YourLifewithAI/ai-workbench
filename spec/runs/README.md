@@ -100,3 +100,14 @@ Everything an agent needs is in at most ten bounded files. Done is a command, no
 > look later." So the order is **RUN-21**, then RUN-20 and RUN-22 in whichever order suits, noting that RUN-22
 > first means the villagers are drawn once. N-3 shipped early, on the fix branch that corrected the Anthropic
 > thinking capability, rather than waiting for RUN-20.
+
+> Amendment (owner decision, 2026-09-10): the orchestrator comes first. Asked what else the workbench could be
+> doing, how each agent gets a memory, and how they improve within their tasks, the owner answered with one
+> agent that contains all three: "the main agent that I interact with and that oversees all the other agents …
+> my co-lead and a virtual equal." That is **RUN-23** (`run/23-companion`, D-73, D-74): the companion promoted —
+> delegation into projects, workflows as children, the fleet's facts, ratings as estimates, the owner's page, and
+> a daily board. It goes ahead of RUN-21, which then gives it `agent.edit`; **RUN-24** follows with
+> `memory.curate`, `memory.facts`, `project.create`, cases from past runs, the `human` evaluator and "agrees with
+> you N of M". RUN-20 and RUN-22 keep their places after these. Two holes found while designing it landed on the
+> branch before the brief: delegation taint did not flow up (SEC-43), and an agent's `memory` declaration was
+> read by nothing.
