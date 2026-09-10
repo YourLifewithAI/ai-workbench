@@ -6,3 +6,5 @@ Mock provider scripts (spec/model-layer.md §Mock provider). One JSON object per
 { "match":   { "modelId": "google/*", "systemIncludes": "…", "lastUserIncludes": "…", "callIndex": 2 },
   "respond": { "text": "…", "error": "RateLimit", "finishReason": "stop", "latencyMs": 50, "chunkDelayMs": 120, "usage": { "input": 10, "output": 5 } } }
 ```
+
+`companion-board.json` answers the board workflow's one model call (RUN-23) with a board in the shape the companion's instructions ask for, so the daily workflow runs end to end on the mock.

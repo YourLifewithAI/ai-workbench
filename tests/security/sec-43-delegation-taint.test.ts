@@ -183,3 +183,75 @@ describe('SEC-43 taint flows up at return', () => {
     }
   }, 60_000);
 });
+
+/**
+ * The same rule through a document (RUN-23, D-73): an output written by a run that read the web is that web
+ * page one step removed, so reading it with `artifact.read` marks the reader external. The orchestrator is the
+ * agent this matters for — it is the one whose job is to read what the others made and then decide.
+ */
+describe('SEC-43 (RUN-23) reading an output written by a tainted run taints the reader', () => {
+  function prepareReads(name: string): string {
+    const ws = tempWorkspace(name);
+    const file = path.join(ws, 'config', 'workbench.json');
+    const config = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+    config['grants'] = {
+      researcher: { tools: { 'web.search': 'allow', 'artifact.write': 'allow' }, fs: { read: ['projects/'], write: ['projects/'] } },
+      reviewer: { tools: { 'artifact.read': 'allow', 'memory.remember': 'allow' }, fs: { read: ['projects/'] } },
+    };
+    (config['search'] as Record<string, unknown>) = { provider: 'mock' };
+    fs.writeFileSync(file, JSON.stringify(config, null, 2));
+    fs.mkdirSync(path.join(ws, 'projects', 'reads'), { recursive: true });
+    fs.writeFileSync(path.join(ws, 'projects', 'reads', 'project.json'), JSON.stringify({ schemaVersion: 1, name: 'Reads', agents: [], memory: ['agent', 'project', 'workspace', 'user'] }));
+    fixtures(ws, [
+      // The Researcher searches, files what it found, and stops.
+      { name: 'ba0-researcher-filed', match: { systemIncludes: 'The Researcher', afterTool: 'artifact.write' }, respond: { text: 'Filed.' } },
+      { name: 'ba1-researcher-file', match: { systemIncludes: 'The Researcher', afterTool: 'web.search' },
+        respond: { text: 'Filing.', toolCalls: [{ name: 'artifact.write', input: { path: 'notes/web.md', content: 'The arcology is a city in one building (https://example.com/arcology).' } }] } },
+      { name: 'ba2-researcher-search', match: { systemIncludes: 'The Researcher' },
+        respond: { text: 'Searching.', toolCalls: [{ name: 'web.search', input: { query: 'arcology' } }] } },
+      // The Reviewer reads one note — which one the task names — and remembers a line.
+      { name: 'bb0-reviewer-noted', match: { systemIncludes: 'The Reviewer', afterTool: 'memory.remember' }, respond: { text: 'Noted.' } },
+      { name: 'bb1-reviewer-remember', match: { systemIncludes: 'The Reviewer', afterTool: 'artifact.read' },
+        respond: { text: 'Remembering.', toolCalls: [{ name: 'memory.remember', input: { content: 'The note says the arcology is one building.', scope: 'agent' } }] } },
+      { name: 'bb2-reviewer-read-web', match: { systemIncludes: 'The Reviewer', lastUserIncludes: 'read the web note' },
+        respond: { text: 'Reading.', toolCalls: [{ name: 'artifact.read', input: { path: 'notes/web.md' } }] } },
+      { name: 'bb3-reviewer-read-human', match: { systemIncludes: 'The Reviewer', lastUserIncludes: 'read the human note' },
+        respond: { text: 'Reading.', toolCalls: [{ name: 'artifact.read', input: { path: 'notes/human.md' } }] } },
+    ]);
+    return ws;
+  }
+
+  it('a note the researcher wrote after searching taints whoever reads it; a note a person wrote does not', async () => {
+    const ws = prepareReads('sec43-reads');
+    const rt = await startRuntime(ws, { providerOverride: 'mock', noScheduler: true });
+    try {
+      const wrote = rt.runtime.engine.startAgentRun({ agentId: 'researcher', inputs: { input: 'Find out about the arcology and note it.' }, project: 'reads' });
+      await wrote.done;
+      expect(rt.runtime.engine.getRun(wrote.runId)?.state).toBe('completed');
+      expect(rt.runtime.artifacts.versionProvenance('reads', 'notes/web.md')).toMatchObject({ createdBy: 'run-step', runId: wrote.runId, externalTainted: true });
+      rt.runtime.artifacts.writeDocument({ projectSlug: 'reads', path: 'notes/human.md', content: 'The arcology is a city in one building.', createdBy: 'human' });
+
+      // The control first: once an untrusted item exists in the reviewer's memory, retrieval would carry it into
+      // the next prompt and taint that run by the memory rule (D-17) — correct, and not what this case is about.
+      const human = rt.runtime.engine.startAgentRun({ agentId: 'reviewer', inputs: { input: 'Please read the human note and remember the gist.' }, project: 'reads' });
+      await human.done;
+      expect(rt.runtime.engine.getRun(human.runId)?.state).toBe('completed');
+      const humanRow = rt.runtime.db.prepare('SELECT private_tainted, external_tainted FROM runs WHERE id = ?').get(human.runId) as { private_tainted: number; external_tainted: number };
+      expect(humanRow, 'reading is private content; a version a person wrote is not external').toEqual({ private_tainted: 1, external_tainted: 0 });
+
+      const web = rt.runtime.engine.startAgentRun({ agentId: 'reviewer', inputs: { input: 'Please read the web note and remember the gist.' }, project: 'reads' });
+      await web.done;
+      expect(rt.runtime.engine.getRun(web.runId)?.state).toBe('completed');
+      const read = (await trace(rt, web.runId)).find((e) => e.type === 'tool-completed' && e.payload['tool'] === 'artifact.read')!;
+      expect(read.payload['ok'], JSON.stringify(read.payload)).toBe(true);
+      expect(JSON.stringify(read.payload['output']), 'the fact rides on meta, not in what the model reads').not.toContain('taint');
+      const webRow = rt.runtime.db.prepare('SELECT private_tainted, external_tainted FROM runs WHERE id = ?').get(web.runId) as { private_tainted: number; external_tainted: number };
+      expect(webRow, 'this version is external content one step removed').toEqual({ private_tainted: 1, external_tainted: 1 });
+
+      const items = await memoryItems(rt);
+      expect(items.map((i) => [i.runId, i.trust])).toEqual(expect.arrayContaining([[web.runId, 'untrusted'], [human.runId, 'trusted']]));
+    } finally {
+      await rt.stop();
+    }
+  }, 60_000);
+});

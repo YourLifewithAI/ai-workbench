@@ -1,0 +1,13 @@
+{
+  "match": {
+    "systemIncludes": "Companion",
+    "lastUserIncludes": "Write the board"
+  },
+  "respond": {
+    "text": "# The board\n\n**Spend:** $0.00 today across every agent; nothing near a cap.\n\n## The Weaver\n- Finished its last run and filed the draft.\n- Cost nothing on the mock.\n- Needs you: the draft is unrated.\n\n## The Researcher\n- No runs since the last board.\n- Nothing spent.\n- Nothing needs you.\n",
+    "usage": {
+      "input": 1200,
+      "output": 140
+    }
+  }
+}

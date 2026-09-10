@@ -223,6 +223,18 @@ export class ArtifactStore {
     return version ? { content: version.content, createdBy: version.created_by as 'run-step' | 'human' | 'import' } : null;
   }
 
+  /**
+   * Who wrote the latest version, and whether that run had read outside the workspace (RUN-23, D-73): the fact
+   * `artifact.read` needs to report on its result, so a reader takes on what the writer had read. One join.
+   */
+  versionProvenance(projectSlug: string, docPath: string): { createdBy: 'run-step' | 'human' | 'import'; runId: string | null; externalTainted: boolean } | null {
+    const doc = this.findDocumentByPath(projectSlug, docPath);
+    if (!doc?.latest_version_id) return null;
+    const row = this.db.prepare(`SELECT v.created_by AS created_by, v.run_id AS run_id, COALESCE(r.external_tainted, 0) AS external_tainted
+      FROM document_versions v LEFT JOIN runs r ON r.id = v.run_id WHERE v.id = ?`).get(doc.latest_version_id) as { created_by: string; run_id: string | null; external_tainted: number } | undefined;
+    return row ? { createdBy: row.created_by as 'run-step' | 'human' | 'import', runId: row.run_id, externalTainted: row.external_tainted === 1 } : null;
+  }
+
   /** The content an agent's `documents: [...]` list injects as its knowledge section. */
   readDocument(projectSlug: string, docPath: string): string | null {
     const doc = this.findDocumentByPath(projectSlug, docPath);

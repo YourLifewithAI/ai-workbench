@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "id": "companion-board",
+  "name": "The board",
+  "description": "Every morning, the companion writes the board from the facts: per agent, what it did, what it cost, what needs you. Filed in the companion project. Off until you turn it on.",
+  "defaultProject": "companion",
+  "inputs": {
+    "type": "object",
+    "properties": {
+      "limit": {
+        "type": "integer",
+        "title": "Runs to look at",
+        "description": "The most recent runs the board is written from.",
+        "default": 50,
+        "minimum": 1,
+        "maximum": 100
+      }
+    }
+  },
+  "steps": [
+    {
+      "id": "facts",
+      "kind": "tool",
+      "tool": "runs.facts",
+      "agent": "companion",
+      "input": {
+        "limit": "{{inputs.limit}}"
+      }
+    },
+    {
+      "id": "board",
+      "kind": "agent",
+      "agent": "companion",
+      "input": "Write the board from these facts. Per agent, at most three lines: what it did, what it cost, what needs the owner. Lead with spend, then with what needs a person.\n\n{{steps.facts.output}}",
+      "output": {
+        "document": "board/{{runId}}.md"
+      }
+    }
+  ],
+  "outputs": {
+    "board": "{{steps.board.output}}"
+  },
+  "schedule": {
+    "cron": "0 8 * * *",
+    "catchUp": "once",
+    "enabled": false
+  }
+}

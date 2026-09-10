@@ -48,7 +48,7 @@ interface MemoryItem {
 }
 ```
 
-Write paths — only these: the `memory.remember({ content, scope })` tool, the Memory screen, and import. There is no automatic end-of-run extraction. **External content** is the result of `http.fetch`, `web.search`, any MCP tool, `knowledge.search` over imported files, an `untrusted` memory item, or the answer of a delegated run that was itself external-tainted; `calc`, `datetime`, and `artifact.read` are not external. A run that has consumed external content writes `untrusted` items, and those writes are listed in the Review screen.
+Write paths — only these: the `memory.remember({ content, scope })` tool, the Memory screen, and import. There is no automatic end-of-run extraction. **External content** is the result of `http.fetch`, `web.search`, any MCP tool, `knowledge.search` over imported files, an `untrusted` memory item, or the answer of a delegated run that was itself external-tainted, or (RUN-23) a document version written by a run that was; `calc` and `datetime` are not external, and `artifact.read` is not unless the version it read was written by such a run. A run that has consumed external content writes `untrusted` items, and those writes are listed in the Review screen.
 
 > Amendment (RUN-08, 2026-09-03): *external* is tracked as its own flag on the run (`runs.external_tainted`),
 > beside the *private* flag the exfiltration rule uses. They answer different questions — private decides whether

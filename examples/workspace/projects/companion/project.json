@@ -1,14 +1,9 @@
 {
   "schemaVersion": 1,
   "name": "Companion",
-  "description": "The owner's own: the page about the owner, and the notes the companion keeps.",
-  "goals": "about.md",
+  "description": "The owner's own: the page about the owner (every agent's profile section), the companion's notes, and the board.",
   "agents": [
     "companion"
-  ],
-  "tools": [
-    "memory.remember",
-    "memory.search"
   ],
   "memory": [
     "agent",

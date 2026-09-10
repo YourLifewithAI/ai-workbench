@@ -86,6 +86,18 @@ exchange is readable in the Library. Its `budgets` carry `dailySpendCapUsd` and 
 own, counted against its own spend (see workflows-and-execution.md, F6 amendment). Welcome's last step opens
 it with the project chosen. It is a recipe for "a space of my own" until project spaces (D-69) make it one.
 
+> Amendment (RUN-23, 2026-09-10, D-73): **the companion is the orchestrator.** Same id, same directory, same
+> `user`-scope memory; promoted. It asks for and is granted `agent.delegate`, `workflow.run`, `runs.facts`,
+> `agents.read`, `runs.rate`, `artifact.read`, `artifact.write` (its own project), `memory.remember`,
+> `memory.search` and `datetime` — never `http.fetch`, `web.search`, any `fs.*` or `permissions.propose`: it
+> directs the researcher, it does not become one. Caps $0.50 a run, $5 a day, $40 a month, and every child it
+> starts comes out of them. Its instructions gain *the village*, *directing work*, *rating*, *learning* and
+> *the board*. The owner's page is no longer its `documents` entry: it reaches every agent as the `profile`
+> section (D-74), and the companion drafts changes to it for the owner to approve. The companion project's tool
+> ceiling is gone — it would have refused a delegated researcher's `web.search` — and so is its `goals`, which
+> the page now covers. `companion-board` is a shipped workflow, daily, seeded paused: one `runs.facts` step and
+> one companion step that files the board under `board/`.
+
 ## Import trust (D-34)
 
 Importing an agent validates `schemaVersion` (mismatch is refused with a message naming the versions), then rewrites `permissions` to **requested** — the one word used everywhere for this state. Nothing in a file grants anything; grants are made in the Tools screen and stored in the workspace, not in the agent.
