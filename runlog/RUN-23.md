@@ -1,6 +1,6 @@
 # RUN-23 handoff — The companion promoted
 
-**Branch:** `run/23-companion` · **Head:** `HEAD_SHA` · **Status:** awaiting verification
+**Branch:** `run/23-companion` · **Head:** `cb19d6a` · **Status:** awaiting verification
 
 ## Built
 - `src/runtime/engine/run.ts` — `delegateHost` returns the child's taint on `ToolResult.meta` (SEC-43); `agent.delegate` gains `project`; `workflow.run` host; the child rules in one place (`childOf`, `childProject`, `settleChild`); `orchestratorHost` (facts, agent, rate); `runFacts()`.
