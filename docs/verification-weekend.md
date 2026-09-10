@@ -79,8 +79,8 @@ These prove behaviour, not appearance, so a redesign cannot invalidate them. Do 
   **project set to `companion`**, tell it something you want remembered, mock unticked.
 
   **Expect:** A visible reply on the run page, the reply filed in the Library under `notes/…`, a
-  `user`-scope item in Memory written by that run, and `## goals` in the compiled prompt carrying
-  your `about.md`.
+  `user`-scope item in Memory written by that run, and `## profile` in the compiled prompt carrying
+  your `about.md` (from RUN-23 the page reaches every agent as the profile section, not as goals).
 
   *This is where your C-6 gets settled.* You saw a run ping `gemini-3.8-flash` and show no reply. I
   could not reproduce it here — the output path renders correctly, and the model text is stored as a

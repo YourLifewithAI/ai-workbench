@@ -17,21 +17,27 @@ export interface DelegateHost {
    */
   delegate(input: {
     parentRunId: string; parentStepId: string; agentId: string; brief: string;
+    /** The project the child works in (RUN-23). Absent: the parent's. Its ceiling and memory list apply (D-69). */
+    project?: string | undefined;
     model?: string | undefined; maxModelCalls?: number | undefined; signal: AbortSignal;
-  }): Promise<{ ok: true; runId: string; output: string; costUsd: number } | { ok: false; code: 'DelegationDepthExceeded' | 'NotFound' | 'BudgetExceeded' | 'ToolError'; message: string }>;
+  }): Promise<
+    | { ok: true; runId: string; output: string; costUsd: number; taint: { private: boolean; external: boolean } }
+    | { ok: false; code: 'DelegationDepthExceeded' | 'NotFound' | 'BudgetExceeded' | 'ToolError'; message: string }
+  >;
 }
 
 export function delegateTool(host: DelegateHost): ToolDefinition {
   const tool: ToolDefinition<
-    { agent: string; input: string; model?: string | undefined; maxModelCalls?: number | undefined },
+    { agent: string; input: string; project?: string | undefined; model?: string | undefined; maxModelCalls?: number | undefined },
     { runId: string; output: string; costUsd: number }
   > = {
     id: 'agent.delegate',
     version: '1.0.0',
-    description: 'Hand a self-contained brief to another agent and wait for its answer. The child sees only the brief you write — not this conversation — so write it as if for someone who was not here.',
+    description: 'Hand a self-contained brief to another agent and wait for its answer. The child sees only the brief you write — not this conversation — so write it as if for someone who was not here. Name the project the work belongs in; the child files there and works under that project\'s rules.',
     input: z.object({
       agent: z.string().describe('The id of an agent in this workspace.'),
       input: z.string().min(1).max(20_000).describe('A complete brief. Everything the other agent needs, in your own words.'),
+      project: z.string().optional().describe('The project the child works in. Absent: the same project as this run.'),
       model: z.string().optional().describe('A catalog model id to use instead of that agent\'s primary.'),
       maxModelCalls: z.number().int().positive().max(50).optional().describe('A budget carved out of what this run has left.'),
     }),
@@ -41,6 +47,7 @@ export function delegateTool(host: DelegateHost): ToolDefinition {
     execute: async (input, ctx) => {
       const result = await host.delegate({
         parentRunId: ctx.runId, parentStepId: ctx.stepId, agentId: input.agent, brief: input.input,
+        ...(input.project ? { project: input.project } : {}),
         ...(input.model ? { model: input.model } : {}),
         ...(input.maxModelCalls ? { maxModelCalls: input.maxModelCalls } : {}),
         signal: ctx.signal,
@@ -50,7 +57,61 @@ export function delegateTool(host: DelegateHost): ToolDefinition {
           ? `Delegation stops at ${MAX_DEPTH} levels. Do this part yourself, or ask for a shallower plan.`
           : undefined);
       }
-      return { ok: true, output: { runId: result.runId, output: result.output, costUsd: result.costUsd } };
+      // The child's taint rides on `meta`, where the executor reads it and marks this run (SEC-43). Not in
+      // `output`: the model has no need of it, and a fact about trust is not something a model should be
+      // able to argue with on the next turn.
+      return { ok: true, output: { runId: result.runId, output: result.output, costUsd: result.costUsd }, meta: { taint: result.taint } };
+    },
+  };
+  return tool as ToolDefinition;
+}
+
+export interface WorkflowRunHost {
+  /**
+   * Starts a workflow as a child run (RUN-23, D-73): the same rules as a delegation — a budget carved from the
+   * parent's remainder, depth ≤ 3, the parent's taint inherited at start and the child's reported at return —
+   * with the workflow's own steps, agents and gates. What comes back is the workflow's named outputs.
+   */
+  run(input: {
+    parentRunId: string; parentStepId: string; workflowId: string; inputs: Record<string, unknown>;
+    project?: string | undefined; maxModelCalls?: number | undefined; signal: AbortSignal;
+  }): Promise<
+    | { ok: true; runId: string; outputs: Record<string, unknown>; costUsd: number; taint: { private: boolean; external: boolean } }
+    | { ok: false; code: 'DelegationDepthExceeded' | 'NotFound' | 'InvalidInput' | 'BudgetExceeded' | 'ToolError'; message: string }
+  >;
+}
+
+export function workflowRunTool(host: WorkflowRunHost): ToolDefinition {
+  const tool: ToolDefinition<
+    { workflow: string; inputs?: Record<string, unknown> | undefined; project?: string | undefined; maxModelCalls?: number | undefined },
+    { runId: string; outputs: Record<string, unknown>; costUsd: number }
+  > = {
+    id: 'workflow.run',
+    version: '1.0.0',
+    description: 'Run a workflow from this workspace as a child of this run and wait for it. Its steps, agents and review gates are its own; its budget comes out of what this run has left. Returns the workflow\'s named outputs.',
+    input: z.object({
+      workflow: z.string().describe('The id of a workflow in this workspace.'),
+      inputs: z.record(z.string(), z.unknown()).optional().describe('The workflow\'s inputs, by name, as its form would ask for them.'),
+      project: z.string().optional().describe('The project the run works in. Absent: the same project as this run, or the workflow\'s default.'),
+      maxModelCalls: z.number().int().positive().max(200).optional().describe('A budget carved out of what this run has left.'),
+    }),
+    output: z.object({ runId: z.string(), outputs: z.record(z.string(), z.unknown()), costUsd: z.number() }),
+    tier: 'write',
+    maxPermissions: NO_PERMISSIONS,
+    execute: async (input, ctx) => {
+      const result = await host.run({
+        parentRunId: ctx.runId, parentStepId: ctx.stepId, workflowId: input.workflow, inputs: input.inputs ?? {},
+        ...(input.project ? { project: input.project } : {}),
+        ...(input.maxModelCalls ? { maxModelCalls: input.maxModelCalls } : {}),
+        signal: ctx.signal,
+      });
+      if (!result.ok) {
+        return toolError(result.code, result.message, result.code === 'DelegationDepthExceeded'
+          ? `Delegation stops at ${MAX_DEPTH} levels. Do this part yourself, or ask for a shallower plan.`
+          : undefined);
+      }
+      // The child's taint rides on `meta`, as a delegation's does (SEC-43).
+      return { ok: true, output: { runId: result.runId, outputs: result.outputs, costUsd: result.costUsd }, meta: { taint: result.taint } };
     },
   };
   return tool as ToolDefinition;

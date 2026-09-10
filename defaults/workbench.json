@@ -92,6 +92,10 @@
       ]
     }
   },
+  "owner": {
+    "profile": "companion/about.md",
+    "maxChars": 6000
+  },
   "grants": {},
   "remembered": []
 }

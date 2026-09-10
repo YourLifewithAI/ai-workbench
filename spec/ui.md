@@ -192,3 +192,13 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > the workshop, Agents the lodge, Runs the records office, Review the post office, Models the stables, Memory
 > the well, Tools the smithy, Evaluate the observatory, Settings the windmill. Restyling it is editing a file:
 > `docs/village.md`.
+
+> Amendment (RUN-23, 2026-09-10, D-73): **Review** and **the run's page** show the orchestrator's estimate
+> beside the person's rating, in the person's words first: "You rated it 4/5 — note", then "orchestrator's
+> estimate 3/5 — why". The word *estimate* is on every one, and nothing reads it but a person.
+
+
+> Amendment (RUN-23, 2026-09-10, D-74): **Settings** gains *Your page* — the document every agent reads as the
+> owner's word, named as project/path, with *Use no page*. **Library** — a document whose latest version a run
+> wrote says so under its title and offers **Approve as written**: one click saves the same text as a human
+> version, which is what makes it the owner's word again where it is read as goals or as the page.

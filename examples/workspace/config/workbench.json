@@ -33,8 +33,24 @@
     },
     "companion": {
       "tools": {
+        "agent.delegate": "allow",
+        "workflow.run": "allow",
+        "runs.facts": "allow",
+        "agents.read": "allow",
+        "runs.rate": "allow",
+        "artifact.read": "allow",
+        "artifact.write": "allow",
         "memory.remember": "allow",
-        "memory.search": "allow"
+        "memory.search": "allow",
+        "datetime": "allow"
+      },
+      "fs": {
+        "read": [
+          "projects/"
+        ],
+        "write": [
+          "projects/companion/"
+        ]
       }
     },
     "builder": {

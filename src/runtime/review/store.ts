@@ -3,7 +3,7 @@
 // parks its run instead. Approval — the security queue — is a different table and a different screen (RUN-06).
 import { ulid } from 'ulid';
 import type { Db } from '../db/index.js';
-import type { RatingSummary, ReviewItem } from '../../shared/api/index.js';
+import type { Estimate, RatingSummary, ReviewItem, RunRatingsResponse } from '../../shared/api/index.js';
 
 export type ReviewState = 'unreviewed' | 'pending' | 'continued' | 'rejected' | 'dismissed';
 export type ReviewDecision = 'continue' | 'reject' | 'dismiss';
@@ -114,6 +114,24 @@ export class ReviewStore {
     return toRating(row);
   }
 
+  /**
+   * What a run's page shows (RUN-23): the person's ratings and every estimate on the run, in the order given.
+   * An estimate is a `scores` row with `estimate = 1` whose metric is `rating` or `rating:<step>`; a judge's
+   * other metrics belong to Evaluate and stay there.
+   */
+  ratingsForRun(runId: string): RunRatingsResponse {
+    const ratings = (this.db.prepare('SELECT * FROM ratings WHERE run_id = ? ORDER BY ts').all(runId) as RatingRow[]).map(toRating);
+    return { ratings, estimates: this.estimatesFor(runId) };
+  }
+
+  private estimatesFor(runId: string, stepId?: string): Estimate[] {
+    const rows = this.db.prepare("SELECT evaluator_id, metric, value, rationale, ts FROM scores WHERE run_id = ? AND estimate = 1 AND (metric = 'rating' OR metric LIKE 'rating:%') ORDER BY ts")
+      .all(runId) as { evaluator_id: string; metric: string; value: number; rationale: string | null; ts: string }[];
+    return rows
+      .map((r) => ({ by: r.evaluator_id, stepId: r.metric === 'rating' ? null : r.metric.slice('rating:'.length), value: r.value, why: r.rationale, ts: r.ts }))
+      .filter((e) => stepId === undefined || e.stepId === null || e.stepId === stepId);
+  }
+
   /** Ratings on the versions of one document, so the Library can show what the human thought of each. */
   ratingsForVersions(versionIds: string[]): Map<string, RatingSummary[]> {
     const out = new Map<string, RatingSummary[]>();
@@ -157,6 +175,7 @@ export class ReviewStore {
       documentId: document?.document_id ?? null,
       documentPath: document?.path ?? null,
       ratings: (this.db.prepare('SELECT * FROM ratings WHERE run_id = ? AND step_id = ? ORDER BY ts').all(row.run_id, row.step_id) as RatingRow[]).map(toRating),
+      estimates: this.estimatesFor(row.run_id, row.step_id),
     };
   }
 }

@@ -25,9 +25,11 @@ describe('the companion', () => {
     const projects = (await (await api('GET', '/projects')).json()) as { projects: { slug: string; documents: number }[] };
     expect(projects.projects.find((p) => p.slug === 'companion')?.documents).toBe(1);
     const agent = rt.runtime.workspace.agents.get('companion')!;
-    expect(agent.definition.budgets).toMatchObject({ dailySpendCapUsd: 2, monthlySpendCapUsd: 20 });
-    expect(agent.definition.documents).toEqual(['about.md']);
-    expect(agent.definition.permissions.tools).toMatchObject({ 'memory.remember': 'allow', 'memory.search': 'allow' });
+    // Promoted to the orchestrator in RUN-23 (D-73): its caps are the primary constraint on everything it directs.
+    expect(agent.definition.budgets).toMatchObject({ dailySpendCapUsd: 5, monthlySpendCapUsd: 40 });
+    // The owner's page reaches every agent as the profile section now (D-74), so it is no longer knowledge here.
+    expect(agent.definition.documents).toEqual([]);
+    expect(agent.definition.permissions.tools).toMatchObject({ 'memory.remember': 'allow', 'memory.search': 'allow', 'agent.delegate': 'allow', 'runs.facts': 'allow', 'runs.rate': 'allow' });
   });
 
   it('remembers about the person in the user scope and files its note in the Library', async () => {
@@ -50,16 +52,16 @@ describe('the companion', () => {
     // so the only cap in reach is the companion's own.
     expect((await api('PUT', '/settings', { budgets: { dailySpendCapUsd: 0 } })).status).toBe(202);
     expect(rt.runtime.workspace.config.budgets.dailySpendCapUsd).toBe(0);
-    // Pretend this month's companion runs already cost more than its $20: a row on one of its runs.
+    // Pretend this month's companion runs already cost more than its $40: a row on one of its runs.
     const first = rt.runtime.db.prepare("SELECT id FROM runs WHERE agent_id = 'companion' ORDER BY started_at LIMIT 1").get() as { id: string };
     rt.runtime.db.prepare(`INSERT INTO model_calls (id, run_id, step_id, model_id, adapter, prompt_version, agent_version, usage_json, cost_usd, latency_ms, finish_reason, ts)
-      VALUES ('seed-own-cap', ?, 'main', 'anthropic/claude-sonnet-5', 'anthropic', 'p', 'a', '{}', 25, 1, 'stop', ?)`).run(first.id, new Date().toISOString());
-    expect(rt.runtime.engine.spentThisMonthUsd('companion')).toBeGreaterThanOrEqual(25);
+      VALUES ('seed-own-cap', ?, 'main', 'anthropic/claude-sonnet-5', 'anthropic', 'p', 'a', '{}', 45, 1, 'stop', ?)`).run(first.id, new Date().toISOString());
+    expect(rt.runtime.engine.spentThisMonthUsd('companion')).toBeGreaterThanOrEqual(45);
     expect(rt.runtime.engine.spentThisMonthUsd('echo')).toBe(0);
 
     const stopped = await run('companion', 'Again?', 'companion');
     expect(stopped.state).toBe('failed');
-    expect(stopped.error).toMatchObject({ reason: 'monthly_cap_reached', message: expect.stringContaining("companion's own monthly cap ($20.00)") });
+    expect(stopped.error).toMatchObject({ reason: 'monthly_cap_reached', message: expect.stringContaining("companion's own monthly cap ($40.00)") });
 
     // The workspace's own month ($100 as shipped) is not reached, so everything else still runs.
     const echo = await run('echo', 'hello');

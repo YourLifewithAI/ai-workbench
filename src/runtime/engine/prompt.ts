@@ -30,19 +30,31 @@ export interface AssembleOptions {
   memory?: { trusted: MemorySnippet[]; untrusted: MemorySnippet[] } | undefined;
   /** The project's goals document (D-69): the owner's word, an instruction section after the agent's own — when a person wrote its latest version. Otherwise data, fenced. */
   goals?: { source: string; text: string; trusted: boolean } | undefined;
+  /** The owner's page (D-74): the same rule as goals, one level up — in every agent's prompt, before the goals. */
+  profile?: { source: string; text: string; trusted: boolean } | undefined;
 }
 
 export function assemblePrompt(agent: LoadedAgent, task: string, harness: string, options: AssembleOptions = {}): AssembledPrompt {
   const identity = `${agent.definition.name}: ${agent.definition.description}`;
+  const profile = options.profile?.trusted ? options.profile.text : undefined;
+  const goals = options.goals?.trusted ? options.goals.text : undefined;
   const stable = [
     { name: 'identity', text: identity },
     ...agent.sections.map((s) => ({ name: s.name, text: s.text })),
-    // Goals are instructions, not data: they are the owner's own, in the owner's workspace (D-69). They sit in
-    // the stable prefix but outside promptVersion, which hashes the agent and only the agent.
-    ...(options.goals?.trusted ? [{ name: 'goals', text: options.goals.text }] : []),
+    // The owner's page and the project's goals are instructions, not data: the owner's own word, in the owner's
+    // workspace (D-74, D-69). The page comes first — it is about the person, the goals about the work.
+    ...(profile !== undefined ? [{ name: 'profile', text: profile }] : []),
+    ...(goals !== undefined ? [{ name: 'goals', text: goals }] : []),
   ];
-  // promptVersion covers the authored part only, so it moves when someone edits the agent, not on every call.
-  const promptVersion = contentHash({ identity, instructions: agent.sections });
+  // promptVersion covers the authored part: the agent, and — since RUN-23 — the page and the goals while a person
+  // wrote them, because the authored prompt is what a person wrote, wherever they wrote it. It still ignores the
+  // harness and the task, so it moves when someone edits, not on every call. A fenced page or goals are data,
+  // and data is not authorship: they stay outside.
+  const promptVersion = contentHash({
+    identity, instructions: agent.sections,
+    ...(profile !== undefined ? { profile } : {}),
+    ...(goals !== undefined ? { goals } : {}),
+  });
 
   const knowledge = options.knowledge ?? [];
   const trusted = options.memory?.trusted ?? [];
@@ -57,7 +69,8 @@ export function assemblePrompt(agent: LoadedAgent, task: string, harness: string
       ? [{ name: 'memory.untrusted', text: untrusted.map((m) => renderDataSection(`memory:${m.scope}`, m.content)).join('\n\n') }]
       : []),
     ...(knowledge.length ? [{ name: 'knowledge', text: knowledge.map((k) => renderDataSection(k.source, k.text)).join('\n\n') }] : []),
-    // Goals whose latest version a run wrote: content, not instructions, until a person writes the next version.
+    // A page or goals whose latest version a run wrote: content, not instructions, until a person writes the next.
+    ...(options.profile && !options.profile.trusted ? [{ name: 'profile.untrusted', text: renderDataSection(options.profile.source, options.profile.text) }] : []),
     ...(options.goals && !options.goals.trusted ? [{ name: 'goals.untrusted', text: renderDataSection(options.goals.source, options.goals.text) }] : []),
   ];
 

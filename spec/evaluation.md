@@ -20,6 +20,13 @@ The Compare screen runs one agent step (or one case) across N model ids from the
 
 `exact` (string or JSON equality with `reference`), `schema` (output validates), `rule` (regex, length, contains), `grounded` (metric `groundedness`: fraction of claims a judge model finds supported by the run's retrieved chunks; available only for runs that used `knowledge.search`; labeled estimate), `model-judge` (a rubric prompt to a chosen model; every score is labeled *estimate* in the UI and never used as a gate — judge agreement with ground truth on tool-using traces tops out around AUROC 0.65, `research.md`), `human` (ratings).  There is no "hallucination" metric: it needs ground truth the system does not have.
 
+> Amendment (RUN-23, 2026-09-10, D-73): a sixth evaluator, **`orchestrator`** — the companion's `runs.rate`,
+> which writes one `scores` row per call (`metric: rating` or `rating:<step>`, `estimate: 1`, the *why* as
+> `rationale`). It is an estimate like a judge's, shown as one beside the person's rating on Review and the run's
+> page (`GET /runs/:id/ratings`), never written to `ratings` — that table is the person's and future router
+> data (D-50) — and never read by selection (D-06). What it is for: over time, "agrees with you N of M times"
+> (RUN-24) says what the number is worth from the owner's own data.
+
 ## Results
 
 A table (case × model × metric) with totals for cost and latency and a simple chart; export and import in a promptfoo-compatible JSON shape where the mapping is free, so datasets are portable.

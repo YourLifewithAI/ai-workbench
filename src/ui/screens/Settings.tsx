@@ -46,6 +46,7 @@ export function Settings() {
           </Card>
           <div className="md:col-span-2"><Credentials configured={q.data.providersConfigured} onSaid={setSaid} onDone={() => void client.invalidateQueries({ queryKey: ['settings'] })} /></div>
           {q.data.models ? <div className="md:col-span-2"><ModelRoles key={JSON.stringify(q.data.models.roles)} models={q.data.models} onSaid={setSaid} onDone={() => { void client.invalidateQueries({ queryKey: ['settings'] }); void client.invalidateQueries({ queryKey: ['agents'] }); }} /></div> : null}
+          {q.data.owner ? <div className="md:col-span-2"><OwnerPage key={q.data.owner.profile ?? ''} owner={q.data.owner} onSaid={setSaid} onDone={() => void client.invalidateQueries({ queryKey: ['settings'] })} /></div> : null}
           <div className="md:col-span-2"><PushSettings /></div>
           <div className="md:col-span-2"><Plugins plugins={q.data.plugins} onSaid={setSaid} onDone={() => void client.invalidateQueries({ queryKey: ['settings'] })} /></div>
           <div className="md:col-span-2">
@@ -311,6 +312,44 @@ function Caps({ budgets, onSaid, onDone }: { budgets: Record<string, number>; on
         </div>
       </form>
       <dl className="mt-3 text-sm">{Object.entries(budgets).filter(([k]) => !['maxCostUsd', 'dailySpendCapUsd', 'monthlySpendCapUsd'].includes(k)).map(([k, v]) => <Row key={k} k={k} v={String(v)} />)}</dl>
+    </Card>
+  );
+}
+
+/**
+ * Your page (D-74): the one document every agent reads as your own word. Named as project/path; the companion may
+ * draft it, and you approve it in the Library. Set here by you and by nothing else (SEC-41).
+ */
+function OwnerPage({ owner, onSaid, onDone }: { owner: { profile: string | null; maxChars: number }; onSaid: (s: string) => void; onDone: () => void }) {
+  const [profile, setProfile] = useState(owner.profile ?? '');
+  const save = useMutation({
+    mutationFn: (value: string | null) => api.updateSettings({ owner: { profile: value } }),
+    onSuccess: (_r, value) => { onSaid(value ? `Your page is ${value}.` : 'No page: agents read nothing about you.'); onDone(); },
+  });
+  return (
+    <Card>
+      <CardTitle>Your page</CardTitle>
+      <Prose className="mt-1">
+        One document every agent reads as your own word — how you like to be talked to, what you are working on, what is off
+        the table. It goes into every prompt as an instruction while you wrote its latest version; a version a run drafted is
+        read as content until you approve it in the Library.
+      </Prose>
+      <form className="mt-3 flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); save.mutate(profile.trim() || null); }}>
+        <label className="text-sm">
+          <span className="block text-xs text-gray-600 dark:text-gray-400">Document, as project/path</span>
+          <input
+            name="ownerProfile"
+            value={profile}
+            onChange={(e) => setProfile(e.target.value)}
+            placeholder="companion/about.md"
+            className="mt-1 w-72 max-w-full rounded-md border border-gray-300 bg-white px-2 py-1 font-mono text-sm dark:border-gray-700 dark:bg-gray-950"
+          />
+        </label>
+        <Button type="submit" size="sm" disabled={save.isPending || (profile.trim() || null) === owner.profile}>{save.isPending ? 'Saving…' : 'Save your page'}</Button>
+        {owner.profile ? <Button type="button" size="sm" variant="ghost" onClick={() => { setProfile(''); save.mutate(null); }} disabled={save.isPending}>Use no page</Button> : null}
+      </form>
+      <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">Cut at {owner.maxChars.toLocaleString()} characters.</p>
+      {save.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{save.error.message}</p> : null}
     </Card>
   );
 }

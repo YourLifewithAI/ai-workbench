@@ -52,6 +52,16 @@ interface ToolContext {
 
 The model sees a `ToolSpec` (name, description, JSON Schema) derived from the definition at the provider boundary. Tool outputs are structured (D-51): the model receives the validated object, `http.fetch` keeps extracted text and links apart, and the engine fences every result as content. Model-side injection defenses do not close data leakage on their own (`research.md`), which is why the broker and the exfiltration rule exist. Built-ins by tier: **read** — `calc`, `datetime`, `json`, `artifact.read` (which also reads the run's own scratch directory as `scratch/…` without a grant, so masked and truncated results are always recoverable), `artifact.list`, `knowledge.search`, `memory.search`, `http.fetch`, `web.search`; **write** — `artifact.write`, `memory.remember`, `fs.read`, `fs.list` (outside the project), `http.request` (non-GET; `approvalRequired` by default), `agent.delegate`, `permission.request`; **execute** — `fs.write` outside project files, `shell`, `code.execute`. Execute-tier tools exist only when the sandbox does (D-30).
 
+> Amendment (RUN-23, 2026-09-10, D-73): four built-ins for the orchestrator. **read** — `runs.facts` (recent runs
+> as ids, states, models, costs, tool calls by name, approvals, reviews, the owner's ratings, taint flags, documents
+> filed by path, the D-58 summary lines, and the candidates the numbers point at — never a task, an output, a
+> document or an argument; SEC-42) and `agents.read` (one agent's definition and sections, without its grants);
+> **write** — `runs.rate` (one `scores` row, `estimate: 1`, never `ratings`) and `workflow.run` (a workflow as a
+> child run under the delegation rules: budget carved, depth ≤ 3, taint down and up). `agent.delegate` gains
+> `project`. All four admit no path, host or credential. And one rule on a tool that existed: **`artifact.read`
+> of a version whose writing run was external-tainted marks the reader external**, on the result's `meta`, the
+> channel SEC-43 opened — an output built on a web page is that page one step removed.
+
 **`http.fetch`** — in `{ url, maxBytes?, accept? }`; out `{ status, finalUrl, contentType, title?, text, links: [{ text, url }], truncated, bytes }`. `http:` and `https:` only. HTML is parsed without script execution (`linkedom` + `@mozilla/readability` + `turndown`); JSON and text pass through; PDF goes through `pdf-parse`; anything else is `UnsupportedContentType`. Limits: `tools.http.maxResponseBytes` (default 2 MiB, truncate and flag) and `tools.http.timeoutMs` (default 20 000), separate from `toolCallTimeoutMs`.
 
 **`web.search`** (D-44) — in `{ query, count?: 1..20 = 8, freshness?: 'day' | 'week' | 'month' | 'any' }`; out `{ results: [{ title, url, snippet, published? }] }`. Provider from `config/workbench.json` → `"search": { "provider": "brave" | "searxng" | "mock", "searxng": { "url": "…" } }`; the Brave key is credential `brave`. `--provider mock` mocks every external service, search included; the search mock reads `<workspace>/fixtures/search.json`: `{ "queries": [{ "match": "<substring>", "results": [{ title, url, snippet }] }] }`, falling back to an empty result list.

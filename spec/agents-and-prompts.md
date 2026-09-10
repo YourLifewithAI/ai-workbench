@@ -31,6 +31,10 @@ const Agent = z.object({
 });
 ```
 
+> Amendment (RUN-23, 2026-09-10): `memory.read` and `memory.write` are enforced as a narrowing layer on the
+> scopes a run retrieves and may write, beside the project's list (D-69); an empty list is no restriction. Until
+> this run the field was hashed and documented but read by no code — see `artifacts-and-memory.md` §Memory.
+
 Versioning (D-10): the agent version is the content hash of the canonical JSON (plus `instructions.md` if used). It is computed on load, recorded on every model call and every artifact version, and shown in the UI. Editing the file creates a new version implicitly; nothing is renamed or migrated.
 
 Tool references resolve at load time. A missing tool id is a load error shown in the Agents screen with a "map or stub" affordance; it never fails silently at execution time.
@@ -58,6 +62,16 @@ Instruction sections may contain directives. Data sections are wrapped in a fenc
 
 Provider-specific adaptation belongs to adapters (D-09).
 
+> Amendment (RUN-23, 2026-09-10, D-74): two rows join the table between `instructions` and the tool specs, both
+> in the stable prefix: **`profile`** — the owner's page, `config/workbench.json`'s `owner.profile`, read whole and
+> cut at `owner.maxChars` — and, after it, **`goals`** (D-69, RUN-18). Each is an instruction section only while a
+> person wrote its latest version; otherwise it is `profile.untrusted` / `goals.untrusted`, fenced as data next
+> to the retrieved sections, with a `profile-fenced` / `goals-fenced` event. A page that does not exist is a
+> `profile-missing` event and the run goes on. **`promptVersion` now covers a trusted page and trusted goals**,
+> amending RUN-18's choice: the authored prompt is what a person wrote, wherever they wrote it, so editing the
+> page or the goals moves the version the way editing the agent does; a fenced one is data, not authorship, and
+> stays outside.
+
 ## The echo agent
 
 `examples/workspace/agents/echo/agent.json` is the smallest valid agent: `instructions: [{ name: "task", text: "Reply with exactly the task text and nothing else." }]`, `modelPolicy.primary: "mock/echo"`, no tools, no permissions. It is what RUN-00 runs and what every later run uses as a smoke test.
@@ -71,6 +85,18 @@ and its working notes in its own, and files each reply as `notes/{{runId}}.md` i
 exchange is readable in the Library. Its `budgets` carry `dailySpendCapUsd` and `monthlySpendCapUsd` of its
 own, counted against its own spend (see workflows-and-execution.md, F6 amendment). Welcome's last step opens
 it with the project chosen. It is a recipe for "a space of my own" until project spaces (D-69) make it one.
+
+> Amendment (RUN-23, 2026-09-10, D-73): **the companion is the orchestrator.** Same id, same directory, same
+> `user`-scope memory; promoted. It asks for and is granted `agent.delegate`, `workflow.run`, `runs.facts`,
+> `agents.read`, `runs.rate`, `artifact.read`, `artifact.write` (its own project), `memory.remember`,
+> `memory.search` and `datetime` — never `http.fetch`, `web.search`, any `fs.*` or `permissions.propose`: it
+> directs the researcher, it does not become one. Caps $0.50 a run, $5 a day, $40 a month, and every child it
+> starts comes out of them. Its instructions gain *the village*, *directing work*, *rating*, *learning* and
+> *the board*. The owner's page is no longer its `documents` entry: it reaches every agent as the `profile`
+> section (D-74), and the companion drafts changes to it for the owner to approve. The companion project's tool
+> ceiling is gone — it would have refused a delegated researcher's `web.search` — and so is its `goals`, which
+> the page now covers. `companion-board` is a shipped workflow, daily, seeded paused: one `runs.facts` step and
+> one companion step that files the board under `board/`.
 
 ## Import trust (D-34)
 

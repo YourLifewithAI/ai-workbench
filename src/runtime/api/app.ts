@@ -283,6 +283,13 @@ export function createApp(deps: AppDeps): Hono {
     });
   });
 
+  // The person's ratings and every estimate on a run, each labelled, for the run's page (RUN-23).
+  app.get('/api/v1/runs/:id/ratings', (c) => {
+    const id = c.req.param('id');
+    if (!deps.engine.getRun(id)) return fail(c, 'not_found', `Run "${id}" does not exist.`, 404);
+    return json(c, deps.engine.reviews.ratingsForRun(id));
+  });
+
   app.get('/api/v1/runs/:id/trace.jsonl', (c) => {
     const id = c.req.param('id');
     if (!deps.engine.getRun(id)) return fail(c, 'not_found', `Run "${id}" does not exist.`, 404);
@@ -813,6 +820,12 @@ export function createApp(deps: AppDeps): Hono {
     return json(c, version);
   });
 
+  // Approve as written (D-74): the same text, saved again as a person's — behind the token, like every write.
+  app.post('/api/v1/documents/:id/approve', (c) => {
+    const version = deps.artifacts.approveDocument(c.req.param('id'));
+    return version ? json(c, version, 201) : fail(c, 'not_found', `No document with id "${c.req.param('id')}".`, 404);
+  });
+
   app.get('/api/v1/models', async (c) => json(c, await deps.models(false)));
   app.post('/api/v1/models/refresh', async (c) => json(c, await deps.models(true)));
   // A finding is a proposal; these two are the only ways it becomes anything else, and both are a person's click.
@@ -1257,7 +1270,7 @@ export function createApp(deps: AppDeps): Hono {
       return fail(c, 'validation', 'The request body must be JSON.', 400);
     }
     const parsed = UpdateSettingsRequest.safeParse(raw);
-    if (!parsed.success) return fail(c, 'validation', 'Expected some of { budgets, retention, execution, mcp, push, models: { roles } }.', 400, parsed.error.issues);
+    if (!parsed.success) return fail(c, 'validation', 'Expected some of { budgets, retention, execution, mcp, push, models: { roles }, owner: { profile, maxChars } }.', 400, parsed.error.issues);
     try {
       deps.updateSettings(parsed.data);
       return json(c, { ok: true, restartRequired: parsed.data.mcp !== undefined }, 202);
@@ -1281,6 +1294,7 @@ export function createApp(deps: AppDeps): Hono {
       push: ws.config.push,
       plugins: deps.plugins?.() ?? [],
       models: deps.modelRoles(),
+      owner: { profile: ws.config.owner.profile, maxChars: ws.config.owner.maxChars },
     };
     return json(c, body);
   });

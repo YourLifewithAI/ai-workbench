@@ -45,7 +45,14 @@ export function artifactTools(deps: ArtifactToolDeps): ToolDefinition[] {
       if (!decision.allowed) return toolError('PermissionDenied', decision.reason, decision.hint);
       const content = deps.artifacts.readDocument(project, input.path);
       if (content === null) return toolError('NotFound', `There is no document at "${input.path}" in the "${project}" project.`);
-      return { ok: true, output: { path: input.path, content, bytes: Buffer.byteLength(content) } };
+      // A version written by a run that had read outside the workspace is that content one step removed: a
+      // reader takes on the writer's external taint, on `meta` where the executor reads it (SEC-43's channel).
+      // Reading is still private content whatever the writer had read; the static set covers that.
+      const written = deps.artifacts.versionProvenance(project, input.path);
+      return {
+        ok: true, output: { path: input.path, content, bytes: Buffer.byteLength(content) },
+        ...(written?.externalTainted ? { meta: { taint: { external: true } } } : {}),
+      };
     },
   };
 

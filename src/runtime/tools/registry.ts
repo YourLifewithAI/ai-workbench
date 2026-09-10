@@ -4,18 +4,21 @@ import type { ToolDefinition } from '../../shared/tool.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { calc, datetime, json } from './builtin/basics.js';
 import { artifactTools } from './builtin/artifacts.js';
-import { delegateTool, permissionRequestTool, type DelegateHost, type PermissionRequestHost } from './builtin/delegate.js';
+import { delegateTool, permissionRequestTool, workflowRunTool, type DelegateHost, type PermissionRequestHost, type WorkflowRunHost } from './builtin/delegate.js';
 import { webTools, type WebToolDeps } from './builtin/web.js';
 import { memoryTools, type MemoryToolDeps } from './builtin/memory.js';
 import { fileTools, type FileToolDeps } from './builtin/files.js';
 import { codeTools, type CodeToolDeps } from './builtin/code.js';
 import { repoTools } from './builtin/repo.js';
 import { permissionsTools, type PermissionsToolDeps } from './builtin/permissions.js';
+import { orchestratorTools, type OrchestratorToolDeps } from './builtin/orchestrator.js';
 
 export interface RegistryDeps {
   artifacts: ArtifactStore;
   workspaceDir: string;
   delegate: DelegateHost;
+  /** A workflow as a child run (RUN-23), under the delegation rules. */
+  workflowRun: WorkflowRunHost;
   permissions: PermissionRequestHost;
   /** The two network tools (RUN-07). Absent leaves them out of the catalogue entirely. */
   web?: WebToolDeps | undefined;
@@ -30,6 +33,8 @@ export interface RegistryDeps {
   code?: CodeToolDeps | undefined;
   /** The auditor's metadata tools (RUN-14). Absent leaves them out, as a test runtime without a store would. */
   permissionsReview?: PermissionsToolDeps | undefined;
+  /** The orchestrator's read tools (RUN-23): run facts and agent definitions, never content or a grant. */
+  orchestrator?: OrchestratorToolDeps | undefined;
 }
 
 export function builtinTools(deps: RegistryDeps): Map<string, ToolDefinition> {
@@ -39,6 +44,7 @@ export function builtinTools(deps: RegistryDeps): Map<string, ToolDefinition> {
     json as ToolDefinition,
     ...artifactTools({ artifacts: deps.artifacts, workspaceDir: deps.workspaceDir }),
     delegateTool(deps.delegate),
+    workflowRunTool(deps.workflowRun),
     permissionRequestTool(deps.permissions),
     ...(deps.web ? webTools(deps.web) : []),
     ...(deps.memory ? memoryTools(deps.memory) : []),
@@ -47,6 +53,7 @@ export function builtinTools(deps: RegistryDeps): Map<string, ToolDefinition> {
     // Always in the catalogue, granted to nobody: a repository grant is the only thing that makes one usable.
     ...repoTools(),
     ...(deps.permissionsReview ? permissionsTools(deps.permissionsReview) : []),
+    ...(deps.orchestrator ? orchestratorTools(deps.orchestrator) : []),
   ];
   return new Map(tools.map((t) => [t.id, t]));
 }

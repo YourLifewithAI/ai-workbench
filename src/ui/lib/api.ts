@@ -1,5 +1,5 @@
 // Every call carries the bearer token; SSE is fetch-based (never EventSource) so it can too.
-import type { AgentDetail, AgentGrantSummary, AgentListResponse, ApprovalItem, ApprovalListResponse, CompareRequest, ComparePickRequest, CompareResponse, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, DashboardResponse, DatasetSummary, DeleteMemoryResponse, ExperimentResults, ExperimentSummary, DiffResponse, DocumentDetail, DocumentSummary, GrantCell, KnowledgeSearchResponse, MemoryItem, MemoryResponse, MemoryTracesResponse, ModelListResponse, PrivacyResponse, Project, PushEventKind, PushSubscription, PushSubscriptionsResponse, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunSummary, ScheduleListResponse, ScheduleSummary, SetGrantRequest, SettingsResponse, UpdateSettingsRequest, SubscribePushRequest, ToolsResponse, UpsertScheduleRequest, CreateWorkflowRequest, DeleteWorkflowResponse, EstimateRequest, EstimateResponse, SpendResponse, PermissionFinding, PermissionFindingsResponse, SaveWorkflowRequest, WorkflowDetail, WorkflowListResponse, ProjectSpaceResponse, SaveProjectSpaceRequest } from '../../shared/api/index.js';
+import type { AgentDetail, AgentGrantSummary, AgentListResponse, ApprovalItem, ApprovalListResponse, CompareRequest, ComparePickRequest, CompareResponse, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, DashboardResponse, DatasetSummary, DeleteMemoryResponse, ExperimentResults, ExperimentSummary, DiffResponse, DocumentDetail, DocumentSummary, GrantCell, KnowledgeSearchResponse, MemoryItem, MemoryResponse, MemoryTracesResponse, ModelListResponse, PrivacyResponse, Project, PushEventKind, PushSubscription, PushSubscriptionsResponse, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunRatingsResponse, RunSummary, ScheduleListResponse, ScheduleSummary, SetGrantRequest, SettingsResponse, UpdateSettingsRequest, SubscribePushRequest, ToolsResponse, UpsertScheduleRequest, CreateWorkflowRequest, DeleteWorkflowResponse, EstimateRequest, EstimateResponse, SpendResponse, PermissionFinding, PermissionFindingsResponse, SaveWorkflowRequest, WorkflowDetail, WorkflowListResponse, ProjectSpaceResponse, SaveProjectSpaceRequest } from '../../shared/api/index.js';
 import type { EventRecord } from '../../shared/events.js';
 import { getToken, markUnauthorized } from './auth.js';
 
@@ -71,6 +71,8 @@ export const api = {
     apiFetch(`/documents/${encodeURIComponent(id)}${version ? `?version=${encodeURIComponent(version)}` : ''}`).then((r) => r.json() as Promise<DocumentDetail>),
   saveDocument: (id: string, content: string): Promise<DocumentDetail['history'][number]> =>
     apiFetch(`/documents/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) }).then((r) => r.json() as Promise<DocumentDetail['history'][number]>),
+  approveDocument: (id: string): Promise<DocumentDetail['history'][number]> =>
+    apiFetch(`/documents/${encodeURIComponent(id)}/approve`, { method: 'POST' }).then((r) => r.json() as Promise<DocumentDetail['history'][number]>),
   diff: (id: string, from: string, to: string): Promise<DiffResponse> =>
     apiFetch(`/documents/${encodeURIComponent(id)}/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).then((r) => r.json() as Promise<DiffResponse>),
   memory: (params: { q?: string; scope?: string } = {}): Promise<MemoryItem[]> => {
@@ -109,6 +111,7 @@ export const api = {
     apiFetch('/plugins/trust', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, version }) })
       .then((r) => r.json() as Promise<{ trusted: string }>),
   trace: (id: string): Promise<string> => apiFetch(`/runs/${encodeURIComponent(id)}/trace.jsonl`).then((r) => r.text()),
+  runRatings: (id: string): Promise<RunRatingsResponse> => apiFetch(`/runs/${encodeURIComponent(id)}/ratings`).then((r) => r.json() as Promise<RunRatingsResponse>),
   createRun: (body: CreateRunRequest): Promise<{ runId: string }> =>
     apiFetch('/runs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<{ runId: string }>),
   cancelRun: (id: string): Promise<{ cancelled: boolean }> =>

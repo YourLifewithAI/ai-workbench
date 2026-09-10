@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "companion",
   "name": "Companion",
-  "description": "The owner's own. Remembers what it is told about the person, files each exchange as a note in the Library, and works inside its own caps.",
+  "description": "The owner's own, and the village's orchestrator: directs the other agents, sees what they did, rates it as an estimate, remembers what it is told about the person, and works inside its own caps.",
   "instructions": {
     "file": "instructions.md"
   },
@@ -10,23 +10,36 @@
     "primary": "role:capable"
   },
   "review": "none",
-  "documents": [
-    "about.md"
-  ],
   "memory": {
-    "read": ["agent", "user", "workspace", "project"],
-    "write": ["user", "agent"]
+    "read": [
+      "agent",
+      "user",
+      "workspace",
+      "project"
+    ],
+    "write": [
+      "user",
+      "agent"
+    ]
   },
   "permissions": {
     "tools": {
+      "agent.delegate": "allow",
+      "workflow.run": "allow",
+      "runs.facts": "allow",
+      "agents.read": "allow",
+      "runs.rate": "allow",
+      "artifact.read": "allow",
+      "artifact.write": "allow",
       "memory.remember": "allow",
-      "memory.search": "allow"
+      "memory.search": "allow",
+      "datetime": "allow"
     }
   },
   "budgets": {
     "maxCostUsd": 0.5,
-    "dailySpendCapUsd": 2,
-    "monthlySpendCapUsd": 20
+    "dailySpendCapUsd": 5,
+    "monthlySpendCapUsd": 40
   },
   "output": {
     "kind": "document",

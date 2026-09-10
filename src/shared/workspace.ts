@@ -48,6 +48,15 @@ export const WorkbenchConfig = z.object({
    * twelve agent files.
    */
   models: z.object({ roles: z.record(z.string(), z.array(z.string())).default({}) }).prefault({ roles: {} }),
+  /**
+   * The owner's page (D-74): a Library document, `<project>/<path>`, read into every agent's prompt as a
+   * `profile` instruction section while a person wrote its latest version. `null` means no page. `maxChars`
+   * is where the section is cut, so a page that grew into an essay cannot crowd out the task.
+   */
+  owner: z.object({
+    profile: z.string().nullable().default('companion/about.md'),
+    maxChars: z.number().int().positive().default(6000),
+  }).prefault({ profile: 'companion/about.md', maxChars: 6000 }),
   grants: z.record(z.string(), z.unknown()).default({}),
   remembered: z.array(z.object({ tool: z.string(), host: z.string().optional(), path: z.string().optional() })).default([]),
 });

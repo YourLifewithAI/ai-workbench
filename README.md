@@ -10,7 +10,7 @@ On a desktop the workbench opens onto a village: one building for each part of i
 world. Hover a house to read what it is for; enter it to work there. A phone gets the same twelve screens as a
 list. Restyling the village is editing a file — [`docs/village.md`](docs/village.md) says which.
 
-**Status:** RUN-00 … RUN-19 are built. See [`STATUS.md`](STATUS.md) for what is verified and what is not, and
+**Status:** RUN-00 … RUN-19 and RUN-23 are built. See [`STATUS.md`](STATUS.md) for what is verified and what is not, and
 [`runlog/`](runlog/) for what each run actually did.
 
 ## Ten minutes
@@ -103,6 +103,10 @@ Ollama and LM Studio. Adding one is writing an adapter that passes the contract 
   something that cannot be undone. They are different queues on purpose.
 - **Evaluate** compares models on your own work: one step, N models, side by side, and a pick that becomes data.
 - **The phone**: the UI installs to a Home Screen and can send you a notification when something needs you.
+- **The companion** is the one agent you work with most, and the village's orchestrator: it directs the
+  others, sees what they did as facts, rates it as an estimate beside your rating, learns you, and reads your
+  page — a document every agent gets as your own word. It cannot grant a permission or touch a file under
+  `agents/`; everything else it does on its own budget, recorded with its reasoning.
 
 ## Security floor
 

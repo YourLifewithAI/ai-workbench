@@ -120,6 +120,8 @@ export const SettingsResponse = z.object({
     /** Roles an agent or a workflow step names that no list defines. */
     undefinedRoles: z.array(z.string()),
   }).optional(),
+  /** The owner's page (D-74): which document, and where its section is cut. */
+  owner: z.object({ profile: z.string().nullable(), maxChars: z.number().int() }).optional(),
 });
 export type SettingsResponse = z.infer<typeof SettingsResponse>;
 
@@ -464,6 +466,20 @@ export const RatingSummary = z.object({
 });
 export type RatingSummary = z.infer<typeof RatingSummary>;
 
+/**
+ * A model's opinion of a run, shown beside the person's rating and never in its place (D-36, D-73). `by` is the
+ * evaluator — `orchestrator` for the companion's — and the word "estimate" appears wherever one is shown.
+ */
+export const Estimate = z.object({
+  by: z.string(),
+  /** The step it was about, or null for the run as a whole. */
+  stepId: z.string().nullable(),
+  value: z.number(),
+  why: z.string().nullable(),
+  ts: z.string(),
+});
+export type Estimate = z.infer<typeof Estimate>;
+
 export const ReviewItem = z.object({
   id: z.string(),
   runId: z.string(),
@@ -486,8 +502,14 @@ export const ReviewItem = z.object({
   documentId: z.string().nullable(),
   documentPath: z.string().nullable(),
   ratings: z.array(RatingSummary),
+  /** Estimates on this run or this step, so a card shows what the orchestrator thought beside what you did (RUN-23). */
+  estimates: z.array(Estimate).default([]),
 });
 export type ReviewItem = z.infer<typeof ReviewItem>;
+
+/** What a run's page shows under the summary: the person's ratings and every estimate, each labelled (RUN-23). */
+export const RunRatingsResponse = z.object({ ratings: z.array(RatingSummary), estimates: z.array(Estimate) });
+export type RunRatingsResponse = z.infer<typeof RunRatingsResponse>;
 
 export const ReviewListResponse = z.object({ reviews: z.array(ReviewItem) });
 export type ReviewListResponse = z.infer<typeof ReviewListResponse>;
@@ -795,6 +817,8 @@ export const UpdateSettingsRequest = z.object({
   push: z.object({ enabled: z.boolean(), events: z.array(z.string()) }).optional(),
   /** The whole roles map, replaced (D-68). A role name is lowercase letters, digits and hyphens. */
   models: z.object({ roles: z.record(z.string().regex(/^[a-z][a-z0-9-]*$/), z.array(z.string().min(1))) }).optional(),
+  /** The owner's page (D-74): `<project>/<path>`, or null for none. Set by a person here; no tool can (SEC-41). */
+  owner: z.object({ profile: z.string().max(400).nullable().optional(), maxChars: z.number().int().positive().max(100_000).optional() }).optional(),
 });
 export type UpdateSettingsRequest = z.infer<typeof UpdateSettingsRequest>;
 

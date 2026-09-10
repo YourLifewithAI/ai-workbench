@@ -164,6 +164,12 @@ export function Review() {
               {item.ratings.length ? (
                 <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">Rated {item.ratings.at(-1)!.value}/5{item.ratings.at(-1)!.note ? ` — ${item.ratings.at(-1)!.note}` : ''}</p>
               ) : null}
+              {/* The orchestrator's number sits beside yours, never in its place, and says it is an estimate (D-36, RUN-23). */}
+              {item.estimates.map((e) => (
+                <p key={e.ts} className="mt-1 text-xs text-gray-600 dark:text-gray-400" data-testid="estimate">
+                  {e.by}'s estimate {e.value}/5{e.stepId ? ` for step ${e.stepId}` : ''}{e.why ? ` — ${e.why}` : ''}
+                </p>
+              ))}
             </Card>
           </li>
         ))}
