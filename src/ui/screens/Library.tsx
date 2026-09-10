@@ -128,6 +128,10 @@ export function DocumentView() {
     mutationFn: (content: string) => api.saveDocument(id, content),
     onSuccess: () => { setDraft(null); void client.invalidateQueries({ queryKey: ['document', id] }); void client.invalidateQueries({ queryKey: ['documents', slug] }); },
   });
+  const approve = useMutation({
+    mutationFn: () => api.approveDocument(id),
+    onSuccess: () => { void client.invalidateQueries({ queryKey: ['document', id] }); void client.invalidateQueries({ queryKey: ['documents', slug] }); },
+  });
 
   const diff = useQuery({
     queryKey: ['diff', id, compare?.from, compare?.to],
@@ -147,7 +151,14 @@ export function DocumentView() {
             <div className="flex flex-wrap items-center gap-2">
               <CardTitle>{draft === null ? 'Content' : 'Editing'}</CardTitle>
               {draft === null ? (
-                <Button size="sm" variant="secondary" onClick={() => setDraft(q.data.content)}>Edit</Button>
+                <>
+                  <Button size="sm" variant="secondary" onClick={() => setDraft(q.data.content)}>Edit</Button>
+                  {/* A run wrote the latest version: until a person saves one, agents read it as content, not as
+                      the owner's word (D-69, D-74). Approving saves the same text again, as yours. */}
+                  {q.data.version?.createdBy === 'run-step' ? (
+                    <Button size="sm" onClick={() => approve.mutate()} disabled={approve.isPending}>{approve.isPending ? 'Approving…' : 'Approve as written'}</Button>
+                  ) : null}
+                </>
               ) : (
                 <>
                   <Button size="sm" onClick={() => save.mutate(draft)} disabled={save.isPending}>{save.isPending ? 'Saving…' : 'Save as a new version'}</Button>
@@ -156,6 +167,10 @@ export function DocumentView() {
               )}
             </div>
             {save.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{save.error.message}</p> : null}
+            {approve.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{approve.error.message}</p> : null}
+            {draft === null && q.data.version?.createdBy === 'run-step' ? (
+              <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">A run wrote this version. Where it is read as goals or as your page, it counts as content until you approve it or save your own.</p>
+            ) : null}
             {draft === null ? (
               <pre tabIndex={0} className="mt-2 max-h-[32rem] overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-4 font-mono text-sm dark:bg-gray-950">{q.data.content}</pre>
             ) : (

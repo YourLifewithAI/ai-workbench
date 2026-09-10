@@ -678,8 +678,16 @@ export class Runtime {
   /** The parts of `config/workbench.json` Settings may edit. Grants are not among them: those are the matrix. */
   updateSettings(patch: Record<string, unknown>): void {
     const file = this.workspace.paths.workbenchJson;
+    // The owner's page has to be a document that can exist: a project that is here, and a path under it (D-74).
+    const owner = patch['owner'] as { profile?: string | null } | undefined;
+    if (owner && typeof owner.profile === 'string') {
+      const slash = owner.profile.indexOf('/');
+      const slug = slash > 0 ? owner.profile.slice(0, slash) : '';
+      if (!slug || slash === owner.profile.length - 1) throw new ValidationError('Name the page as "<project>/<path>", for example companion/about.md.');
+      if (!this.artifacts.findProject(slug)) throw new ValidationError(`Project "${slug}" does not exist. Name one from the Library.`);
+    }
     const current = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
-    for (const key of ['budgets', 'retention', 'execution', 'mcp', 'push', 'models'] as const) {
+    for (const key of ['budgets', 'retention', 'execution', 'mcp', 'push', 'models', 'owner'] as const) {
       const value = patch[key];
       if (value === undefined) continue;
       current[key] = typeof current[key] === 'object' && current[key] !== null && !Array.isArray(current[key])

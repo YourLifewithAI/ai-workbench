@@ -62,6 +62,16 @@ Instruction sections may contain directives. Data sections are wrapped in a fenc
 
 Provider-specific adaptation belongs to adapters (D-09).
 
+> Amendment (RUN-23, 2026-09-10, D-74): two rows join the table between `instructions` and the tool specs, both
+> in the stable prefix: **`profile`** — the owner's page, `config/workbench.json`'s `owner.profile`, read whole and
+> cut at `owner.maxChars` — and, after it, **`goals`** (D-69, RUN-18). Each is an instruction section only while a
+> person wrote its latest version; otherwise it is `profile.untrusted` / `goals.untrusted`, fenced as data next
+> to the retrieved sections, with a `profile-fenced` / `goals-fenced` event. A page that does not exist is a
+> `profile-missing` event and the run goes on. **`promptVersion` now covers a trusted page and trusted goals**,
+> amending RUN-18's choice: the authored prompt is what a person wrote, wherever they wrote it, so editing the
+> page or the goals moves the version the way editing the agent does; a fenced one is data, not authorship, and
+> stays outside.
+
 ## The echo agent
 
 `examples/workspace/agents/echo/agent.json` is the smallest valid agent: `instructions: [{ name: "task", text: "Reply with exactly the task text and nothing else." }]`, `modelPolicy.primary: "mock/echo"`, no tools, no permissions. It is what RUN-00 runs and what every later run uses as a smoke test.

@@ -120,6 +120,8 @@ export const SettingsResponse = z.object({
     /** Roles an agent or a workflow step names that no list defines. */
     undefinedRoles: z.array(z.string()),
   }).optional(),
+  /** The owner's page (D-74): which document, and where its section is cut. */
+  owner: z.object({ profile: z.string().nullable(), maxChars: z.number().int() }).optional(),
 });
 export type SettingsResponse = z.infer<typeof SettingsResponse>;
 
@@ -815,6 +817,8 @@ export const UpdateSettingsRequest = z.object({
   push: z.object({ enabled: z.boolean(), events: z.array(z.string()) }).optional(),
   /** The whole roles map, replaced (D-68). A role name is lowercase letters, digits and hyphens. */
   models: z.object({ roles: z.record(z.string().regex(/^[a-z][a-z0-9-]*$/), z.array(z.string().min(1))) }).optional(),
+  /** The owner's page (D-74): `<project>/<path>`, or null for none. Set by a person here; no tool can (SEC-41). */
+  owner: z.object({ profile: z.string().max(400).nullable().optional(), maxChars: z.number().int().positive().max(100_000).optional() }).optional(),
 });
 export type UpdateSettingsRequest = z.infer<typeof UpdateSettingsRequest>;
 

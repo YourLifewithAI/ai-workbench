@@ -117,3 +117,6 @@ Vocabularies: `runs.kind ∈ agent | workflow | experiment`; `runs.state ∈ que
 > (schema in `src/shared/project.ts`: `schemaVersion`, `name?`, `description?`, `goals?`, `agents[]`, `tools[]?`,
 > `memory[]`), loaded with the workspace and reloaded on save; its version is the content hash of the parsed form.
 > One new event type, `goals-missing`.
+
+> Amendment (RUN-23, 2026-09-10, D-74): no new table. Two event types, `profile-missing` and `profile-fenced`, the
+> owner's-page twins of the goals events.

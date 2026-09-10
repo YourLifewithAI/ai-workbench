@@ -71,6 +71,8 @@ export const api = {
     apiFetch(`/documents/${encodeURIComponent(id)}${version ? `?version=${encodeURIComponent(version)}` : ''}`).then((r) => r.json() as Promise<DocumentDetail>),
   saveDocument: (id: string, content: string): Promise<DocumentDetail['history'][number]> =>
     apiFetch(`/documents/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) }).then((r) => r.json() as Promise<DocumentDetail['history'][number]>),
+  approveDocument: (id: string): Promise<DocumentDetail['history'][number]> =>
+    apiFetch(`/documents/${encodeURIComponent(id)}/approve`, { method: 'POST' }).then((r) => r.json() as Promise<DocumentDetail['history'][number]>),
   diff: (id: string, from: string, to: string): Promise<DiffResponse> =>
     apiFetch(`/documents/${encodeURIComponent(id)}/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).then((r) => r.json() as Promise<DiffResponse>),
   memory: (params: { q?: string; scope?: string } = {}): Promise<MemoryItem[]> => {

@@ -21,6 +21,8 @@ export interface MemoryToolDeps {
    * of the agent's two declared lists applies: an agent may read scopes it does not write.
    */
   scopesFor: (agentId: string, project: string | null, mode: 'read' | 'write') => { scope: MemoryScope; ownerId: string }[];
+  /** Which layer leaves a scope out — the project's list or the agent's own declaration — so a refusal can say where the fix is. */
+  refusedBy: (agentId: string, project: string | null, scope: MemoryScope, mode: 'read' | 'write') => 'project' | 'agent' | null;
   /** `untrusted` once the run has consumed external content (artifacts-and-memory.md §Memory). */
   trustFor: (runId: string) => MemoryTrust;
   /** Reading memory or knowledge is reading private content: the run is tainted by it (D-29). */
@@ -51,9 +53,13 @@ export function memoryTools(deps: MemoryToolDeps): ToolDefinition[] {
       const ownerId = ownerFor(scope, ctx.agentId, ctx.project);
       if (ownerId === null) return toolError('InvalidInput', 'This run has no project, so there is nothing to remember it against. Use a different scope.');
       // Two lists narrow what this run may write, and either can say no: the project's (D-69) and the agent's
-      // own `memory.write` declaration. The message names both, because the fix is in a different place for each.
+      // own `memory.write` declaration. The refusal names the one that did, because the fix is in a different
+      // place for each — the project's Library page, or the agent's definition.
       if (!deps.scopesFor(ctx.agentId, ctx.project, 'write').some((s) => s.scope === scope)) {
-        return toolError('PermissionDenied', `Memory scope "${scope}" is not one this run may write: the agent's own definition or project ${ctx.project ?? '(none)'}'s list leaves it out.`, 'An agent\'s scopes are in its definition; a project\'s are on its Library page. Remember in a scope both allow.');
+        const by = deps.refusedBy(ctx.agentId, ctx.project, scope, 'write');
+        return by === 'agent'
+          ? toolError('PermissionDenied', `Memory scope "${scope}" is not in this agent's own memory.write declaration, so this run cannot write to it.`, 'The scopes an agent writes are declared in its definition. Remember in one it declares instead.')
+          : toolError('PermissionDenied', `Memory scope "${scope}" is not in project ${ctx.project}'s list, so this run cannot write to it.`, 'The scopes a project uses are set on its Library page. Remember in one of the listed scopes instead.');
       }
       if (input.supersedesId) {
         const existing = deps.memory.byId(input.supersedesId);

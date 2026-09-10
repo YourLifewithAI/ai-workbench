@@ -164,6 +164,7 @@ export class StepRunner {
     const { agent, budget, signal } = input;
     const schema = input.outputSchema ?? agent.definition.output.schema;
     const goals = this.goalsFor(input);
+    const profile = this.profileFor(input);
     const knowledge = this.knowledgeFor(agent, input.project, goals ? this.deps.workspace().spaces.get(input.project!)?.definition.goals : undefined);
     if (knowledge.length) input.taint?.markPrivate('the prompt carried a knowledge section');
     // Retrieval happens once per step, not once per call: the same memory in front of the model all the way
@@ -209,7 +210,7 @@ export class StepRunner {
         }
       }
 
-      const prompt = assemblePrompt(agent, task, this.harnessFor(input, wrapUp !== null, available.map((t) => t.id)), { knowledge, memory, goals });
+      const prompt = assemblePrompt(agent, task, this.harnessFor(input, wrapUp !== null, available.map((t) => t.id)), { knowledge, memory, goals, profile });
       const request: CompiledRequest = {
         ...prompt.compiled,
         // The wrap-up turn always sends none: its whole point is that nothing new starts (D-14).
@@ -621,6 +622,33 @@ export class StepRunner {
     const trusted = latest.createdBy !== 'run-step';
     if (!trusted) this.deps.events.append(input.runId, input.stepId, 'goals-fenced', { project, document: goals, reason: 'the latest version was written by a run, not a person' });
     return { source: `${project}/${goals}`, text: latest.content, trusted };
+  }
+
+  /**
+   * The owner's page (D-74): `config.owner.profile`, a `<project>/<path>` in the Library, read whole into every
+   * agent's prompt — the goals rule lifted one level. Trusted only while a person wrote its latest version: a
+   * version a run filed goes in as data, fenced, with a `profile-fenced` event, until a person saves the next.
+   * A page that does not exist is a `profile-missing` event and the run goes on. Cut at `maxChars`, so a page
+   * that grew into an essay cannot crowd out the task.
+   */
+  private profileFor(input: AgentStepInput): { source: string; text: string; trusted: boolean } | undefined {
+    const { profile, maxChars } = this.deps.workspace().config.owner;
+    if (!profile || !this.deps.artifacts) return undefined;
+    const slash = profile.indexOf('/');
+    const project = slash > 0 ? profile.slice(0, slash) : '';
+    const docPath = slash > 0 ? profile.slice(slash + 1) : '';
+    const latest = project && docPath ? this.deps.artifacts.readDocumentWithAuthor(project, docPath) : null;
+    if (latest === null) {
+      this.deps.log.warn({ profile, runId: input.runId }, 'the owner\'s page does not exist');
+      this.deps.events.append(input.runId, input.stepId, 'profile-missing', { document: profile });
+      return undefined;
+    }
+    const trusted = latest.createdBy !== 'run-step';
+    if (!trusted) this.deps.events.append(input.runId, input.stepId, 'profile-fenced', { document: profile, reason: 'the latest version was written by a run, not a person' });
+    const text = latest.content.length > maxChars
+      ? `${latest.content.slice(0, maxChars)}\n\n(cut at ${maxChars} characters; shorten the page, or raise owner.maxChars)`
+      : latest.content;
+    return { source: profile, text, trusted };
   }
 
   private knowledgeFor(agent: LoadedAgent, project: string | undefined, goals?: string | undefined): KnowledgeDocument[] {

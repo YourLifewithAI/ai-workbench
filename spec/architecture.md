@@ -125,6 +125,10 @@ The shipped `Dockerfile` builds the runtime and SPA into one image that runs `wo
 
 **Windows and Linux are tested in CI** (GitHub Actions, `npm run check` and `npm run e2e` on both). Windows is the platform this is built for; Linux is where the container runs (D-60) and where the `docker`, `no-sandbox` and `timezone` jobs live. **macOS is supported but no longer tested** — deferred by owner decision, D-39's amendment, and restored by putting `macos-latest` back in the `check` matrix. Node ≥ 22. Deno ≥ 2 is optional and enables the execute tier of tools. Ids are ULIDs; timestamps are ISO 8601 UTC.
 
+> Amendment (RUN-23, 2026-09-10, D-74): `config/workbench.json` gains `owner: { profile: "<project>/<path>" | null,
+> maxChars }` (shipped default `companion/about.md`, 6000) — the owner's page, in every agent's prompt. Set on
+> Settings; a project that does not exist is refused.
+
 > Amendment (D-68, 2026-09-05): `config/workbench.json` gains `models: { roles: { <name>: [<catalog id>, …] } }`.
 > A role is an ordered list; an agent or a step may name `role:<name>`; the first ready member runs. The shipped
 > defaults define `capable`, `fast` and `cheap` across providers. A workspace file's list for a role replaces the

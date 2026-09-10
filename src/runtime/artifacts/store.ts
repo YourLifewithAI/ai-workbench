@@ -127,6 +127,32 @@ export class ArtifactStore {
     return this.toVersion(version);
   }
 
+  /**
+   * Approves the latest version as written (D-74, RUN-23): a new version with the same text, `created_by: human`.
+   * `writeDocument` treats an identical body as a no-op, which is right for a re-run that changed nothing and
+   * wrong here — approving is an act, and what it changes is who stands behind the words, not the words. Where
+   * the document is read as goals or as the owner's page, that is the difference between data and instruction.
+   */
+  approveDocument(documentId: string): DocumentVersionSummary | null {
+    const doc = this.db.prepare('SELECT * FROM documents WHERE id = ?').get(documentId) as DocumentRow | undefined;
+    if (!doc?.latest_version_id) return null;
+    const latest = this.db.prepare('SELECT * FROM document_versions WHERE id = ?').get(doc.latest_version_id) as VersionRow;
+    if (latest.created_by === 'human') return this.toVersion(latest);
+    const version: VersionRow = {
+      id: ulid(), document_id: doc.id, parent_id: latest.id, hash: latest.hash, content: latest.content,
+      created_by: 'human', run_id: null, step_id: null, agent_version: null, model_id: null, partial: 0, created_at: new Date().toISOString(),
+    };
+    const commit = this.db.transaction(() => {
+      this.db.prepare(`INSERT INTO document_versions (id, document_id, parent_id, hash, content, created_by, run_id, step_id, agent_version, model_id, partial, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(version.id, version.document_id, version.parent_id, version.hash, version.content, version.created_by, version.run_id, version.step_id, version.agent_version, version.model_id, version.partial, version.created_at);
+      this.db.prepare('UPDATE documents SET latest_version_id = ? WHERE id = ?').run(version.id, doc.id);
+      this.reindex(doc.id, version.id, version.content);
+    });
+    commit();
+    return this.toVersion(version);
+  }
+
   private reindex(documentId: string, versionId: string, content: string): void {
     this.db.prepare('DELETE FROM documents_fts WHERE document_id = ?').run(documentId);
     const insert = this.db.prepare('INSERT INTO documents_fts (content, document_id, version_id, chunk_index, offset) VALUES (?, ?, ?, ?, ?)');
