@@ -11,6 +11,7 @@ import { fileTools, type FileToolDeps } from './builtin/files.js';
 import { codeTools, type CodeToolDeps } from './builtin/code.js';
 import { repoTools } from './builtin/repo.js';
 import { permissionsTools, type PermissionsToolDeps } from './builtin/permissions.js';
+import { orchestratorTools, type OrchestratorToolDeps } from './builtin/orchestrator.js';
 
 export interface RegistryDeps {
   artifacts: ArtifactStore;
@@ -30,6 +31,8 @@ export interface RegistryDeps {
   code?: CodeToolDeps | undefined;
   /** The auditor's metadata tools (RUN-14). Absent leaves them out, as a test runtime without a store would. */
   permissionsReview?: PermissionsToolDeps | undefined;
+  /** The orchestrator's read tools (RUN-23): run facts and agent definitions, never content or a grant. */
+  orchestrator?: OrchestratorToolDeps | undefined;
 }
 
 export function builtinTools(deps: RegistryDeps): Map<string, ToolDefinition> {
@@ -47,6 +50,7 @@ export function builtinTools(deps: RegistryDeps): Map<string, ToolDefinition> {
     // Always in the catalogue, granted to nobody: a repository grant is the only thing that makes one usable.
     ...repoTools(),
     ...(deps.permissionsReview ? permissionsTools(deps.permissionsReview) : []),
+    ...(deps.orchestrator ? orchestratorTools(deps.orchestrator) : []),
   ];
   return new Map(tools.map((t) => [t.id, t]));
 }

@@ -28,6 +28,8 @@ import { DEFAULT_LIMITS, type Sandbox } from '../sandbox/deno.js';
 import type { McpHost } from '../mcp/host.js';
 import { scopesFor } from './step.js';
 import { MAX_DEPTH, type DelegateHost, type PermissionRequestHost } from '../tools/builtin/delegate.js';
+import type { OrchestratorToolDeps } from '../tools/builtin/orchestrator.js';
+import { agentFactsOf, gatherRunFacts, type RunFacts, type RunFactsFilter } from '../orchestrator/facts.js';
 import type { PushEventKind, RememberRule } from '../../shared/api/index.js';
 import type { RunDetail, RunSummary } from '../../shared/api/index.js';
 import type { RunState, Spent } from '../../shared/events.js';
@@ -182,6 +184,7 @@ export class Engine {
         artifacts,
         workspaceDir: deps.workspace().paths.dir,
         permissionsReview: deps.permissionsReview,
+        orchestrator: this.orchestratorHost(),
         delegate: this.delegateHost(),
         permissions: this.permissionRequestHost(),
         files: {
@@ -427,6 +430,26 @@ export class Engine {
         };
       },
     };
+  }
+
+  /**
+   * The orchestrator's read tools (D-73). Facts about runs and one agent's definition, computed here from the
+   * same rows the run page reads; the tools shape them into a brief and can add nothing to them.
+   */
+  private orchestratorHost(): OrchestratorToolDeps {
+    return {
+      runFacts: (filter) => this.runFacts(filter),
+      agent: (id) => agentFactsOf(this.deps.workspace(), id),
+    };
+  }
+
+  /** What the orchestrator sees (SEC-42): ids, numbers, the summary lines — never a task, an output or a document. */
+  runFacts(filter: RunFactsFilter = {}): RunFacts {
+    return gatherRunFacts({
+      db: this.deps.db, workspace: () => this.deps.workspace(),
+      runDetail: (id) => this.getRun(id), events: (id) => this.deps.events.list(id),
+      ...(this.deps.now ? { now: this.deps.now } : {}),
+    }, filter);
   }
 
   private permissionRequestHost(): PermissionRequestHost {
