@@ -57,6 +57,7 @@ Decided with the owner on 2026-09-06 (D-71), after the first owner-run verificat
 | V1 | **The village** (RUN-19) | The twelve screens as buildings on an isometric diorama: the square at `/village`, the street beside every screen, a hover box instead of text on the houses; the picture as data a person or an agent can restyle. | L |
 | V2 | **The villagers** (RUN-20) | Agents as figures placed by their runs' state; the town hall board says what finished while the owner was away; the workspace stream carries ids-only step, approval and review events. | M |
 | V3 | **The rooms** (RUN-21) | Projects and agents as rooms inside their buildings; N-1 (agents edited on a screen) and N-2 (the terminal made optional) land there. | L |
+| O1 | **The companion promoted** (RUN-23) | The orchestrator, pulled ahead of the rooms at the owner's word (D-73, D-74): directing into projects, workflows as children, the fleet's facts, ratings as estimates, the owner's page, the board. RUN-21 then gives it `agent.edit`; RUN-24 the second hand. | L |
 
 ## Order
 

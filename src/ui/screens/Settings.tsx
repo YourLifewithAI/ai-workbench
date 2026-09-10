@@ -345,7 +345,7 @@ function OwnerPage({ owner, onSaid, onDone }: { owner: { profile: string | null;
             className="mt-1 w-72 max-w-full rounded-md border border-gray-300 bg-white px-2 py-1 font-mono text-sm dark:border-gray-700 dark:bg-gray-950"
           />
         </label>
-        <Button type="submit" size="sm" disabled={save.isPending || (profile.trim() || null) === owner.profile}>{save.isPending ? 'Saving…' : 'Save'}</Button>
+        <Button type="submit" size="sm" disabled={save.isPending || (profile.trim() || null) === owner.profile}>{save.isPending ? 'Saving…' : 'Save your page'}</Button>
         {owner.profile ? <Button type="button" size="sm" variant="ghost" onClick={() => { setProfile(''); save.mutate(null); }} disabled={save.isPending}>Use no page</Button> : null}
       </form>
       <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">Cut at {owner.maxChars.toLocaleString()} characters.</p>
