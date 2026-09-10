@@ -283,6 +283,13 @@ export function createApp(deps: AppDeps): Hono {
     });
   });
 
+  // The person's ratings and every estimate on a run, each labelled, for the run's page (RUN-23).
+  app.get('/api/v1/runs/:id/ratings', (c) => {
+    const id = c.req.param('id');
+    if (!deps.engine.getRun(id)) return fail(c, 'not_found', `Run "${id}" does not exist.`, 404);
+    return json(c, deps.engine.reviews.ratingsForRun(id));
+  });
+
   app.get('/api/v1/runs/:id/trace.jsonl', (c) => {
     const id = c.req.param('id');
     if (!deps.engine.getRun(id)) return fail(c, 'not_found', `Run "${id}" does not exist.`, 404);

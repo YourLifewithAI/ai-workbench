@@ -12,7 +12,14 @@ const NOTHING = Permissions.parse({});
 export interface OrchestratorToolDeps {
   runFacts: (filter: RunFactsFilter) => RunFacts;
   agent: (id: string) => AgentFacts | { error: string };
+  /**
+   * Writes one `scores` row under the `orchestrator` evaluator, `estimate: true` — never a `ratings` row, which
+   * is the person's and future router data (D-50). Refuses a run or step that does not exist.
+   */
+  rate: (input: { runId: string; stepId?: string | undefined; value: number; why: string }) => { ok: true; id: string } | { ok: false; code: 'NotFound'; message: string };
 }
+
+export const ORCHESTRATOR_EVALUATOR = 'orchestrator';
 
 export function orchestratorTools(deps: OrchestratorToolDeps): ToolDefinition[] {
   const facts: ToolDefinition<{ since?: string | undefined; agent?: string | undefined; project?: string | undefined; limit?: number | undefined }, RunFactsBrief> = {
@@ -55,5 +62,25 @@ export function orchestratorTools(deps: OrchestratorToolDeps): ToolDefinition[] 
     },
   };
 
-  return [facts as ToolDefinition, read as ToolDefinition];
+  const rate: ToolDefinition<{ run: string; step?: string | undefined; value: number; why: string }, { id: string; run: string; value: number; estimate: true }> = {
+    id: 'runs.rate',
+    version: '1.0.0',
+    description: 'Rate a run, or one step of it, 1 to 5, with why. Your number is an estimate, shown beside the owner\'s rating and never in its place; the why is what they will read. Rate what they have not rated yet; do not rate your own runs.',
+    input: z.object({
+      run: z.string().describe('The run id.'),
+      step: z.string().optional().describe('A step id, to rate one step rather than the whole run.'),
+      value: z.number().int().min(1).max(5).describe('1 (poor) to 5 (excellent).'),
+      why: z.string().min(1).max(1000).describe('One to three sentences: what was good or wrong, concretely. The owner reads this.'),
+    }),
+    output: z.object({ id: z.string(), run: z.string(), value: z.number(), estimate: z.literal(true) }),
+    tier: 'write',
+    maxPermissions: NOTHING,
+    execute: async (input) => {
+      const result = deps.rate({ runId: input.run, ...(input.step ? { stepId: input.step } : {}), value: input.value, why: input.why });
+      if (!result.ok) return toolError(result.code, result.message);
+      return { ok: true, output: { id: result.id, run: input.run, value: input.value, estimate: true } };
+    },
+  };
+
+  return [facts as ToolDefinition, read as ToolDefinition, rate as ToolDefinition];
 }

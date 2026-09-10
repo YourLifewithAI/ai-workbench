@@ -464,6 +464,20 @@ export const RatingSummary = z.object({
 });
 export type RatingSummary = z.infer<typeof RatingSummary>;
 
+/**
+ * A model's opinion of a run, shown beside the person's rating and never in its place (D-36, D-73). `by` is the
+ * evaluator — `orchestrator` for the companion's — and the word "estimate" appears wherever one is shown.
+ */
+export const Estimate = z.object({
+  by: z.string(),
+  /** The step it was about, or null for the run as a whole. */
+  stepId: z.string().nullable(),
+  value: z.number(),
+  why: z.string().nullable(),
+  ts: z.string(),
+});
+export type Estimate = z.infer<typeof Estimate>;
+
 export const ReviewItem = z.object({
   id: z.string(),
   runId: z.string(),
@@ -486,8 +500,14 @@ export const ReviewItem = z.object({
   documentId: z.string().nullable(),
   documentPath: z.string().nullable(),
   ratings: z.array(RatingSummary),
+  /** Estimates on this run or this step, so a card shows what the orchestrator thought beside what you did (RUN-23). */
+  estimates: z.array(Estimate).default([]),
 });
 export type ReviewItem = z.infer<typeof ReviewItem>;
+
+/** What a run's page shows under the summary: the person's ratings and every estimate, each labelled (RUN-23). */
+export const RunRatingsResponse = z.object({ ratings: z.array(RatingSummary), estimates: z.array(Estimate) });
+export type RunRatingsResponse = z.infer<typeof RunRatingsResponse>;
 
 export const ReviewListResponse = z.object({ reviews: z.array(ReviewItem) });
 export type ReviewListResponse = z.infer<typeof ReviewListResponse>;

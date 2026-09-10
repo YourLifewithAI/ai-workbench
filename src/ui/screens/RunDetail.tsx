@@ -26,6 +26,7 @@ export function RunDetail() {
   const run = useQuery({ queryKey: ['run', id], queryFn: () => api.run(id), enabled: id !== '' });
   // Cached across screens by React Query; it only supplies the agent's display name for the summary sentence.
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, staleTime: 60_000 });
+  const ratings = useQuery({ queryKey: ['run-ratings', id], queryFn: () => api.runRatings(id), enabled: id !== '' });
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [streaming, setStreaming] = useState<Record<string, string>>({});
   const [streamError, setStreamError] = useState<string | null>(null);
@@ -98,6 +99,23 @@ export function RunDetail() {
           {cancel.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{cancel.error.message}</p> : null}
 
           <Card className="mt-4"><BudgetBar run={run.data} /></Card>
+
+          {/* What people and the orchestrator thought of it, side by side: yours is a rating, its is an estimate (RUN-23). */}
+          {ratings.data && (ratings.data.ratings.length || ratings.data.estimates.length) ? (
+            <Card className="mt-4" data-testid="run-ratings">
+              <Subheading>Ratings</Subheading>
+              <ul className="mt-1 space-y-1 text-sm">
+                {ratings.data.ratings.map((r) => (
+                  <li key={r.id}>You rated {r.stepId === 'main' ? 'it' : `step ${r.stepId}`} {r.value}/5{r.note ? ` — ${r.note}` : ''}</li>
+                ))}
+                {ratings.data.estimates.map((e) => (
+                  <li key={e.ts} className="text-gray-600 dark:text-gray-400" data-testid="estimate">
+                    {e.by}'s estimate {e.value}/5{e.stepId ? ` for step ${e.stepId}` : ''}{e.why ? ` — ${e.why}` : ''}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
 
           {workflow.data ? (
             <>

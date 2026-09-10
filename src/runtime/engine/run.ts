@@ -28,7 +28,7 @@ import { DEFAULT_LIMITS, type Sandbox } from '../sandbox/deno.js';
 import type { McpHost } from '../mcp/host.js';
 import { scopesFor } from './step.js';
 import { MAX_DEPTH, type DelegateHost, type PermissionRequestHost, type WorkflowRunHost } from '../tools/builtin/delegate.js';
-import type { OrchestratorToolDeps } from '../tools/builtin/orchestrator.js';
+import { ORCHESTRATOR_EVALUATOR, type OrchestratorToolDeps } from '../tools/builtin/orchestrator.js';
 import { agentFactsOf, gatherRunFacts, type RunFacts, type RunFactsFilter } from '../orchestrator/facts.js';
 import type { PushEventKind, RememberRule } from '../../shared/api/index.js';
 import type { RunDetail, RunSummary } from '../../shared/api/index.js';
@@ -502,6 +502,16 @@ export class Engine {
     return {
       runFacts: (filter) => this.runFacts(filter),
       agent: (id) => agentFactsOf(this.deps.workspace(), id),
+      // Into `scores` as a labelled estimate, beside the person's rating and never in `ratings` (D-36, D-50).
+      rate: ({ runId, stepId, value, why }) => {
+        const run = this.getRun(runId);
+        if (!run) return { ok: false, code: 'NotFound', message: `Run "${runId}" does not exist.` };
+        if (stepId !== undefined && !run.steps.some((s) => s.stepId === stepId)) {
+          return { ok: false, code: 'NotFound', message: `Run ${runId} has no step "${stepId}". Its steps: ${run.steps.map((s) => s.stepId).join(', ')}.` };
+        }
+        const row = this.evaluation.addScore({ runId, evaluatorId: ORCHESTRATOR_EVALUATOR, metric: stepId ? `rating:${stepId}` : 'rating', value, rationale: why, estimate: true });
+        return { ok: true, id: row.id };
+      },
     };
   }
 

@@ -13,6 +13,7 @@ import { startRuntime, tempWorkspace, type Started } from '../helpers/workspace.
 import type { EventRecord } from '../../src/shared/events.js';
 
 const PLANTED = { task: 'PLANTED-TASK-v4t', output: 'PLANTED-OUTPUT-z9p', document: 'PLANTED-DOC-xq7', argument: 'PLANTED-ARG-m3k' };
+const REVIEW_STATE = 'unreviewed';
 
 let ws: string;
 let rt: Started;
@@ -28,7 +29,7 @@ beforeAll(async () => {
   const config = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
   config['grants'] = {
     weaver: { tools: { 'artifact.write': 'allow', 'memory.remember': 'allow' }, fs: { read: ['projects/'], write: ['projects/'] } },
-    companion: { tools: { 'runs.facts': 'allow', 'agents.read': 'allow' } },
+    companion: { tools: { 'runs.facts': 'allow', 'agents.read': 'allow', 'runs.rate': 'allow' } },
   };
   fs.writeFileSync(file, JSON.stringify(config, null, 2));
   fixtures(ws, [
@@ -137,4 +138,66 @@ describe('SEC-42 a session that only read facts ends untainted', () => {
     const row = rt.runtime.db.prepare('SELECT private_tainted, external_tainted FROM runs WHERE id = ?').get(runId) as { private_tainted: number; external_tainted: number };
     expect(row).toEqual({ private_tainted: 0, external_tainted: 0 });
   }, 60_000);
+});
+
+describe('SEC-42 runs.rate writes an estimate, never a rating', () => {
+  it('its maxPermissions admit nothing; it is a write tool, because it writes a row', () => {
+    const tool = rt.runtime.engine.tools.catalog().find((t) => t.id === 'runs.rate')!;
+    expect(tool.tier).toBe('write');
+    expect(tool.maxPermissions.fs).toEqual({ read: [], write: [] });
+    expect(tool.maxPermissions.net.allow).toEqual([]);
+    expect(tool.credentials ?? []).toEqual([]);
+  });
+
+  it('one scores row under the orchestrator evaluator, estimate 1, the why kept; ratings untouched; shown beside the owner\'s', async () => {
+    // The fixture needs the run id, which did not exist when the workspace was scripted: write it now and reload.
+    fixtures(ws, [
+      { name: 'az0-companion-rated', match: { systemIncludes: 'Companion', afterTool: 'runs.rate' }, respond: { text: 'Rated.' } },
+      { name: 'az1-companion-rate', match: { systemIncludes: 'Companion', lastUserIncludes: 'Rate the weaver run' },
+        respond: { text: 'Rating.', toolCalls: [{ name: 'runs.rate', input: { run: weaverRun, value: 3, why: 'Filed the note, but the ending trails off.' } }] } },
+      { name: 'az2-companion-rate-missing', match: { systemIncludes: 'Companion', lastUserIncludes: 'Rate the run that is not there' },
+        respond: { text: 'Rating.', toolCalls: [{ name: 'runs.rate', input: { run: 'no-such-run', value: 5, why: 'Perfect.' } }] } },
+    ]);
+    rt.runtime.reloadAgents();
+    const ratingsBefore = (rt.runtime.db.prepare('SELECT COUNT(*) AS n FROM ratings').get() as { n: number }).n;
+
+    const { runId, done } = rt.runtime.engine.startAgentRun({ agentId: 'companion', inputs: { input: 'Rate the weaver run.' } });
+    await done;
+    expect(rt.runtime.engine.getRun(runId)?.state).toBe('completed');
+    const call = (await trace(runId)).find((e) => e.type === 'tool-completed' && e.payload['tool'] === 'runs.rate')!;
+    expect(call.payload['ok'], JSON.stringify(call.payload)).toBe(true);
+    expect((call.payload['output'] as { estimate: boolean }).estimate, 'the tool tells the model what its number is').toBe(true);
+
+    const scores = rt.runtime.db.prepare('SELECT evaluator_id, metric, value, rationale, estimate FROM scores WHERE run_id = ?').all(weaverRun) as Record<string, unknown>[];
+    expect(scores).toEqual([{ evaluator_id: 'orchestrator', metric: 'rating', value: 3, rationale: 'Filed the note, but the ending trails off.', estimate: 1 }]);
+    // Never `ratings`: that table is the person's, and future router data (D-50).
+    expect((rt.runtime.db.prepare('SELECT COUNT(*) AS n FROM ratings').get() as { n: number }).n).toBe(ratingsBefore);
+
+    // Beside the owner's, on the run's page and on the Review card, and labelled as what it is.
+    const page = (await (await api('GET', `/runs/${weaverRun}/ratings`)).json()) as { ratings: { value: number }[]; estimates: { by: string; value: number; why: string | null; stepId: string | null }[] };
+    expect(page.ratings.map((r) => r.value)).toEqual([4]);
+    expect(page.estimates).toEqual([expect.objectContaining({ by: 'orchestrator', value: 3, stepId: null, why: 'Filed the note, but the ending trails off.' })]);
+    const reviews = ((await (await api('GET', `/reviews?state=${REVIEW_STATE}`)).json()) as { reviews: { runId: string; estimates: { by: string; value: number }[]; ratings: { value: number }[] }[] }).reviews;
+    const card = reviews.find((r) => r.runId === weaverRun)!;
+    expect(card, 'the weaver\'s step is in the queue').toBeDefined();
+    expect(card.ratings.map((r) => r.value)).toEqual([4]);
+    expect(card.estimates.map((e) => `${e.by}:${e.value}`)).toEqual(['orchestrator:3']);
+    // And the facts no longer list the run as unrated — the orchestrator does not rate twice.
+    expect(rt.runtime.engine.runFacts({ self: 'companion' }).candidates.map((c) => c.id)).not.toContain(`unrated:${weaverRun}`);
+  }, 60_000);
+
+  it('a run that does not exist is refused by name, and nothing is written', async () => {
+    const before = (rt.runtime.db.prepare('SELECT COUNT(*) AS n FROM scores').get() as { n: number }).n;
+    const { runId, done } = rt.runtime.engine.startAgentRun({ agentId: 'companion', inputs: { input: 'Rate the run that is not there.' } });
+    await done;
+    const call = (await trace(runId)).find((e) => e.type === 'tool-completed' && e.payload['tool'] === 'runs.rate')!;
+    expect(call.payload['ok']).toBe(false);
+    expect((call.payload['error'] as { code: string }).code).toBe('NotFound');
+    expect((rt.runtime.db.prepare('SELECT COUNT(*) AS n FROM scores').get() as { n: number }).n).toBe(before);
+  }, 60_000);
+
+  it('no score of any kind reaches model selection (the sec-06-28 assertion, kept true by this run)', () => {
+    const selection = fs.readFileSync(path.join(process.cwd(), 'src', 'runtime', 'models', 'catalog.ts'), 'utf8');
+    for (const forbidden of ['score', 'Score', 'rating', 'Rating', 'orchestrator']) expect(selection).not.toContain(forbidden);
+  });
 });
