@@ -198,7 +198,7 @@ export class Engine {
         memory: {
           memory: this.memory,
           artifacts,
-          scopesFor: (agentId, project) => scopesFor(agentId, project, this.steps.allowedScopes(project)),
+          scopesFor: (agentId, project, mode) => scopesFor(agentId, project, this.steps.allowedScopes(project), this.deps.workspace().agents.get(agentId)?.definition.memory[mode]),
           // A run that has read the web remembers untrustingly, whatever it says about what it read (D-17).
           trustFor: (runId) => (this.taintFor(runId).externalTainted ? 'untrusted' : 'trusted'),
           markPrivate: (runId) => this.taintFor(runId).markPrivate('a memory or knowledge search returned private content'),

@@ -169,6 +169,21 @@ describe('SEC-16 memory scopes are isolated', () => {
     }
   });
 
+  it("an agent's own memory declaration narrows what it reads and writes, and only narrows (RUN-23)", () => {
+    // The field was parsed, hashed and documented for two runs before anything enforced it: the shipped
+    // companion said it wrote only to `user` and `agent`, and could in fact write to `project`.
+    const all = scopesFor('weaver', 'anthology').map((s) => s.scope);
+    expect(all).toEqual(['agent', 'project', 'workspace', 'user']);
+    // An empty declaration is no declaration — the same absent-ceiling rule as a project's `tools`.
+    expect(scopesFor('weaver', 'anthology', undefined, []).map((s) => s.scope)).toEqual(all);
+    // A declaration removes what it does not name.
+    expect(scopesFor('weaver', 'anthology', undefined, ['user', 'agent']).map((s) => s.scope)).toEqual(['agent', 'user']);
+    // It cannot add: naming a scope the project's list excludes does not bring it back.
+    expect(scopesFor('weaver', 'anthology', ['agent', 'project'], ['agent', 'project', 'workspace']).map((s) => s.scope)).toEqual(['agent', 'project']);
+    // Nor can it reach across agents: the agent scope is always this agent's own.
+    for (const s of scopesFor('weaver', 'anthology', undefined, ['agent'])) expect(s.ownerId).toBe('weaver');
+  });
+
   it('an expired item stops being retrieved, and a superseded one never is', async () => {
     const ws = tempWorkspace('sec16-life');
     const opened = await openWorkspaceStore(ws);
@@ -198,4 +213,56 @@ describe('SEC-16 memory scopes are isolated', () => {
       await opened.close();
     }
   });
+});
+
+
+describe('SEC-16 (RUN-23) the declaration is live: the companion cannot write where it said it would not', () => {
+  const fixtures = (ws: string, scope: string): void => {
+    // Later turn first: the first fixture whose match holds wins.
+    fs.writeFileSync(path.join(ws, 'fixtures', 'ae0-done.json'), JSON.stringify({
+      match: { systemIncludes: 'Companion', afterTool: 'memory.remember' }, respond: { text: 'Noted.' },
+    }));
+    fs.writeFileSync(path.join(ws, 'fixtures', 'ae1-remember.json'), JSON.stringify({
+      match: { systemIncludes: 'Companion' },
+      respond: { text: 'Remembering.', toolCalls: [{ name: 'memory.remember', input: { content: 'The owner works in the mornings.', scope } }] },
+    }));
+  };
+
+  it('a write to `project` is refused by name, though the project itself allows that scope', async () => {
+    // companion/project.json lists [agent, project, user]; the companion's agent.json declares write: [user, agent].
+    // Before RUN-23 the project's list was the only gate, so this write went through.
+    const ws = tempWorkspace('sec16-declared');
+    fixtures(ws, 'project');
+    const rt = await startRuntime(ws, { providerOverride: 'mock', noScheduler: true });
+    try {
+      const { runId, done } = rt.runtime.engine.startAgentRun({ agentId: 'companion', inputs: { input: 'Remember this.' }, project: 'companion' });
+      await done;
+      const trace = (await (await fetch(`${rt.baseUrl}/api/v1/runs/${runId}/trace.jsonl`, { headers: headers(rt) })).text())
+        .trim().split('\n').map((l) => JSON.parse(l) as EventRecord);
+      const call = trace.find((e) => e.type === 'tool-completed' && e.payload['tool'] === 'memory.remember')!;
+      expect(call, 'the companion did try').toBeDefined();
+      expect(call.payload['ok'], "refused: the agent's own declaration leaves `project` out").toBe(false);
+      expect((call.payload['error'] as { code: string }).code).toBe('PermissionDenied');
+      const items = ((await (await fetch(`${rt.baseUrl}/api/v1/memory`, { headers: headers(rt) })).json()) as MemoryResponse).items;
+      expect(items, 'nothing was written').toHaveLength(0);
+    } finally {
+      await rt.stop();
+    }
+  }, 60_000);
+
+  it('a write to `user` — a scope it declared — goes through', async () => {
+    const ws = tempWorkspace('sec16-declared-ok');
+    fixtures(ws, 'user');
+    const rt = await startRuntime(ws, { providerOverride: 'mock', noScheduler: true });
+    try {
+      const { runId, done } = rt.runtime.engine.startAgentRun({ agentId: 'companion', inputs: { input: 'Remember this.' }, project: 'companion' });
+      await done;
+      expect(rt.runtime.engine.getRun(runId)?.state).toBe('completed');
+      const items = ((await (await fetch(`${rt.baseUrl}/api/v1/memory`, { headers: headers(rt) })).json()) as MemoryResponse).items;
+      expect(items).toHaveLength(1);
+      expect(items[0]!.scope).toBe('user');
+    } finally {
+      await rt.stop();
+    }
+  }, 60_000);
 });

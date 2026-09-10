@@ -56,6 +56,15 @@ Write paths — only these: the `memory.remember({ content, scope })` tool, the 
 > be either, both, or neither. `knowledge.search` sets both: an imported file is private to this workspace and
 > foreign to it at once. A tool call that *failed* sets neither: no content arrived, so nothing was consumed.
 
+> Amendment (RUN-23, 2026-09-10): **an agent's own `memory` declaration is enforced.** `agent.json`'s
+> `memory: { read, write }` was parsed, hashed into the agent version, documented here and in
+> `agents-and-prompts.md`, and declared by the shipped companion — and read by nothing: the project's list was
+> the only gate, so the companion, which says it writes only to `user` and `agent`, could write to `project`.
+> It is now the third narrowing layer in `scopesFor`, beside the project's list, and like that list it only
+> removes. Reads use `memory.read`, writes `memory.write`, so an agent may read scopes it does not write. An
+> empty declaration means no narrowing — the absent-ceiling rule a project's `tools` already follows — so
+> every existing agent that omits the block behaves exactly as before.
+
 > Amendment (RUN-23, 2026-09-10): **taint flows up at return as well as down at start.** A child run
 > has always inherited its parent's taint — what the parent had read, the child could quote. The reverse
 > was missing: the child's answer is now in front of the parent, and if the child read the web, that answer

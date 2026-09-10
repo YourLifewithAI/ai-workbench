@@ -31,6 +31,10 @@ const Agent = z.object({
 });
 ```
 
+> Amendment (RUN-23, 2026-09-10): `memory.read` and `memory.write` are enforced as a narrowing layer on the
+> scopes a run retrieves and may write, beside the project's list (D-69); an empty list is no restriction. Until
+> this run the field was hashed and documented but read by no code — see `artifacts-and-memory.md` §Memory.
+
 Versioning (D-10): the agent version is the content hash of the canonical JSON (plus `instructions.md` if used). It is computed on load, recorded on every model call and every artifact version, and shown in the UI. Editing the file creates a new version implicitly; nothing is renamed or migrated.
 
 Tool references resolve at load time. A missing tool id is a load error shown in the Agents screen with a "map or stub" affordance; it never fails silently at execution time.

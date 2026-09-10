@@ -574,7 +574,7 @@ export class StepRunner {
     const limit = this.deps.workspace().config.context.memoryItems;
     if (limit <= 0) return empty;
 
-    const scopes = scopesFor(input.agent.definition.id, input.project ?? null, this.allowedScopes(input.project ?? null));
+    const scopes = scopesFor(input.agent.definition.id, input.project ?? null, this.allowedScopes(input.project ?? null), input.agent.definition.memory.read);
     const hits = this.deps.memory.retrieve({ scopes, query: input.task, limit });
     if (!hits.length) return empty;
 
@@ -707,12 +707,22 @@ export function sleep(ms: number, signal: AbortSignal): Promise<void> {
  * The scopes an agent reads, narrowest first: its own, then the project it is working in, then the workspace and
  * the person. An agent never reads another agent's items — that is SEC-16, and it is enforced here by not asking
  * for them rather than by filtering them out afterwards.
+ *
+ * Three layers narrow the four, and each only removes: the project's list (D-69), and — since RUN-23 — the
+ * agent's own `memory.read` or `memory.write` declaration. That field was parsed, hashed into the agent
+ * version, documented, and declared by the shipped companion for two runs before anything read it: the
+ * companion said it wrote only to `user` and `agent`, and could in fact write to `project`. An empty
+ * declaration means no narrowing, the same absent-ceiling rule as a project's `tools`.
  */
-export function scopesFor(agentId: string, project: string | null, allowed?: MemoryScope[] | undefined): { scope: 'agent' | 'user' | 'workspace' | 'project'; ownerId: string }[] {
+export function scopesFor(
+  agentId: string, project: string | null, allowed?: MemoryScope[] | undefined, declared?: MemoryScope[] | undefined,
+): { scope: 'agent' | 'user' | 'workspace' | 'project'; ownerId: string }[] {
   const scopes: { scope: 'agent' | 'user' | 'workspace' | 'project'; ownerId: string }[] = [{ scope: 'agent', ownerId: agentId }];
   if (project) scopes.push({ scope: 'project', ownerId: project });
   scopes.push({ scope: 'workspace', ownerId: ownerFor('workspace', agentId, project)! });
   scopes.push({ scope: 'user', ownerId: ownerFor('user', agentId, project)! });
   // A project's space lists the scopes a run there retrieves (D-69); the list only removes, never adds.
-  return allowed ? scopes.filter((s) => allowed.includes(s.scope)) : scopes;
+  const inProject = allowed ? scopes.filter((s) => allowed.includes(s.scope)) : scopes;
+  // And the agent's own word narrows further: what it said it reads or writes is the most it may.
+  return declared && declared.length ? inProject.filter((s) => declared.includes(s.scope)) : inProject;
 }

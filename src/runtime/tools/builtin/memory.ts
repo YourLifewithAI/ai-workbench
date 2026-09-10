@@ -15,8 +15,12 @@ const READ_ANY_PROJECT = Permissions.parse({ fs: { read: ['projects/'] } });
 export interface MemoryToolDeps {
   memory: MemoryStore;
   artifacts: ArtifactStore;
-  /** The scopes this agent may read, in retrieval order. The engine decides them; a tool never widens them. */
-  scopesFor: (agentId: string, project: string | null) => { scope: MemoryScope; ownerId: string }[];
+  /**
+   * The scopes this agent may read or write, in retrieval order. The engine decides them — the project's list
+   * and the agent's own declaration, each only narrowing — and a tool never widens them. `mode` picks which
+   * of the agent's two declared lists applies: an agent may read scopes it does not write.
+   */
+  scopesFor: (agentId: string, project: string | null, mode: 'read' | 'write') => { scope: MemoryScope; ownerId: string }[];
   /** `untrusted` once the run has consumed external content (artifacts-and-memory.md §Memory). */
   trustFor: (runId: string) => MemoryTrust;
   /** Reading memory or knowledge is reading private content: the run is tainted by it (D-29). */
@@ -46,9 +50,10 @@ export function memoryTools(deps: MemoryToolDeps): ToolDefinition[] {
       const scope = input.scope ?? 'agent';
       const ownerId = ownerFor(scope, ctx.agentId, ctx.project);
       if (ownerId === null) return toolError('InvalidInput', 'This run has no project, so there is nothing to remember it against. Use a different scope.');
-      // The project's space lists the scopes a run there may use (D-69): the same list reads are narrowed to.
-      if (!deps.scopesFor(ctx.agentId, ctx.project).some((s) => s.scope === scope)) {
-        return toolError('PermissionDenied', `Memory scope "${scope}" is not in project ${ctx.project}'s list, so this run cannot write to it.`, 'The scopes a project uses are set on its Library page. Remember in one of the listed scopes instead.');
+      // Two lists narrow what this run may write, and either can say no: the project's (D-69) and the agent's
+      // own `memory.write` declaration. The message names both, because the fix is in a different place for each.
+      if (!deps.scopesFor(ctx.agentId, ctx.project, 'write').some((s) => s.scope === scope)) {
+        return toolError('PermissionDenied', `Memory scope "${scope}" is not one this run may write: the agent's own definition or project ${ctx.project ?? '(none)'}'s list leaves it out.`, 'An agent\'s scopes are in its definition; a project\'s are on its Library page. Remember in a scope both allow.');
       }
       if (input.supersedesId) {
         const existing = deps.memory.byId(input.supersedesId);
@@ -85,7 +90,7 @@ export function memoryTools(deps: MemoryToolDeps): ToolDefinition[] {
     execute: async (input, ctx) => {
       deps.markPrivate(ctx.runId);
       const hits = deps.memory.retrieve({
-        scopes: deps.scopesFor(ctx.agentId, ctx.project), query: input.query, limit: input.limit ?? 8,
+        scopes: deps.scopesFor(ctx.agentId, ctx.project, 'read'), query: input.query, limit: input.limit ?? 8,
       });
       return {
         ok: true,
