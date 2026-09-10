@@ -414,7 +414,17 @@ export class Engine {
         // The parent pays for the child, so a chain shows up in one place.
         this.deps.db.prepare('UPDATE runs SET spent_json = ? WHERE id = ?')
           .run(this.persist({ ...parentSpent, costUsd: round(parentSpent.costUsd + detail.spent.costUsd), modelCalls: parentSpent.modelCalls + detail.spent.modelCalls }), parentRunId);
-        return { ok: true, runId: child.runId, output: String(detail.outputs?.['output'] ?? ''), costUsd: detail.spent.costUsd };
+        // And the parent takes on what the child read (SEC-43). Taint already flows down at start — what the
+        // parent had read, the child could quote — and it has to flow back up at return for the same reason in
+        // reverse: the child's answer is now in front of the parent, and if the child read the web, that answer
+        // is a web page's words one step removed. Without this, a run that delegates to the researcher remembers
+        // as *trusted* what the researcher fetched, and D-17's rule has a hole shaped exactly like an
+        // orchestrator. The child has finished and may have left the live map, so its taint is read from the row.
+        const childTaint = RunTaint.load(this.deps.db, child.runId);
+        return {
+          ok: true, runId: child.runId, output: String(detail.outputs?.['output'] ?? ''), costUsd: detail.spent.costUsd,
+          taint: { private: childTaint.privateTainted, external: childTaint.externalTainted },
+        };
       },
     };
   }

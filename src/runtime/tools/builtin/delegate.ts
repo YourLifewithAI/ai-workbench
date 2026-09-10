@@ -18,7 +18,10 @@ export interface DelegateHost {
   delegate(input: {
     parentRunId: string; parentStepId: string; agentId: string; brief: string;
     model?: string | undefined; maxModelCalls?: number | undefined; signal: AbortSignal;
-  }): Promise<{ ok: true; runId: string; output: string; costUsd: number } | { ok: false; code: 'DelegationDepthExceeded' | 'NotFound' | 'BudgetExceeded' | 'ToolError'; message: string }>;
+  }): Promise<
+    | { ok: true; runId: string; output: string; costUsd: number; taint: { private: boolean; external: boolean } }
+    | { ok: false; code: 'DelegationDepthExceeded' | 'NotFound' | 'BudgetExceeded' | 'ToolError'; message: string }
+  >;
 }
 
 export function delegateTool(host: DelegateHost): ToolDefinition {
@@ -50,7 +53,10 @@ export function delegateTool(host: DelegateHost): ToolDefinition {
           ? `Delegation stops at ${MAX_DEPTH} levels. Do this part yourself, or ask for a shallower plan.`
           : undefined);
       }
-      return { ok: true, output: { runId: result.runId, output: result.output, costUsd: result.costUsd } };
+      // The child's taint rides on `meta`, where the executor reads it and marks this run (SEC-43). Not in
+      // `output`: the model has no need of it, and a fact about trust is not something a model should be
+      // able to argue with on the next turn.
+      return { ok: true, output: { runId: result.runId, output: result.output, costUsd: result.costUsd }, meta: { taint: result.taint } };
     },
   };
   return tool as ToolDefinition;

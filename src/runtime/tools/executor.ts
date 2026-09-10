@@ -468,6 +468,13 @@ export class ToolExecutor {
     // is the separate question of whether what this run remembers can be trusted (D-17).
     if (PRIVATE_TOOLS.has(call.name)) input.taint?.markPrivate(`${call.name} returned private content`);
     if (EXTERNAL_TOOLS.has(call.name)) input.taint?.markExternal(`${call.name} returned content from outside the workspace`);
+    // A tool that ran something on this run's behalf — a delegated agent now, a delegated workflow later —
+    // reports what *that* run read on `meta.taint`, and this run takes it on (SEC-43). The two sets above know
+    // a tool by name; this knows a result by what it carries, so a new delegating tool needs no entry here to
+    // be honest. A failed call never reaches this line: nothing arrived, so nothing was consumed.
+    const carried = (result.meta as { taint?: { private?: boolean; external?: boolean } } | undefined)?.taint;
+    if (carried?.private) input.taint?.markPrivate(`${call.name} returned what a child run had read`);
+    if (carried?.external) input.taint?.markExternal(`${call.name} returned what a child run had read from outside the workspace`);
     input.taint?.observe(text);
     if (text.length <= limit) return { callId: call.id, tool: call.name, result };
 
