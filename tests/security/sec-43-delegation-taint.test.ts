@@ -17,17 +17,24 @@ import type { EventRecord } from '../../src/shared/events.js';
 
 const headers = (rt: Started): Record<string, string> => ({ Authorization: `Bearer ${rt.token}`, 'Content-Type': 'application/json' });
 
-/** A workspace where the Editor may delegate and remember, and the Researcher may search — on the mock, offline. */
+/** A workspace where the Editor may delegate, start a workflow and remember, and the Researcher may search — on the mock, offline. */
 function prepare(name: string): string {
   const ws = tempWorkspace(name);
   const file = path.join(ws, 'config', 'workbench.json');
   const config = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
   config['grants'] = {
-    delegator: { tools: { 'agent.delegate': 'allow', 'memory.remember': 'allow' } },
+    delegator: { tools: { 'agent.delegate': 'allow', 'workflow.run': 'allow', 'memory.remember': 'allow' } },
     researcher: { tools: { 'web.search': 'allow' } },
   };
   (config['search'] as Record<string, unknown>) = { provider: 'mock' };
   fs.writeFileSync(file, JSON.stringify(config, null, 2));
+  // A one-step workflow: the researcher answers a question. What `workflow.run` starts as a child.
+  fs.writeFileSync(path.join(ws, 'workflows', 'ask.workflow.json'), JSON.stringify({
+    schemaVersion: 1, id: 'ask', name: 'Ask', description: 'One question to the researcher.',
+    inputs: { type: 'object', properties: { question: { type: 'string' } }, required: ['question'] },
+    steps: [{ id: 'answer', kind: 'agent', agent: 'researcher', input: '{{inputs.question}}' }],
+    outputs: { answer: '{{steps.answer.output}}' },
+  }, null, 2));
   return ws;
 }
 
@@ -104,6 +111,47 @@ describe('SEC-43 taint flows up at return', () => {
       const items = await memoryItems(rt);
       expect(items).toHaveLength(1);
       expect(items[0]!.trust, 'nothing external entered the chain, so trust is unchanged').toBe('trusted');
+    } finally {
+      await rt.stop();
+    }
+  }, 60_000);
+
+  it('a workflow started as a child is a child: what its steps read, the parent has read (workflow.run)', async () => {
+    const ws = prepare('sec43-workflow');
+    fixtures(ws, [
+      { name: 'ae0-editor-done', match: { systemIncludes: 'The Editor', afterTool: 'memory.remember' }, respond: { text: 'Filed.' } },
+      { name: 'ae1-editor-remember', match: { systemIncludes: 'The Editor', afterTool: 'workflow.run' },
+        respond: { text: 'Noting that.', toolCalls: [{ name: 'memory.remember', input: { content: 'The arcology answer is filed.', scope: 'workspace' } }] } },
+      { name: 'ae2-editor-run', match: { systemIncludes: 'The Editor' },
+        respond: { text: 'Running the ask workflow.', toolCalls: [{ name: 'workflow.run', input: { workflow: 'ask', inputs: { question: 'What is the arcology?' } } }] } },
+      { name: 'ae3-researcher-answer', match: { systemIncludes: 'The Researcher', afterTool: 'web.search' }, respond: { text: 'A city in one building (https://example.com/arcology).' } },
+      { name: 'ae4-researcher-search', match: { systemIncludes: 'The Researcher' },
+        respond: { text: 'Searching.', toolCalls: [{ name: 'web.search', input: { query: 'arcology' } }] } },
+    ]);
+
+    const rt = await startRuntime(ws, { providerOverride: 'mock', noScheduler: true });
+    try {
+      const { runId, done } = rt.runtime.engine.startAgentRun({ agentId: 'delegator', inputs: { input: 'Find out about the arcology and note it.' } });
+      await done;
+      expect(rt.runtime.engine.getRun(runId)?.state).toBe('completed');
+
+      const events = await trace(rt, runId);
+      const ran = events.find((e) => e.type === 'tool-completed' && e.payload['tool'] === 'workflow.run')!;
+      expect(ran.payload['ok'], JSON.stringify(ran.payload)).toBe(true);
+      const out = ran.payload['output'] as { runId: string; outputs: Record<string, unknown> };
+      expect(String(out.outputs['answer'])).toContain('one building');
+      // The child is a workflow run, nested under the parent at depth one, bounded by the parent's budget.
+      const child = rt.runtime.db.prepare('SELECT kind, parent_run_id, depth, external_tainted FROM runs WHERE id = ?').get(out.runId) as { kind: string; parent_run_id: string; depth: number; external_tainted: number };
+      expect(child).toEqual({ kind: 'workflow', parent_run_id: runId, depth: 1, external_tainted: 1 });
+      const budgets = JSON.parse((rt.runtime.db.prepare('SELECT budgets_json FROM runs WHERE id = ?').get(out.runId) as { budgets_json: string }).budgets_json) as { maxModelCalls: number };
+      const parentBudgets = JSON.parse((rt.runtime.db.prepare('SELECT budgets_json FROM runs WHERE id = ?').get(runId) as { budgets_json: string }).budgets_json) as { maxModelCalls: number };
+      expect(budgets.maxModelCalls).toBeLessThanOrEqual(parentBudgets.maxModelCalls);
+      // And the parent's trace shows the child start, as it would a delegated agent's.
+      expect(events.some((e) => e.type === 'run-started' && e.payload['childRunId'] === out.runId && e.payload['kind'] === 'workflow')).toBe(true);
+
+      const items = await memoryItems(rt);
+      expect(items).toHaveLength(1);
+      expect(items[0]!.trust, 'the researcher step read the web; the parent has, through it').toBe('untrusted');
     } finally {
       await rt.stop();
     }

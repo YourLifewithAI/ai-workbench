@@ -27,7 +27,7 @@ import { ExperimentRunner } from '../evaluation/runner.js';
 import { DEFAULT_LIMITS, type Sandbox } from '../sandbox/deno.js';
 import type { McpHost } from '../mcp/host.js';
 import { scopesFor } from './step.js';
-import { MAX_DEPTH, type DelegateHost, type PermissionRequestHost } from '../tools/builtin/delegate.js';
+import { MAX_DEPTH, type DelegateHost, type PermissionRequestHost, type WorkflowRunHost } from '../tools/builtin/delegate.js';
 import type { OrchestratorToolDeps } from '../tools/builtin/orchestrator.js';
 import { agentFactsOf, gatherRunFacts, type RunFacts, type RunFactsFilter } from '../orchestrator/facts.js';
 import type { PushEventKind, RememberRule } from '../../shared/api/index.js';
@@ -105,6 +105,8 @@ export interface StartWorkflowRunInput {
   project?: string | undefined;
   provider?: 'mock' | undefined;
   budget?: BudgetOverride | undefined;
+  /** Set when a run started this workflow through `workflow.run` (RUN-23): it nests and counts like a delegation. */
+  parent?: { runId: string; stepId: string; depth: number } | undefined;
 }
 
 interface RunRow {
@@ -186,6 +188,7 @@ export class Engine {
         permissionsReview: deps.permissionsReview,
         orchestrator: this.orchestratorHost(),
         delegate: this.delegateHost(),
+        workflowRun: this.workflowRunHost(),
         permissions: this.permissionRequestHost(),
         files: {
           sandboxAvailable: () => deps.sandbox?.available ?? false,
@@ -363,15 +366,76 @@ export class Engine {
    * permissions that are the child's grant ∩ the parent's effective. It cannot do anything the parent could
    * not, and it never sees the parent's transcript — only the brief the planner wrote (D-48, SEC-13).
    */
+  /**
+   * What every child run — a delegated agent or a workflow started by one (RUN-23) — is held to before it
+   * starts: the parent exists, the chain is no deeper than three, and the child's budget comes out of what the
+   * parent has left, so a chain cannot spend more than one run (D-12). One place, so the two tools cannot
+   * drift apart on the rule that bounds them.
+   */
+  private childOf(parentRunId: string, maxModelCalls: number | undefined):
+    | { ok: true; parent: RunRow & { depth: number }; depth: number; spent: Spent; budget: { maxModelCalls: number; maxCostUsd: number } }
+    | { ok: false; code: 'DelegationDepthExceeded' | 'BudgetExceeded' | 'ToolError'; message: string } {
+    const parent = this.deps.db.prepare('SELECT * FROM runs WHERE id = ?').get(parentRunId) as (RunRow & { depth: number }) | undefined;
+    if (!parent) return { ok: false, code: 'ToolError', message: `Run "${parentRunId}" is gone.` };
+    const depth = (parent.depth ?? 0) + 1;
+    if (depth > MAX_DEPTH) {
+      return { ok: false, code: 'DelegationDepthExceeded', message: `This is delegation level ${depth}; ${MAX_DEPTH} is the limit.` };
+    }
+    const parentBudgets = JSON.parse(parent.budgets_json) as ReturnType<typeof narrowBudgets>;
+    const spent = JSON.parse(parent.spent_json) as Spent;
+    const remainingCalls = Math.max(0, parentBudgets.maxModelCalls - spent.modelCalls);
+    const remainingCost = Math.max(0, parentBudgets.maxCostUsd - spent.costUsd);
+    if (remainingCalls < 1 || remainingCost <= 0) {
+      return { ok: false, code: 'BudgetExceeded', message: 'This run has no budget left to give a child. Finish with what you have.' };
+    }
+    return {
+      ok: true, parent, depth, spent,
+      budget: { maxModelCalls: Math.max(1, Math.min(maxModelCalls ?? remainingCalls, remainingCalls)), maxCostUsd: remainingCost },
+    };
+  }
+
+  /** A child's project: the one named, else the parent's. A name that is not a project is refused before anything starts. */
+  private childProject(named: string | undefined, parent: RunRow): { ok: true; project: string | undefined } | { ok: false; message: string } {
+    if (named === undefined) return { ok: true, project: parent.project_id ?? undefined };
+    if (!this.deps.artifacts?.findProject(named)) return { ok: false, message: `Project "${named}" does not exist. Name one from the Library, or leave it out to use this run's.` };
+    return { ok: true, project: named };
+  }
+
+  /**
+   * Waits for a child and settles it: the parent pays for it, so a chain shows up in one place, and the parent
+   * takes on what the child read (SEC-43). Taint already flows down at start — what the parent had read, the
+   * child could quote — and it has to flow back up at return for the same reason in reverse: the child's
+   * answer is now in front of the parent, and if the child read the web, that answer is a web page's words one
+   * step removed. Without this, a run that delegates to the researcher remembers as *trusted* what the
+   * researcher fetched, and D-17's rule has a hole shaped exactly like an orchestrator. The child has finished
+   * and may have left the live map, so its taint is read from the row.
+   */
+  private async settleChild(parentRunId: string, parentSpent: Spent, child: { runId: string; done: Promise<void> }, signal: AbortSignal, what: string):
+    Promise<{ ok: true; detail: RunDetail; taint: { private: boolean; external: boolean } } | { ok: false; code: 'ToolError'; message: string }> {
+    const onAbort = (): void => { try { this.cancel(child.runId); } catch { /* already finished */ } };
+    signal.addEventListener('abort', onAbort, { once: true });
+    try {
+      await child.done;
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+    }
+    const detail = this.getRun(child.runId);
+    if (!detail || detail.state !== 'completed') {
+      const error = detail?.error as { message?: string } | undefined;
+      return { ok: false, code: 'ToolError', message: `The ${what} ${child.runId} ${detail?.state ?? 'vanished'}: ${error?.message ?? 'no details'}` };
+    }
+    this.deps.db.prepare('UPDATE runs SET spent_json = ? WHERE id = ?')
+      .run(this.persist({ ...parentSpent, costUsd: round(parentSpent.costUsd + detail.spent.costUsd), modelCalls: parentSpent.modelCalls + detail.spent.modelCalls }), parentRunId);
+    const childTaint = RunTaint.load(this.deps.db, child.runId);
+    return { ok: true, detail, taint: { private: childTaint.privateTainted, external: childTaint.externalTainted } };
+  }
+
   private delegateHost(): DelegateHost {
     return {
-      delegate: async ({ parentRunId, parentStepId, agentId, brief, model, maxModelCalls, signal }) => {
-        const parent = this.deps.db.prepare('SELECT * FROM runs WHERE id = ?').get(parentRunId) as (RunRow & { depth: number }) | undefined;
-        if (!parent) return { ok: false, code: 'ToolError', message: `Run "${parentRunId}" is gone.` };
-        const depth = (parent.depth ?? 0) + 1;
-        if (depth > MAX_DEPTH) {
-          return { ok: false, code: 'DelegationDepthExceeded', message: `This is delegation level ${depth}; ${MAX_DEPTH} is the limit.` };
-        }
+      delegate: async ({ parentRunId, parentStepId, agentId, brief, project: named, model, maxModelCalls, signal }) => {
+        const ready = this.childOf(parentRunId, maxModelCalls);
+        if (!ready.ok) return ready;
+        const { parent, depth, spent, budget } = ready;
 
         const ws = this.deps.workspace();
         const agent = ws.agents.get(agentId);
@@ -379,55 +443,53 @@ export class Engine {
           const broken = ws.brokenAgents.find((b) => b.id === agentId);
           return { ok: false, code: 'NotFound', message: broken ? `Agent "${agentId}" failed to load: ${broken.message}` : `There is no agent called "${agentId}" in this workspace.` };
         }
-
-        // The child's budget comes out of what the parent has left, so a chain cannot spend more than one run.
-        const parentBudgets = JSON.parse(parent.budgets_json) as ReturnType<typeof narrowBudgets>;
-        const parentSpent = JSON.parse(parent.spent_json) as Spent;
-        const remainingCalls = Math.max(0, parentBudgets.maxModelCalls - parentSpent.modelCalls);
-        const remainingCost = Math.max(0, parentBudgets.maxCostUsd - parentSpent.costUsd);
-        if (remainingCalls < 1 || remainingCost <= 0) {
-          return { ok: false, code: 'BudgetExceeded', message: 'This run has no budget left to give a child. Finish with what you have.' };
-        }
-        const childBudget = {
-          maxModelCalls: Math.max(1, Math.min(maxModelCalls ?? remainingCalls, remainingCalls)),
-          maxCostUsd: remainingCost,
-        };
+        // The child works in the project named, else the parent's, under that project's ceiling and memory list
+        // (D-69): the ceiling is the project's, not the parent's, so it does not travel with the brief.
+        const where = this.childProject(named, parent);
+        if (!where.ok) return { ok: false, code: 'NotFound', message: where.message };
 
         const child = this.startAgentRun({
           agentId,
           inputs: { input: brief },
-          ...(parent.project_id ? { project: parent.project_id } : {}),
+          ...(where.project ? { project: where.project } : {}),
           ...(model ? { modelOverride: model } : {}),
-          budget: childBudget,
+          budget,
           parent: { runId: parentRunId, stepId: parentStepId, depth },
         });
-        const onAbort = (): void => { try { this.cancel(child.runId); } catch { /* already finished */ } };
-        signal.addEventListener('abort', onAbort, { once: true });
-        try {
-          await child.done;
-        } finally {
-          signal.removeEventListener('abort', onAbort);
-        }
+        const settled = await this.settleChild(parentRunId, spent, child, signal, 'delegated run');
+        if (!settled.ok) return settled;
+        return { ok: true, runId: child.runId, output: String(settled.detail.outputs?.['output'] ?? ''), costUsd: settled.detail.spent.costUsd, taint: settled.taint };
+      },
+    };
+  }
 
-        const detail = this.getRun(child.runId);
-        if (!detail || detail.state !== 'completed') {
-          const error = detail?.error as { message?: string } | undefined;
-          return { ok: false, code: 'ToolError', message: `The delegated run ${child.runId} ${detail?.state ?? 'vanished'}: ${error?.message ?? 'no details'}` };
+  /** `workflow.run` (RUN-23): a workflow as a child run, under exactly the rules a delegated agent runs under. */
+  private workflowRunHost(): WorkflowRunHost {
+    return {
+      run: async ({ parentRunId, parentStepId, workflowId, inputs, project: named, maxModelCalls, signal }) => {
+        const ready = this.childOf(parentRunId, maxModelCalls);
+        if (!ready.ok) return ready;
+        const { parent, depth, spent, budget } = ready;
+        const where = this.childProject(named, parent);
+        if (!where.ok) return { ok: false, code: 'NotFound', message: where.message };
+
+        let child: { runId: string; done: Promise<void> };
+        try {
+          child = this.startWorkflowRun({
+            workflowId, inputs,
+            ...(where.project ? { project: where.project } : {}),
+            budget,
+            parent: { runId: parentRunId, stepId: parentStepId, depth },
+          });
+        } catch (e) {
+          // A workflow that does not exist, or inputs its form would refuse: the same words a person would read.
+          if (e instanceof NotFoundError) return { ok: false, code: 'NotFound', message: e.message };
+          if (e instanceof ValidationError) return { ok: false, code: 'InvalidInput', message: e.message };
+          throw e;
         }
-        // The parent pays for the child, so a chain shows up in one place.
-        this.deps.db.prepare('UPDATE runs SET spent_json = ? WHERE id = ?')
-          .run(this.persist({ ...parentSpent, costUsd: round(parentSpent.costUsd + detail.spent.costUsd), modelCalls: parentSpent.modelCalls + detail.spent.modelCalls }), parentRunId);
-        // And the parent takes on what the child read (SEC-43). Taint already flows down at start — what the
-        // parent had read, the child could quote — and it has to flow back up at return for the same reason in
-        // reverse: the child's answer is now in front of the parent, and if the child read the web, that answer
-        // is a web page's words one step removed. Without this, a run that delegates to the researcher remembers
-        // as *trusted* what the researcher fetched, and D-17's rule has a hole shaped exactly like an
-        // orchestrator. The child has finished and may have left the live map, so its taint is read from the row.
-        const childTaint = RunTaint.load(this.deps.db, child.runId);
-        return {
-          ok: true, runId: child.runId, output: String(detail.outputs?.['output'] ?? ''), costUsd: detail.spent.costUsd,
-          taint: { private: childTaint.privateTainted, external: childTaint.externalTainted },
-        };
+        const settled = await this.settleChild(parentRunId, spent, child, signal, 'workflow run');
+        if (!settled.ok) return settled;
+        return { ok: true, runId: child.runId, outputs: settled.detail.outputs ?? {}, costUsd: settled.detail.spent.costUsd, taint: settled.taint };
       },
     };
   }
@@ -663,17 +725,26 @@ export class Engine {
     const budgets = narrowBudgets(narrowBudgets(ws.config.budgets, workflow.definition.budgets), input.budget);
     const now = new Date().toISOString();
     this.recordWorkflowVersion(workflow, now);
-    this.deps.db.prepare(`INSERT INTO runs (id, kind, state, workflow_version, workflow_id, project_id, depth, inputs_json, budgets_json, spent_json, started_at)
-      VALUES (?, 'workflow', 'running', ?, ?, ?, 0, ?, ?, ?, ?)`)
-      .run(runId, workflow.version, workflow.definition.id, project ?? null, this.persist(inputs), this.persist(budgets), this.persist(EMPTY_SPENT), now);
+    this.deps.db.prepare(`INSERT INTO runs (id, kind, state, workflow_version, workflow_id, project_id, parent_run_id, depth, inputs_json, budgets_json, spent_json, started_at)
+      VALUES (?, 'workflow', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(runId, workflow.version, workflow.definition.id, project ?? null, input.parent?.runId ?? null, input.parent?.depth ?? 0,
+        this.persist(inputs), this.persist(budgets), this.persist(EMPTY_SPENT), now);
     for (const agent of this.agentsOf(workflow)) this.recordAgentVersion(agent, now);
     this.deps.events.append(runId, null, 'run-started', {
       kind: 'workflow', workflowId: workflow.definition.id, workflowVersion: workflow.version, inputs,
       project: project ?? null, budgets, provider: input.provider ?? this.deps.providerOverride ?? null,
       steps: workflow.definition.steps.map((s) => ({ id: s.id, kind: s.kind, dependsOn: s.dependsOn })),
+      ...(input.parent ? { parentRunId: input.parent.runId, parentStepId: input.parent.stepId, depth: input.parent.depth } : {}),
     });
+    // As for a delegated agent: the parent's trace shows the child as an event of its own.
+    if (input.parent) {
+      this.deps.events.append(input.parent.runId, input.parent.stepId, 'run-started', {
+        kind: 'workflow', childRunId: runId, workflowId: workflow.definition.id, depth: input.parent.depth, delegated: true,
+      });
+    }
 
     const taint = this.trackTaint(runId, new RunTaint(this.deps.db, runId));
+    if (input.parent) taint.inherit(RunTaint.load(this.deps.db, input.parent.runId));
     return this.schedule(runId, budgets, now, async (budget, signal) => {
       const result = await this.workflows.run({
         runId, workflow, inputs,
@@ -682,7 +753,7 @@ export class Engine {
         taint, budget, signal,
       });
       return result.outputs;
-    });
+    }, input.parent !== undefined);
   }
 
   // ---- the queue -----------------------------------------------------------------------------------------
