@@ -1060,10 +1060,22 @@ export class Engine {
     return this.spentSinceUsd(first, agentId);
   }
 
+  /**
+   * What an agent has spent: its own runs *and every run beneath them* (D-76). A delegated child's calls are
+   * the parent's money — the parent chose to spend it — so they count against the parent's own caps as well
+   * as the child agent's. Until RUN-24 only the agent's own rows counted, and an orchestrator with a $5 day
+   * could direct $50 of research; the workspace cap caught it, the orchestrator's never did. The walk is a
+   * recursive CTE over `parent_run_id`; UNION keeps a run counted once however many paths reach it.
+   */
   spentSinceUsd(since: Date, agentId?: string): number {
     const row = (agentId === undefined
       ? this.deps.db.prepare('SELECT COALESCE(SUM(cost_usd), 0) AS total FROM model_calls WHERE ts >= ?').get(since.toISOString())
-      : this.deps.db.prepare('SELECT COALESCE(SUM(m.cost_usd), 0) AS total FROM model_calls m JOIN runs r ON r.id = m.run_id WHERE m.ts >= ? AND r.agent_id = ?').get(since.toISOString(), agentId)) as { total: number };
+      : this.deps.db.prepare(`WITH RECURSIVE mine(id) AS (
+            SELECT id FROM runs WHERE agent_id = ?
+            UNION
+            SELECT r.id FROM runs r JOIN mine ON r.parent_run_id = mine.id
+          )
+          SELECT COALESCE(SUM(m.cost_usd), 0) AS total FROM model_calls m JOIN mine ON mine.id = m.run_id WHERE m.ts >= ?`).get(agentId, since.toISOString())) as { total: number };
     return row.total;
   }
 
