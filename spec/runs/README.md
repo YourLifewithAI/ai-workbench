@@ -111,3 +111,11 @@ Everything an agent needs is in at most ten bounded files. Done is a command, no
 > you N of M". RUN-20 and RUN-22 keep their places after these. Two holes found while designing it landed on the
 > branch before the brief: delegation taint did not flow up (SEC-43), and an agent's `memory` declaration was
 > read by nothing.
+
+> Amendment (owner decision, 2026-09-11): after RUN-23 merged, the owner shared a loop-orchestrator setup and
+> asked how it applied. **RUN-24** (`run/24-pulse`, D-75, D-76) is what was missing: a work ledger the
+> orchestrator owns, a pulse that acts, detached children with the caps fixed first, a decision put to the
+> owner as options, a plan reviewed by a second model in the coding run, and spend and the heartbeat on the
+> agent's card. What RUN-24 was going to hold moves to **RUN-25**: `memory.curate`, `memory.facts`,
+> `project.create`, cases from runs, the `human` evaluator, "agrees with you N of M". RUN-21 (the rooms) stays
+> next after these.
