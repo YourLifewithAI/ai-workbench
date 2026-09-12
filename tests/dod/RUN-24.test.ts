@@ -5,9 +5,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import type { AgentListResponse, DashboardResponse, RunDetail, ScheduleSummary, WorkItem, WorkListResponse } from '../../src/shared/api/index.js';
+import type { AgentListResponse, DashboardResponse, ReviewItem, RunDetail, ScheduleSummary, WorkItem, WorkListResponse } from '../../src/shared/api/index.js';
 import type { EventRecord } from '../../src/shared/events.js';
 import { startRuntime, tempWorkspace, waitFor, type Started } from '../helpers/workspace.js';
+import { ALL_REPO_TOOLS, HANDOFF, IMPLEMENT_GREEN, MECHANIC, PLAN_REVISE, grant, protocolRepo, protocolScripts, script } from '../helpers/repo.js';
 
 let ws: string;
 let rt: Started;
@@ -160,4 +161,59 @@ describe('DoD 3: an answer on the Dashboard is read by the next pulse, which act
     expect(agents.find((a) => a.id === 'weaver')!.spend!.todayUsd).toBeGreaterThanOrEqual(0.10);
     expect(agents.find((a) => a.id === 'echo')!.spend!.todayUsd, 'nobody else pays for it').toBe(0);
   }, 120_000);
+});
+
+describe('DoD 4: a second model reads the plan before anything is built', () => {
+  // The proceed path is RUN-17's: its mock reviewer says proceed, plan-check is skipped, and the run goes on to
+  // implement as before. Here the reviewer asks for a revision, and the run stops before a line is written.
+  it('a plan the reviewer would revise parks the run at plan-check with the issues; approved, the build goes ahead', async () => {
+    const ws2 = tempWorkspace('dod24-plan');
+    const { root } = protocolRepo('dod24-plan');
+    grant(ws2, 'mechanic', { tools: ALL_REPO_TOOLS, repos: [{ path: root, branches: 'run/*' }] });
+    protocolScripts(ws2, HANDOFF, PLAN_REVISE);
+    script(ws2, MECHANIC, 'IMPLEMENT', IMPLEMENT_GREEN);
+    const started = await startRuntime(ws2, { providerOverride: 'mock', noScheduler: true });
+    const h = { Authorization: `Bearer ${started.token}`, 'Content-Type': 'application/json' };
+    const get = async <T,>(p: string): Promise<T> => (await (await fetch(`${started.baseUrl}/api/v1${p}`, { headers: h })).json()) as T;
+    const events = async (runId: string): Promise<EventRecord[]> =>
+      (await (await fetch(`${started.baseUrl}/api/v1/runs/${runId}/trace.jsonl`, { headers: h })).text()).trim().split('\n').filter(Boolean).map((l) => JSON.parse(l) as EventRecord);
+    const parkedAt = async (runId: string, stepId: string): Promise<ReviewItem> => {
+      await waitFor(async () => {
+        const d = await get<RunDetail>(`/runs/${runId}`);
+        if (d.state === 'failed' || d.state === 'completed') throw new Error(`the run ended ${d.state}: ${JSON.stringify(d.error)}`);
+        return (await get<{ reviews: ReviewItem[] }>('/reviews')).reviews.some((r) => r.blocking && r.runId === runId && r.stepId === stepId);
+      }, 120_000);
+      return (await get<{ reviews: ReviewItem[] }>('/reviews')).reviews.find((r) => r.blocking && r.runId === runId && r.stepId === stepId)!;
+    };
+    try {
+      const res = await fetch(`${started.baseUrl}/api/v1/runs`, { method: 'POST', headers: h, body: JSON.stringify({ kind: 'workflow', id: 'coding-run', inputs: { brief: 'spec/runs/RUN-99.md', repo: root } }) });
+      expect(res.status, await res.clone().text()).toBe(202);
+      const { runId } = (await res.json()) as { runId: string };
+
+      // Parked at plan-check, with the Mechanic's note leading with the reviewer's word, and nothing built.
+      const parked = await parkedAt(runId, 'plan-check');
+      expect(parked.output).toContain('The reviewer asked for a revision.');
+      expect(parked.output).toContain('README.md');
+      let trace = await events(runId);
+      const reviewed = trace.find((e) => e.type === 'step-completed' && e.payload['stepId'] === 'review')!;
+      // The event carries the model's text; the scope the later steps read carries the parsed, schema-checked object.
+      const verdict = reviewed.payload['output'];
+      expect(typeof verdict === 'string' ? JSON.parse(verdict) as unknown : verdict).toMatchObject({ verdict: 'revise', issues: expect.arrayContaining([expect.stringContaining('README.md')]) });
+      expect(trace.some((e) => e.type === 'model-started' && e.stepId === 'implement'), 'implement has not started').toBe(false);
+      const docs = await get<{ documents: { path: string }[] }>('/projects/coding/documents');
+      expect(docs.documents.map((d) => d.path)).toEqual(expect.arrayContaining([`${runId}/plan.json`, `${runId}/plan-review.json`]));
+
+      // Approved: the build goes ahead on the plan as it stands, the issues in the Mechanic's task, and parks at the end as always.
+      const go = await fetch(`${started.baseUrl}/api/v1/reviews/${parked.id}`, { method: 'POST', headers: h, body: JSON.stringify({ decision: 'continue' }) });
+      expect(go.status, await go.clone().text()).toBeLessThan(300);
+      const end = await parkedAt(runId, 'hand-to-human');
+      expect(end.output).toContain('Branch: run/99-fixture');
+      trace = await events(runId);
+      const implementing = trace.filter((e) => e.type === 'model-started' && e.stepId === 'implement');
+      expect(implementing.length).toBeGreaterThan(0);
+      expect(JSON.stringify(implementing[0]!.payload), 'the verdict and its issues reached the builder').toContain('README.md is in Reads');
+    } finally {
+      await started.stop();
+    }
+  }, 300_000);
 });

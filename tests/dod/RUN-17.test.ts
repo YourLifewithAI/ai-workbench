@@ -210,7 +210,7 @@ describe('DoD 5: the workflow validates cleanly, and its budgets are on the deta
     try {
       const detail = (await (await fetch(`${rt.baseUrl}/api/v1/workflows/coding-run`, { headers: headers(rt) })).json()) as WorkflowDetail;
       expect(detail.smells).toEqual([]);
-      expect(detail.steps.map((s) => s.id)).toEqual(['read', 'implement', 'verify', 'handoff', 'file-handoff', 'commit', 'push', 'hand-to-human']);
+      expect(detail.steps.map((s) => s.id)).toEqual(['read', 'review', 'plan-check', 'implement', 'verify', 'handoff', 'file-handoff', 'commit', 'push', 'hand-to-human']);
       expect(detail.steps.find((s) => s.id === 'hand-to-human')?.review).toBe('blocking');
       const implement = detail.budgets.steps.find((s) => s.stepId === 'implement')!;
       expect(implement.budget).toEqual({ maxModelCalls: 120, maxToolCalls: 400, maxCostUsd: 10, maxWallClockMs: 5400000 });
