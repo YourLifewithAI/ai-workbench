@@ -97,7 +97,7 @@ export interface StartAgentRunInput {
   modelOverride?: string | undefined;
   budget?: BudgetOverride | undefined;
   /** Set when this run is a delegation: it nests in the parent's trace and counts against the parent (D-12). */
-  parent?: { runId: string; stepId: string; depth: number } | undefined;
+  parent?: { runId: string; stepId: string; depth: number; detached?: boolean | undefined } | undefined;
 }
 
 export interface StartWorkflowRunInput {
@@ -107,7 +107,7 @@ export interface StartWorkflowRunInput {
   provider?: 'mock' | undefined;
   budget?: BudgetOverride | undefined;
   /** Set when a run started this workflow through `workflow.run` (RUN-23): it nests and counts like a delegation. */
-  parent?: { runId: string; stepId: string; depth: number } | undefined;
+  parent?: { runId: string; stepId: string; depth: number; detached?: boolean | undefined } | undefined;
 }
 
 interface RunRow {
@@ -129,6 +129,8 @@ export class Engine {
   private readonly gates = new Map<string, (d: GateDecision) => void>();
   /** The live taint of each running run, so a tool can ask what its own run has already consumed (D-17, D-29). */
   private readonly taints = new Map<string, RunTaint>();
+  /** The live budget of each running run, so a child's cost or a detached child's reservation lands on it (D-76). */
+  private readonly budgets = new Map<string, RunBudget>();
   private readonly approvalGates = new Map<string, (d: ApprovalGateDecision) => void>();
   private expiry: NodeJS.Timeout | null = null;
   readonly reviews: ReviewStore;
@@ -388,7 +390,7 @@ export class Engine {
    * parent has left, so a chain cannot spend more than one run (D-12). One place, so the two tools cannot
    * drift apart on the rule that bounds them.
    */
-  private childOf(parentRunId: string, maxModelCalls: number | undefined):
+  private childOf(parentRunId: string, size: { maxModelCalls?: number | undefined; maxCostUsd?: number | undefined; detached?: boolean | undefined }):
     | { ok: true; parent: RunRow & { depth: number }; depth: number; spent: Spent; budget: { maxModelCalls: number; maxCostUsd: number } }
     | { ok: false; code: 'DelegationDepthExceeded' | 'BudgetExceeded' | 'ToolError'; message: string } {
     const parent = this.deps.db.prepare('SELECT * FROM runs WHERE id = ?').get(parentRunId) as (RunRow & { depth: number }) | undefined;
@@ -398,16 +400,39 @@ export class Engine {
       return { ok: false, code: 'DelegationDepthExceeded', message: `This is delegation level ${depth}; ${MAX_DEPTH} is the limit.` };
     }
     const parentBudgets = JSON.parse(parent.budgets_json) as ReturnType<typeof narrowBudgets>;
-    const spent = JSON.parse(parent.spent_json) as Spent;
+    // The live budget knows what this run has spent so far, reservations included; the row only knows what
+    // was written to it. A parent that is no longer live cannot be carving, so the row is the fallback.
+    const spent = this.budgets.get(parentRunId)?.snapshot() ?? (JSON.parse(parent.spent_json) as Spent);
     const remainingCalls = Math.max(0, parentBudgets.maxModelCalls - spent.modelCalls);
     const remainingCost = Math.max(0, parentBudgets.maxCostUsd - spent.costUsd);
     if (remainingCalls < 1 || remainingCost <= 0) {
       return { ok: false, code: 'BudgetExceeded', message: 'This run has no budget left to give a child. Finish with what you have.' };
     }
+    // A waited child may have everything the parent has left: what it does not use comes back. A child that is
+    // let go is charged its whole carve at dispatch, so an unsized carve would leave the parent nothing to
+    // finish its own turn with — unsized, it gets half of what is left.
+    const { maxModelCalls, maxCostUsd, detached } = size;
+    const defaultCalls = detached ? Math.max(1, Math.floor(remainingCalls / 2)) : remainingCalls;
+    const defaultCost = detached ? round(remainingCost / 2) : remainingCost;
     return {
       ok: true, parent, depth, spent,
-      budget: { maxModelCalls: Math.max(1, Math.min(maxModelCalls ?? remainingCalls, remainingCalls)), maxCostUsd: remainingCost },
+      budget: {
+        maxModelCalls: Math.max(1, Math.min(maxModelCalls ?? defaultCalls, remainingCalls)),
+        maxCostUsd: maxCostUsd !== undefined && maxCostUsd > 0 ? Math.min(maxCostUsd, remainingCost) : defaultCost,
+      },
     };
+  }
+
+  /**
+   * A detached child's budget is charged to the parent the moment the child is let go (D-76): on the live
+   * budget, so the harness line and the next carve see it, and on the row, so a parent that has finished by
+   * the time anyone looks still shows what it committed. Never refunded — the parent chose to spend it.
+   */
+  private reserve(parentRunId: string, parentSpent: Spent, budget: { maxModelCalls: number; maxCostUsd: number }): void {
+    const live = this.budgets.get(parentRunId);
+    if (live) live.charge(budget.maxModelCalls, budget.maxCostUsd);
+    const spent = live?.snapshot() ?? { ...parentSpent, modelCalls: parentSpent.modelCalls + budget.maxModelCalls, costUsd: round(parentSpent.costUsd + budget.maxCostUsd) };
+    this.deps.db.prepare('UPDATE runs SET spent_json = ? WHERE id = ?').run(this.persist(spent), parentRunId);
   }
 
   /** A child's project: the one named, else the parent's. A name that is not a project is refused before anything starts. */
@@ -440,16 +465,20 @@ export class Engine {
       const error = detail?.error as { message?: string } | undefined;
       return { ok: false, code: 'ToolError', message: `The ${what} ${child.runId} ${detail?.state ?? 'vanished'}: ${error?.message ?? 'no details'}` };
     }
+    // On the live budget, so the parent's own bar and its next carve see the child's cost; and on the row, which
+    // the live snapshot overwrites at finish anyway — this is for a parent that is no longer live.
+    const live = this.budgets.get(parentRunId);
+    if (live) live.charge(detail.spent.modelCalls, detail.spent.costUsd);
     this.deps.db.prepare('UPDATE runs SET spent_json = ? WHERE id = ?')
-      .run(this.persist({ ...parentSpent, costUsd: round(parentSpent.costUsd + detail.spent.costUsd), modelCalls: parentSpent.modelCalls + detail.spent.modelCalls }), parentRunId);
+      .run(this.persist(live?.snapshot() ?? { ...parentSpent, costUsd: round(parentSpent.costUsd + detail.spent.costUsd), modelCalls: parentSpent.modelCalls + detail.spent.modelCalls }), parentRunId);
     const childTaint = RunTaint.load(this.deps.db, child.runId);
     return { ok: true, detail, taint: { private: childTaint.privateTainted, external: childTaint.externalTainted } };
   }
 
   private delegateHost(): DelegateHost {
     return {
-      delegate: async ({ parentRunId, parentStepId, agentId, brief, project: named, model, maxModelCalls, signal }) => {
-        const ready = this.childOf(parentRunId, maxModelCalls);
+      delegate: async ({ parentRunId, parentStepId, agentId, brief, project: named, model, maxModelCalls, maxCostUsd, wait, signal }) => {
+        const ready = this.childOf(parentRunId, { maxModelCalls, maxCostUsd, detached: wait === false });
         if (!ready.ok) return ready;
         const { parent, depth, spent, budget } = ready;
 
@@ -464,17 +493,23 @@ export class Engine {
         const where = this.childProject(named, parent);
         if (!where.ok) return { ok: false, code: 'NotFound', message: where.message };
 
+        const detached = wait === false;
         const child = this.startAgentRun({
           agentId,
           inputs: { input: brief },
           ...(where.project ? { project: where.project } : {}),
           ...(model ? { modelOverride: model } : {}),
           budget,
-          parent: { runId: parentRunId, stepId: parentStepId, depth },
+          parent: { runId: parentRunId, stepId: parentStepId, depth, detached },
         });
+        if (detached) {
+          // Let go: the carve is charged now, nothing is waited for, and nothing flows up — nothing has been read.
+          this.reserve(parentRunId, spent, budget);
+          return { ok: true, runId: child.runId, detached: true, output: '', costUsd: 0, taint: { private: false, external: false } };
+        }
         const settled = await this.settleChild(parentRunId, spent, child, signal, 'delegated run');
         if (!settled.ok) return settled;
-        return { ok: true, runId: child.runId, output: String(settled.detail.outputs?.['output'] ?? ''), costUsd: settled.detail.spent.costUsd, taint: settled.taint };
+        return { ok: true, runId: child.runId, detached: false, output: String(settled.detail.outputs?.['output'] ?? ''), costUsd: settled.detail.spent.costUsd, taint: settled.taint };
       },
     };
   }
@@ -482,20 +517,21 @@ export class Engine {
   /** `workflow.run` (RUN-23): a workflow as a child run, under exactly the rules a delegated agent runs under. */
   private workflowRunHost(): WorkflowRunHost {
     return {
-      run: async ({ parentRunId, parentStepId, workflowId, inputs, project: named, maxModelCalls, signal }) => {
-        const ready = this.childOf(parentRunId, maxModelCalls);
+      run: async ({ parentRunId, parentStepId, workflowId, inputs, project: named, maxModelCalls, maxCostUsd, wait, signal }) => {
+        const ready = this.childOf(parentRunId, { maxModelCalls, maxCostUsd, detached: wait === false });
         if (!ready.ok) return ready;
         const { parent, depth, spent, budget } = ready;
         const where = this.childProject(named, parent);
         if (!where.ok) return { ok: false, code: 'NotFound', message: where.message };
 
+        const detached = wait === false;
         let child: { runId: string; done: Promise<void> };
         try {
           child = this.startWorkflowRun({
             workflowId, inputs,
             ...(where.project ? { project: where.project } : {}),
             budget,
-            parent: { runId: parentRunId, stepId: parentStepId, depth },
+            parent: { runId: parentRunId, stepId: parentStepId, depth, detached },
           });
         } catch (e) {
           // A workflow that does not exist, or inputs its form would refuse: the same words a person would read.
@@ -503,9 +539,13 @@ export class Engine {
           if (e instanceof ValidationError) return { ok: false, code: 'InvalidInput', message: e.message };
           throw e;
         }
+        if (detached) {
+          this.reserve(parentRunId, spent, budget);
+          return { ok: true, runId: child.runId, detached: true, outputs: {}, costUsd: 0, taint: { private: false, external: false } };
+        }
         const settled = await this.settleChild(parentRunId, spent, child, signal, 'workflow run');
         if (!settled.ok) return settled;
-        return { ok: true, runId: child.runId, outputs: settled.detail.outputs ?? {}, costUsd: settled.detail.spent.costUsd, taint: settled.taint };
+        return { ok: true, runId: child.runId, detached: false, outputs: settled.detail.outputs ?? {}, costUsd: settled.detail.spent.costUsd, taint: settled.taint };
       },
     };
   }
@@ -667,7 +707,7 @@ export class Engine {
     // The parent's trace shows the child as an event of its own, so a delegation is not a gap in the story.
     if (input.parent) {
       this.deps.events.append(input.parent.runId, input.parent.stepId, 'run-started', {
-        kind: 'agent', childRunId: runId, agentId: agent.definition.id, depth: input.parent.depth, delegated: true,
+        kind: 'agent', childRunId: runId, agentId: agent.definition.id, depth: input.parent.depth, delegated: true, detached: input.parent.detached === true,
       });
     }
 
@@ -765,7 +805,7 @@ export class Engine {
     // As for a delegated agent: the parent's trace shows the child as an event of its own.
     if (input.parent) {
       this.deps.events.append(input.parent.runId, input.parent.stepId, 'run-started', {
-        kind: 'workflow', childRunId: runId, workflowId: workflow.definition.id, depth: input.parent.depth, delegated: true,
+        kind: 'workflow', childRunId: runId, workflowId: workflow.definition.id, depth: input.parent.depth, delegated: true, detached: input.parent.detached === true,
       });
     }
 
@@ -803,6 +843,7 @@ export class Engine {
 
     const work = async (): Promise<void> => {
       const budget = new RunBudget(budgets, startedMs, () => this.spentTodayUsd(), () => this.spentThisMonthUsd(), undefined, own);
+      this.budgets.set(runId, budget);
       try {
         if (controller.signal.aborted) throw new StepFailure('cancelled', null, 'the run was cancelled');
         const outputs = await body(budget, controller.signal);
@@ -836,7 +877,7 @@ export class Engine {
         return work();
       })
       .catch((e: unknown) => { this.deps.log.error({ err: e, runId }, 'engine failure'); })
-      .finally(() => { this.inflight.delete(runId); this.taints.delete(runId); this.drain(); });
+      .finally(() => { this.inflight.delete(runId); this.taints.delete(runId); this.budgets.delete(runId); this.drain(); });
 
     this.inflight.set(runId, { controller, done, queued });
     return { runId, done };

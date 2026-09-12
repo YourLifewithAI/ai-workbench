@@ -82,6 +82,17 @@ export class RunBudget {
     this.parent?.recordToolCall();
   }
 
+  /**
+   * What a child cost, or what a detached child was given (D-76): counted here as if this run had spent it, so
+   * the harness line, the 80% warning and the next carve all see it. A reservation is charged at dispatch and
+   * never refunded — the money was committed the moment the child was let go.
+   */
+  charge(modelCalls: number, costUsd: number): void {
+    this.spent.modelCalls += modelCalls;
+    this.spent.costUsd = round(this.spent.costUsd + costUsd);
+    this.parent?.charge(modelCalls, costUsd);
+  }
+
   /** Budgets that just crossed 80% and have not been warned about yet. Each warns once (D-14). */
   newWarnings(): { budget: BudgetKind; used: number; limit: number }[] {
     const checks: { budget: BudgetKind; used: number; limit: number }[] = [
