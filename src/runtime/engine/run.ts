@@ -722,6 +722,16 @@ export class Engine {
     const taint = this.trackTaint(runId, new RunTaint(this.deps.db, runId));
     // A child inherits its parent's taint: what the parent read, the child could be quoting to it (D-29).
     if (input.parent) taint.inherit(RunTaint.load(this.deps.db, input.parent.runId));
+    // What the thread carries forward, and what it carries with it (D-78). A reply written by a run that had
+    // read the web is that web page one turn removed, so the turn that quotes it has read the web too — the
+    // same rule `artifact.read` follows for a document a tainted run wrote (D-73).
+    const history = input.conversation
+      ? this.conversations.history(input.conversation, {
+          turns: ws.config.context.conversationTurns,
+          chars: ws.config.context.conversationChars,
+        })
+      : [];
+    if (history.some((m) => m.tainted)) taint.markExternal('the thread carried a reply from a run that had read the web');
 
     return this.schedule(runId, budgets, now, async (budget, signal) => {
       const task = typeof input.inputs['input'] === 'string' ? (input.inputs['input'] as string) : JSON.stringify(input.inputs);
@@ -734,6 +744,7 @@ export class Engine {
           ...(input.provider ?? this.deps.providerOverride ? { provider: (input.provider ?? this.deps.providerOverride) as 'mock' } : {}),
           ...(input.modelOverride ? { modelOverride: input.modelOverride } : {}),
           ...(feedback ? { feedback } : {}),
+          ...(history.length ? { history: history.map((m) => ({ role: m.role, text: m.text })) } : {}),
           scratchDir: `${ws.paths.runs}/${runId}`,
           taint, budget, signal,
         });
