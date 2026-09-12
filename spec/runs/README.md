@@ -119,3 +119,12 @@ Everything an agent needs is in at most ten bounded files. Done is a command, no
 > agent's card. What RUN-24 was going to hold moves to **RUN-25**: `memory.curate`, `memory.facts`,
 > `project.create`, cases from runs, the `human` evaluator, "agrees with you N of M". RUN-21 (the rooms) stays
 > next after these.
+
+> Amendment (owner decision, 2026-09-12): the owner started the workbench, looked for the orchestrator, and did
+> not find it: "I don't see anywhere in the UI interface by which I would strike up a conversation with the
+> orchestrator, let alone have it report back to me letting me know what the various agents have been doing."
+> **RUN-26** (`run/26-room`, D-77, D-78) is the answer and goes next, ahead of RUN-25 and RUN-21: the room where
+> you talk — a thread whose exchanges are runs, the pulse's notes and the ledger's decisions in the same stream,
+> a header that says what happened since you were last here, and the front door. RUN-25 (`memory.curate`,
+> `memory.facts`, `project.create`, cases from runs, the `human` evaluator, "agrees with you N of M") and RUN-21
+> (the rooms) keep their places after it.
