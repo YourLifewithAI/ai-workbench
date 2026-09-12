@@ -61,6 +61,7 @@ migrated to 14 — which is the runtime doing its job, not a failure of the run.
 - The reservation is charged and never refunded. A let-go child that spends less than its carve leaves the difference on the parent's row as money committed, not spent; the caps count the actual, so nothing is lost at the day or the month, only on that run's bar.
 - The heartbeat picks one schedule per agent: enabled first, then the soonest to fire. Two enabled loops on one agent show the sooner; the other is on Workflows.
 - On the mock, the companion's own runs cost nothing, so *Spent* on its card reads $0.00 until a real model runs — the DoD plants a charge on a let-go child to prove the counting.
+- `GET /agents` computes spend one agent at a time: two recursive queries each, fourteen agents, 14 ms per request on a workspace of 200 runs (measured) and linear in the run count after that. better-sqlite3 is synchronous, so that time is the whole process's. One grouped query over an `owns(agent, run)` CTE would do the same work once; RUN-25, unless the Agents screen starts to feel slow first.
 
 ## Notes for the next run
 - A pulse fixture keys on the ledger's rendered JSON (`"decided"`): the ledger step's output is stringified into the companion's task, so a fixture can match on a state word that only appears once an item is in that state.

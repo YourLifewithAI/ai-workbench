@@ -185,11 +185,13 @@ test('@run-10 Compare runs two models side by side, and the pick is stored on bo
   await expectNoA11yViolations(page, 'Evaluate — panes');
 
   await panes.getByRole('button', { name: 'This one is better' }).first().click();
-  // The pick is stored on every pane, so the choice keeps both sides of itself.
+  // The pick is stored on every pane, so the choice keeps both sides of itself. Twenty seconds, as every other
+  // poll in this suite has: this one ran on the 5s default and timed out on a two-worker Windows runner while
+  // the sandbox tests had the machine (CI run 34663412634). The server was not slow; the budget was.
   await expect.poll(async () => {
     const runs = await page.request.get(`${base()}/api/v1/runs?limit=10`, { headers: { Authorization: `Bearer ${token()}` } });
     return runs.ok();
-  }).toBe(true);
+  }, { timeout: 20_000 }).toBe(true);
 });
 
 test('@run-11 Settings edits what it says it edits, and never shows a key back', async ({ page, request }) => {
