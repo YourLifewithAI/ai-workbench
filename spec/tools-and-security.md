@@ -62,6 +62,17 @@ The model sees a `ToolSpec` (name, description, JSON Schema) derived from the de
 > of a version whose writing run was external-tainted marks the reader external**, on the result's `meta`, the
 > channel SEC-43 opened — an output built on a web page is that page one step removed.
 
+> Amendment (RUN-24, 2026-09-12, D-75, D-76, SEC-44, SEC-46): **the ledger, and children let go.** Four
+> ledger tools, all `maxPermissions` nothing: **write** — `work.file` (a `task`, `bug` or `note`; an open item
+> with the same `key` is refreshed, never filed twice), `work.update` (by id or by the key it was filed under;
+> never an answer — a decision is the owner's to answer, through `PUT /work/:id`), `owner.ask` (a `decision`
+> in `needs-you`, two to four options and the agent's lean); **read** — `work.list`. An item's `trust` is the
+> writing run's, as memory's is (D-17): a run that had read the web files `untrusted`, shown so. No item text
+> reaches an instruction section. `agent.delegate` and `workflow.run` gain `wait` (default true) and
+> `maxCostUsd`: with `wait: false` the child is let go — its run id comes back at once, its carve is charged to
+> the parent as a reservation the moment it goes (unsized, half of what the parent has left), nothing flows up,
+> and the child's spend still counts against every ancestor agent's own caps (SEC-46).
+
 **`http.fetch`** — in `{ url, maxBytes?, accept? }`; out `{ status, finalUrl, contentType, title?, text, links: [{ text, url }], truncated, bytes }`. `http:` and `https:` only. HTML is parsed without script execution (`linkedom` + `@mozilla/readability` + `turndown`); JSON and text pass through; PDF goes through `pdf-parse`; anything else is `UnsupportedContentType`. Limits: `tools.http.maxResponseBytes` (default 2 MiB, truncate and flag) and `tools.http.timeoutMs` (default 20 000), separate from `toolCallTimeoutMs`.
 
 **`web.search`** (D-44) — in `{ query, count?: 1..20 = 8, freshness?: 'day' | 'week' | 'month' | 'any' }`; out `{ results: [{ title, url, snippet, published? }] }`. Provider from `config/workbench.json` → `"search": { "provider": "brave" | "searxng" | "mock", "searxng": { "url": "…" } }`; the Brave key is credential `brave`. `--provider mock` mocks every external service, search included; the search mock reads `<workspace>/fixtures/search.json`: `{ "queries": [{ "match": "<substring>", "results": [{ title, url, snippet }] }] }`, falling back to an empty result list.

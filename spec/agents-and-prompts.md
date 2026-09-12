@@ -98,6 +98,14 @@ it with the project chosen. It is a recipe for "a space of my own" until project
 > the page now covers. `companion-board` is a shipped workflow, daily, seeded paused: one `runs.facts` step and
 > one companion step that files the board under `board/`.
 
+> Amendment (RUN-24, 2026-09-12, D-75, D-76): **the pulse.** The companion gains a sixth section, *the pulse*,
+> and four tools — `work.file`, `work.list`, `work.update`, `owner.ask` — so that on a loop it can act rather
+> than report: what the owner answered, what is in flight, what is ready to staff (let go, sized), what the
+> facts show (filed once, by key), what only the owner can move. `companion-pulse` is a shipped workflow, every
+> two hours, seeded paused, no catch-up: the facts, the open ledger, then one companion step that acts and
+> files `pulse/<runId>.md`. The companion still reads nothing outside the workspace; a researcher it lets go
+> does, and its output taints whoever reads it. The card shows the loop (the heartbeat) and the spend.
+
 ## Import trust (D-34)
 
 Importing an agent validates `schemaVersion` (mismatch is refused with a message naming the versions), then rewrites `permissions` to **requested** — the one word used everywhere for this state. Nothing in a file grants anything; grants are made in the Tools screen and stored in the workspace, not in the agent.

@@ -65,6 +65,17 @@ Context discipline (D-47): a tool result longer than `context.maxToolResultChars
 
 Planners call `agent.delegate({ agent, input, model?, budget? })`: a child run nested in the parent's trace, permissions = child's grant ∩ parent's effective, a budget carved from the parent's remainder, depth ≤ 3. A child cannot do anything the parent could not. `input` is a brief the planner writes; the parent's transcript is never shared (D-48).
 
+> Amendment (RUN-24, 2026-09-12, D-76): **a child let go.** `agent.delegate` and `workflow.run` take
+> `wait: false`: the child starts as a child (parent, depth, carve) and is not waited for. The tool answers
+> `{ runId, detached: true }` at once; the carve — `maxModelCalls` and `maxCostUsd` as given, or half of what
+> the parent has left — is charged to the parent's budget at dispatch, on the live budget so the parent's own
+> next turn and its next carve see it, and never refunded. Nothing flows up: the parent has read nothing, so
+> the child's taint is the child's, and whoever reads its output later takes it on (the `artifact.read` rule).
+> The child is not cancelled when the parent ends. Its spend counts against the parent agent's own caps
+> through `runs.parent_run_id` — and, when the parent was a step inside a workflow run, through that step's
+> `run_steps.agent_id` and the child's `runs.parent_step_id` (SEC-46). A workflow step's budget carries its
+> agent's own daily and monthly caps, so a loop cannot take an agent past its day.
+
 **Authoring guidance (D-49, D-50).** Start with one agent and the tools it needs. Add a step only when the work parallelizes (`map`), a different model is right for it (cheap models for extraction, classification, planning, and judging), or an independent verifier is worth its tokens. The validator warns — never blocks — on the smells that predict failure: a step with no declared inputs, an artifact passed through more than two agents in sequence, a reviewer step with no reject path.
 
 ## Lifecycle (D-14)
@@ -136,6 +147,15 @@ Schedules live in the `schedules` table and are edited in the Workflows screen. 
 >   workflow (`grants.<workflowId>`) as before. Naming an agent widens nothing — the call is one that agent
 >   could make itself — and it is how `coding-run` files the gate's real output into the handoff and commits
 >   and pushes whether or not the model remembers to.
+
+> Amendment (RUN-24, 2026-09-12): **a second model reads the plan.** `coding-run` gains `review` between
+> `read` and `implement`: the Reviewer, on `role:capable`, reads the brief and the Mechanic's plan and answers
+> `{ verdict: proceed | revise, issues }` under an `outputSchema`, filed as `<runId>/plan-review.json`. When
+> the verdict is `revise`, `plan-check` runs — a blocking review of the Mechanic's note on the issues, `onReject:
+> read` — so the person decides before a line is written; when it is `proceed`, `plan-check` is skipped and
+> `implement` goes ahead with the verdict and the issues in its task. Two D-49 refinements came with it: a
+> reviewer (by name, or its agent's) is not a link in the hand-off chain, since it reads the work and answers
+> with a verdict rather than handing the work on; and a blocking review is a branch on that verdict.
 
 > Amendment (RUN-14, 2026-09-05): a workflow's `schedule` block takes `enabled` (default `true`). A shipped
 > workflow that should never run unasked — the permissions review is the first — seeds its schedule row

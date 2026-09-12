@@ -190,3 +190,14 @@ One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` �
 > digits and hyphens. `GET /agents` and `GET /agents/:id` carry `modelPolicy.now`: the ids the policy comes to
 > right now, roles expanded, only what is ready. `workbench doctor` gains a `model roles` check that names what
 > each role resolves to and any role an agent names that is not defined.
+
+> Amendment (RUN-24, 2026-09-12, D-75, D-76): the ledger's three routes — `GET /api/v1/work?state=&project=`
+> (`state` is `open` by default, `all`, or one state), `POST /api/v1/work` (a person files a `task`, `bug` or
+> `note`, `trusted`; `201` filed, `200` refreshed by `key`), `PUT /api/v1/work/:id` (a person moves it —
+> `state`, `assignee`, `note` — or answers a decision with `answer`, which sets `decided`). `GET /api/v1/dashboard`
+> gains `decisions` (open decisions) and `work: { open, needsYou, items }`. `AgentSummary` (so `GET
+> /api/v1/agents` and `/agents/:id`) gains `spend: { todayUsd, thisMonthUsd, dailyCapUsd, monthlyCapUsd }` —
+> the agent's runs and every run beneath them, caps `null` when the agent has none — and, when a schedule's
+> workflow has this agent as its first agent step, `heartbeat: { scheduleId, workflowId, workflowName, cron,
+> enabled, nextFireAt, lastFiredAt }`; an enabled schedule beats a paused one, the soonest to fire the rest.
+> `agent.delegate` and `workflow.run` outputs carry `detached`.

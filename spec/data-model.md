@@ -113,6 +113,15 @@ Vocabularies: `runs.kind ∈ agent | workflow | experiment`; `runs.state ∈ que
 > person did; a dismissal holds while the facts hash is unchanged. `tool_catalog_seen(tool, first_seen_at)` —
 > when each tool first appeared, so *undecided* can mean *new*. Migration `0013`.
 
+> Amendment (RUN-24, 2026-09-12, D-75, D-76): **the ledger; whose step spent.** `work_items` — `id`, `kind`
+> (`task` | `bug` | `decision` | `note`), `project`, `title`, `detail`, `state` (`backlog` | `staffed` |
+> `in-review` | `needs-you` | `decided` | `done` | `dropped`), `assignee`, `key` (an open item is one per key),
+> `trust` (`trusted` | `untrusted`, the writing run's), `run_id`, `options_json` and `lean` and `answer` and
+> `note` for a decision, `created_at`, `updated_at`, `decided_at`; `work_runs(item_id, run_id, role, at)` links
+> an item to the runs that filed, refreshed, staffed or worked it. `run_steps.agent_id` names the agent a step
+> ran as, and `runs.parent_step_id` the step that started a child, so an agent's own caps can count its steps
+> inside workflow runs and the children those steps let go (SEC-46). Migration `0014`.
+
 > Amendment (RUN-18, 2026-09-05, D-69): no new table. A project's space lives in `projects/<slug>/project.json`
 > (schema in `src/shared/project.ts`: `schemaVersion`, `name?`, `description?`, `goals?`, `agents[]`, `tools[]?`,
 > `memory[]`), loaded with the workspace and reloaded on save; its version is the content hash of the parsed form.
