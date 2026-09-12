@@ -708,6 +708,68 @@ export const UpdateWorkRequest = z.object({
 });
 export type UpdateWorkRequest = z.infer<typeof UpdateWorkRequest>;
 
+// ---- the room (RUN-26, D-77, D-78) ----------------------------------------------------------
+
+export const ConversationSummary = z.object({
+  id: z.string(),
+  title: z.string(),
+  agentId: z.string(),
+  project: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  /** What the header counts from: what happened while the owner was away. */
+  lastReadAt: z.string().nullable(),
+});
+export type ConversationSummary = z.infer<typeof ConversationSummary>;
+
+/** One line of a thread. An exchange and a pulse are both runs; a decision is the ledger's, answered in place. */
+export const ThreadEntry = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('exchange'), runId: z.string(), at: z.string(), state: z.string(), costUsd: z.number(),
+    children: z.number(), filed: z.array(WorkItem), you: z.string(), reply: z.string().nullable(), tainted: z.boolean(),
+  }),
+  z.object({
+    kind: z.literal('pulse'), runId: z.string(), at: z.string(), state: z.string(), costUsd: z.number(),
+    children: z.number(), filed: z.array(WorkItem), workflowId: z.string(), note: z.string().nullable(),
+  }),
+  z.object({ kind: z.literal('decision'), at: z.string(), item: WorkItem }),
+]);
+export type ThreadEntry = z.infer<typeof ThreadEntry>;
+
+/** What happened since `lastReadAt`, computed from the runs — never written by a model, so opening is free. */
+export const ThreadHeader = z.object({
+  since: z.string().nullable(),
+  finished: z.number(),
+  failed: z.number(),
+  running: z.number(),
+  spentUsd: z.number(),
+  needsYou: z.object({ decisions: z.number(), reviews: z.number(), approvals: z.number(), unrated: z.number() }),
+});
+export type ThreadHeader = z.infer<typeof ThreadHeader>;
+
+export const ConversationResponse = z.object({
+  conversation: ConversationSummary,
+  entries: z.array(ThreadEntry),
+  header: ThreadHeader,
+});
+export type ConversationResponse = z.infer<typeof ConversationResponse>;
+
+export const ConversationListResponse = z.object({ conversations: z.array(ConversationSummary) });
+export type ConversationListResponse = z.infer<typeof ConversationListResponse>;
+
+export const CreateConversationRequest = z.object({
+  agent: z.string(),
+  project: z.string().optional(),
+  title: z.string().max(200).optional(),
+});
+export type CreateConversationRequest = z.infer<typeof CreateConversationRequest>;
+
+export const PostMessageRequest = z.object({
+  message: z.string().min(1).max(20_000),
+  provider: z.literal('mock').optional(),
+});
+export type PostMessageRequest = z.infer<typeof PostMessageRequest>;
+
 export const DashboardResponse = z.object({
   /** Blocking gates: a run is standing still until one of these is decided. */
   needsYou: z.array(ReviewItem),

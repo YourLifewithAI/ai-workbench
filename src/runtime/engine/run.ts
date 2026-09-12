@@ -24,6 +24,7 @@ import { RunTaint } from './taint.js';
 import { MemoryStore } from '../memory/store.js';
 import { EvaluationStore } from '../evaluation/store.js';
 import { WorkStore } from '../work/store.js';
+import { ConversationStore } from '../conversations/store.js';
 import { ExperimentRunner } from '../evaluation/runner.js';
 import { DEFAULT_LIMITS, type Sandbox } from '../sandbox/deno.js';
 import type { McpHost } from '../mcp/host.js';
@@ -98,6 +99,8 @@ export interface StartAgentRunInput {
   budget?: BudgetOverride | undefined;
   /** Set when this run is a delegation: it nests in the parent's trace and counts against the parent (D-12). */
   parent?: { runId: string; stepId: string; depth: number; detached?: boolean | undefined } | undefined;
+  /** The thread this exchange belongs to (D-77): the run is the message, and the thread is a view over runs. */
+  conversation?: string | undefined;
 }
 
 export interface StartWorkflowRunInput {
@@ -140,6 +143,8 @@ export class Engine {
   readonly evaluation: EvaluationStore;
   /** The ledger the orchestrator keeps (D-75). */
   readonly work: WorkStore;
+  /** The room's threads (D-77): a conversation is a row, and every exchange in it is one of these runs. */
+  readonly conversations: ConversationStore;
   readonly experiments: ExperimentRunner;
   private push: { notify: (kind: PushEventKind, ids: { id: string; runId: string }) => Promise<unknown> } | null = null;
 
@@ -161,6 +166,7 @@ export class Engine {
     this.memory = new MemoryStore(deps.db, deps.events);
     this.evaluation = new EvaluationStore(deps.db);
     this.work = new WorkStore(deps.db);
+    this.conversations = new ConversationStore(deps.db, this.work);
     // Closes over `this` like the tool hosts: an experiment starts ordinary runs, so every trial has a trace.
     this.experiments = new ExperimentRunner({
       db: deps.db, log: deps.log, store: this.evaluation,
@@ -696,10 +702,10 @@ export class Engine {
     const { own, narrowing } = this.ownCapsOf(agent.definition.id, agent.definition.budgets);
     const budgets = narrowBudgets(narrowBudgets(ws.config.budgets, narrowing), input.budget);
     const now = new Date().toISOString();
-    this.deps.db.prepare(`INSERT INTO runs (id, kind, state, agent_version, agent_id, project_id, parent_run_id, parent_step_id, depth, inputs_json, budgets_json, spent_json, started_at)
-      VALUES (?, 'agent', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    this.deps.db.prepare(`INSERT INTO runs (id, kind, state, agent_version, agent_id, project_id, parent_run_id, parent_step_id, depth, conversation_id, inputs_json, budgets_json, spent_json, started_at)
+      VALUES (?, 'agent', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(runId, agent.version, agent.definition.id, input.project ?? null, input.parent?.runId ?? null, input.parent?.stepId ?? null, input.parent?.depth ?? 0,
-        this.persist(input.inputs), this.persist(budgets), this.persist(EMPTY_SPENT), now);
+        input.conversation ?? null, this.persist(input.inputs), this.persist(budgets), this.persist(EMPTY_SPENT), now);
     this.recordAgentVersion(agent, now);
     this.deps.events.append(runId, null, 'run-started', {
       kind: 'agent', agentId: agent.definition.id, agentVersion: agent.version, inputs: input.inputs,

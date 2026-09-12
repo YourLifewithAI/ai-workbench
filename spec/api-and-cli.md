@@ -201,3 +201,13 @@ One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` �
 > workflow has this agent as its first agent step, `heartbeat: { scheduleId, workflowId, workflowName, cron,
 > enabled, nextFireAt, lastFiredAt }`; an enabled schedule beats a paused one, the soonest to fire the rest.
 > `agent.delegate` and `workflow.run` outputs carry `detached`.
+
+> Amendment (RUN-26, 2026-09-12, D-77, D-78): the room's five routes. `GET /api/v1/conversations` (optionally
+> `?agent=`) lists threads newest first; `POST /api/v1/conversations` takes `{ agent, project?, title? }` and
+> refuses an agent or a project that does not exist; `GET /api/v1/conversations/:id` returns the thread — the
+> conversation, its `entries` (an `exchange` and a `pulse` are runs, a `decision` is the ledger's, answered in
+> place) and a `header` computed from what happened since `lastReadAt`, never written by a model;
+> `POST /api/v1/conversations/:id/messages` takes `{ message, provider? }` and answers `202 { runId,
+> conversationId }` — it starts the agent run it always started, with the thread's id on it, so it may do
+> exactly what starting that run may do and no more (SEC-47); `POST /api/v1/conversations/:id/read` moves
+> `lastReadAt` to now, which is what the header counts from.
