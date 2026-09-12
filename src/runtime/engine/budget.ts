@@ -57,10 +57,13 @@ export class RunBudget {
     private readonly own?: OwnCaps | undefined,
   ) {}
 
-  /** A budget for one step: its own limits, never wider than this one's, spending counted in both. */
-  child(override: BudgetOverride | undefined): RunBudget {
-    if (!override) return this;
-    return new RunBudget(narrowBudgets(this.limits, override), this.startedMs, this.spentTodayUsd, this.spentThisMonthUsd, this, this.own);
+  /**
+   * A budget for one step: its own limits, never wider than this one's, spending counted in both. A step run by an
+   * agent with caps of its own checks those too (SEC-46): a workflow does not take an agent past its day.
+   */
+  child(override: BudgetOverride | undefined, own?: OwnCaps | undefined): RunBudget {
+    if (!override && !own) return this;
+    return new RunBudget(narrowBudgets(this.limits, override), this.startedMs, this.spentTodayUsd, this.spentThisMonthUsd, this, own ?? this.own);
   }
 
   get wallClockMs(): number {

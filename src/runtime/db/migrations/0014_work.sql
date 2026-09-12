@@ -37,3 +37,8 @@ CREATE TABLE IF NOT EXISTS work_runs (
   at TEXT NOT NULL,
   PRIMARY KEY (item_id, run_id, role)
 );
+
+-- Whose caps a step spends against, and which step let a child go (SEC-46): an agent's own daily and monthly
+-- caps count its steps inside workflow runs and every run beneath those steps, not only its own runs.
+ALTER TABLE run_steps ADD COLUMN agent_id TEXT;
+ALTER TABLE runs ADD COLUMN parent_step_id TEXT;

@@ -197,6 +197,7 @@ export class Engine {
           file: (input) => this.work.file(input),
           list: (filter) => this.work.list(filter),
           update: (id, patch) => this.work.update(id, patch),
+          openByKey: (key) => this.work.openByKey(key),
           trustFor: (runId) => (this.taintFor(runId).externalTainted ? 'untrusted' : 'trusted'),
         },
         delegate: this.delegateHost(),
@@ -269,6 +270,7 @@ export class Engine {
     this.workflows = new WorkflowExecutor({
       db: deps.db, events: deps.events, workspace: deps.workspace, log: deps.log,
       artifacts, steps: this.steps, review: this.reviewHost(), tools: this.tools,
+      ownCaps: (agentId, budgets) => this.ownCapsOf(agentId, budgets).own,
     });
   }
 
@@ -694,9 +696,9 @@ export class Engine {
     const { own, narrowing } = this.ownCapsOf(agent.definition.id, agent.definition.budgets);
     const budgets = narrowBudgets(narrowBudgets(ws.config.budgets, narrowing), input.budget);
     const now = new Date().toISOString();
-    this.deps.db.prepare(`INSERT INTO runs (id, kind, state, agent_version, agent_id, project_id, parent_run_id, depth, inputs_json, budgets_json, spent_json, started_at)
-      VALUES (?, 'agent', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(runId, agent.version, agent.definition.id, input.project ?? null, input.parent?.runId ?? null, input.parent?.depth ?? 0,
+    this.deps.db.prepare(`INSERT INTO runs (id, kind, state, agent_version, agent_id, project_id, parent_run_id, parent_step_id, depth, inputs_json, budgets_json, spent_json, started_at)
+      VALUES (?, 'agent', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(runId, agent.version, agent.definition.id, input.project ?? null, input.parent?.runId ?? null, input.parent?.stepId ?? null, input.parent?.depth ?? 0,
         this.persist(input.inputs), this.persist(budgets), this.persist(EMPTY_SPENT), now);
     this.recordAgentVersion(agent, now);
     this.deps.events.append(runId, null, 'run-started', {
@@ -791,9 +793,9 @@ export class Engine {
     const budgets = narrowBudgets(narrowBudgets(ws.config.budgets, workflow.definition.budgets), input.budget);
     const now = new Date().toISOString();
     this.recordWorkflowVersion(workflow, now);
-    this.deps.db.prepare(`INSERT INTO runs (id, kind, state, workflow_version, workflow_id, project_id, parent_run_id, depth, inputs_json, budgets_json, spent_json, started_at)
-      VALUES (?, 'workflow', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(runId, workflow.version, workflow.definition.id, project ?? null, input.parent?.runId ?? null, input.parent?.depth ?? 0,
+    this.deps.db.prepare(`INSERT INTO runs (id, kind, state, workflow_version, workflow_id, project_id, parent_run_id, parent_step_id, depth, inputs_json, budgets_json, spent_json, started_at)
+      VALUES (?, 'workflow', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(runId, workflow.version, workflow.definition.id, project ?? null, input.parent?.runId ?? null, input.parent?.stepId ?? null, input.parent?.depth ?? 0,
         this.persist(inputs), this.persist(budgets), this.persist(EMPTY_SPENT), now);
     for (const agent of this.agentsOf(workflow)) this.recordAgentVersion(agent, now);
     this.deps.events.append(runId, null, 'run-started', {
@@ -1121,12 +1123,20 @@ export class Engine {
   spentSinceUsd(since: Date, agentId?: string): number {
     const row = (agentId === undefined
       ? this.deps.db.prepare('SELECT COALESCE(SUM(cost_usd), 0) AS total FROM model_calls WHERE ts >= ?').get(since.toISOString())
+      // The agent's runs; the children its steps inside workflow runs let go; everything beneath either; and
+      // the calls its steps inside workflow runs made themselves. Nothing another agent's step spent.
       : this.deps.db.prepare(`WITH RECURSIVE mine(id) AS (
             SELECT id FROM runs WHERE agent_id = ?
             UNION
+            SELECT r.id FROM runs r JOIN run_steps s ON s.run_id = r.parent_run_id AND s.step_id = r.parent_step_id WHERE s.agent_id = ?
+            UNION
             SELECT r.id FROM runs r JOIN mine ON r.parent_run_id = mine.id
           )
-          SELECT COALESCE(SUM(m.cost_usd), 0) AS total FROM model_calls m JOIN mine ON mine.id = m.run_id WHERE m.ts >= ?`).get(agentId, since.toISOString())) as { total: number };
+          SELECT COALESCE(SUM(m.cost_usd), 0) AS total FROM model_calls m
+          WHERE m.ts >= ? AND (
+            m.run_id IN (SELECT id FROM mine)
+            OR EXISTS (SELECT 1 FROM run_steps s WHERE s.run_id = m.run_id AND s.step_id = m.step_id AND s.agent_id = ?)
+          )`).get(agentId, agentId, since.toISOString(), agentId)) as { total: number };
     return row.total;
   }
 

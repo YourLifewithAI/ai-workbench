@@ -58,6 +58,31 @@ describe('SEC-46a an agent\'s own caps count every run beneath its runs', () => 
     expect(rt.runtime.engine.spentTodayUsd('companion')).toBeCloseTo(1.60, 6);
   });
 
+  it('a step inside a workflow run is the step agent\'s, and so is the child that step let go — nobody else\'s', () => {
+    // A workflow run has no agent of its own; its steps do. The companion's pulse step, and the weaver it let go
+    // from that step, are the companion's spend; the researcher's step in the same run is the researcher's.
+    rt.runtime.db.prepare(`INSERT INTO runs (id, kind, state, workflow_id, parent_run_id, depth, inputs_json, budgets_json, spent_json, started_at)
+      VALUES ('w1', 'workflow', 'completed', 'companion-pulse', NULL, 0, '{}', '{}', '{}', ?)`).run(new Date().toISOString());
+    for (const [step, agent] of [['pulse', 'companion'], ['answer', 'researcher'], ['facts', null]] as const) {
+      rt.runtime.db.prepare(`INSERT INTO run_steps (run_id, step_id, kind, state, agent_id) VALUES ('w1', ?, 'agent', 'completed', ?)`).run(step, agent);
+    }
+    rt.runtime.db.prepare(`INSERT INTO model_calls (id, run_id, step_id, model_id, adapter, prompt_version, agent_version, usage_json, cost_usd, latency_ms, finish_reason, ts)
+      VALUES ('m-w1-pulse', 'w1', 'pulse', 'anthropic/claude-sonnet-5', 'anthropic', 'p', 'a', '{}', 0.20, 1, 'stop', ?)`).run(new Date().toISOString());
+    rt.runtime.db.prepare(`INSERT INTO model_calls (id, run_id, step_id, model_id, adapter, prompt_version, agent_version, usage_json, cost_usd, latency_ms, finish_reason, ts)
+      VALUES ('m-w1-answer', 'w1', 'answer', 'anthropic/claude-sonnet-5', 'anthropic', 'p', 'a', '{}', 0.30, 1, 'stop', ?)`).run(new Date().toISOString());
+    // A child let go from the pulse step, and a grandchild beneath it.
+    rt.runtime.db.prepare(`INSERT INTO runs (id, kind, state, agent_id, parent_run_id, parent_step_id, depth, inputs_json, budgets_json, spent_json, started_at)
+      VALUES ('w1c', 'agent', 'completed', 'weaver', 'w1', 'pulse', 1, '{}', '{}', '{}', ?)`).run(new Date().toISOString());
+    run('w1g', 'synthesizer', 'w1c', 2);
+    spent('w1c', 0.05, 'm-w1c');
+    spent('w1g', 0.02, 'm-w1g');
+    const before = { companion: 1.60, researcher: 3.50, weaver: 0, synthesizer: 0.50 };
+    expect(rt.runtime.engine.spentTodayUsd('companion')).toBeCloseTo(before.companion + 0.20 + 0.05 + 0.02, 6);
+    expect(rt.runtime.engine.spentTodayUsd('researcher')).toBeCloseTo(before.researcher + 0.30, 6);
+    expect(rt.runtime.engine.spentTodayUsd('weaver')).toBeCloseTo(before.weaver + 0.05 + 0.02, 6);
+    expect(rt.runtime.engine.spentTodayUsd('synthesizer')).toBeCloseTo(before.synthesizer + 0.02, 6);
+  });
+
   it('the cap itself stops the orchestrator when its children have spent its month', async () => {
     // The workspace's daily cap would fire first; move it aside so the only cap in reach is the companion's own.
     expect((await api('PUT', '/settings', { budgets: { dailySpendCapUsd: 0 } })).status).toBe(202);

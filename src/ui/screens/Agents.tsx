@@ -220,7 +220,28 @@ function AgentCard({ agent: a, carried }: { agent: AgentSummary; carried: string
                 <div className="flex gap-2"><dt className="text-gray-600 dark:text-gray-400">Falls back to</dt><dd className="font-mono text-xs">{a.modelPolicy.fallbacks.join(', ')}</dd></div>
               ) : null}
               <div className="flex gap-2"><dt className="text-gray-600 dark:text-gray-400">Version</dt><dd className="break-all font-mono text-xs">{a.version.replace('sha256:', '').slice(0, 12)}</dd></div>
+              {a.spend ? (
+                <div className="flex gap-2" data-testid={`spend-${a.id}`}><dt className="text-gray-600 dark:text-gray-400">Spent</dt><dd className="font-mono text-xs">{spentLine(a.spend)}</dd></div>
+              ) : null}
+              {a.heartbeat ? (
+                <div className="flex gap-2" data-testid={`heartbeat-${a.id}`}><dt className="text-gray-600 dark:text-gray-400">Pulse</dt><dd className="text-xs">{heartbeatLine(a.heartbeat)}</dd></div>
+              ) : null}
             </dl>
           </Card>
   );
+}
+
+const money = (n: number): string => (n > 0 && n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`);
+
+/** "$0.42 today of $5 · $3.10 this month of $40": the agent's runs and every run beneath them, against its own caps. */
+function spentLine(spend: NonNullable<AgentSummary['spend']>): string {
+  const cap = (n: number | null): string => (n === null ? '' : ` of $${n}`);
+  return `${money(spend.todayUsd)} today${cap(spend.dailyCapUsd)} · ${money(spend.thisMonthUsd)} this month${cap(spend.monthlyCapUsd)}`;
+}
+
+/** The loop the agent runs on: when it next fires, or that it is off and where to turn it on. */
+function heartbeatLine(h: NonNullable<AgentSummary['heartbeat']>): string {
+  if (!h.enabled) return `${h.workflowName}, off — turn it on under Workflows`;
+  const next = h.nextFireAt ? new Date(h.nextFireAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : 'soon';
+  return `${h.workflowName}, next ${next}`;
 }

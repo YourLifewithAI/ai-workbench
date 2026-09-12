@@ -6,7 +6,7 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import {
-  RerunRequest, ApprovalDecisionRequest, CompareRequest, CreateWorkflowRequest, EstimateRequest, FindingDecisionRequest, SaveWorkflowRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetReposRequest, SetPriceRequest, SetEnabledRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type DeleteWorkflowResponse, type EstimateResponse, type SpendResponse, type PermissionFinding, type PermissionFindingsResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary, SaveProjectSpaceRequest, type ProjectSpaceResponse } from '../../shared/api/index.js';
+  RerunRequest, ApprovalDecisionRequest, CompareRequest, CreateWorkflowRequest, EstimateRequest, FindingDecisionRequest, SaveWorkflowRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetReposRequest, SetPriceRequest, SetEnabledRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type AgentHeartbeat, type AgentSpend, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type ScheduleSummary, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type DeleteWorkflowResponse, type EstimateResponse, type SpendResponse, type PermissionFinding, type PermissionFindingsResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary, SaveProjectSpaceRequest, type ProjectSpaceResponse } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
@@ -299,7 +299,8 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get('/api/v1/agents', (c) => {
     const ws = deps.workspace();
-    const body: AgentListResponse = { agents: [...ws.agents.values()].map((a) => agentSummary(a, deps.modelsNow(a.definition.modelPolicy))), errors: ws.brokenAgents };
+    const schedules = deps.scheduler.list();
+    const body: AgentListResponse = { agents: [...ws.agents.values()].map((a) => agentSummary(a, deps.modelsNow(a.definition.modelPolicy), onTheCard(a, ws, schedules, deps))), errors: ws.brokenAgents };
     return json(c, body);
   });
 
@@ -318,7 +319,7 @@ export function createApp(deps: AppDeps): Hono {
       return fail(c, 'not_found', broken ? `Agent "${id}" failed to load: ${broken.message}` : `Agent "${id}" does not exist in this workspace.`, 404);
     }
     const body: AgentDetail = {
-      ...agentSummary(agent, deps.modelsNow(agent.definition.modelPolicy)),
+      ...agentSummary(agent, deps.modelsNow(agent.definition.modelPolicy), onTheCard(agent, ws, deps.scheduler.list(), deps)),
       sections: agent.sections,
       instructionsSource: Array.isArray(agent.definition.instructions) ? 'inline' : 'file',
       documents: agent.definition.documents,
@@ -1431,7 +1432,7 @@ function budgetOverride(overrides: Record<string, unknown> | undefined): BudgetO
   return Object.keys(out).length ? out : undefined;
 }
 
-function agentSummary(agent: LoadedAgent, now: string[]): AgentSummary {
+function agentSummary(agent: LoadedAgent, now: string[], card: { heartbeat?: AgentHeartbeat | undefined; spend: AgentSpend }): AgentSummary {
   const d = agent.definition;
   return {
     id: d.id,
@@ -1442,6 +1443,33 @@ function agentSummary(agent: LoadedAgent, now: string[]): AgentSummary {
     tools: d.tools.map((t) => t.id),
     outputKind: d.output.kind,
     review: d.review,
+    ...(card.heartbeat ? { heartbeat: card.heartbeat } : {}),
+    spend: card.spend,
+  };
+}
+
+/**
+ * Two facts the owner reads off the card (RUN-24): what the agent has cost — its runs and every run beneath them,
+ * against its own caps — and the loop it runs on, if any: the schedule whose workflow's first agent step names it.
+ * An enabled schedule beats a paused one; the soonest to fire beats the rest.
+ */
+function onTheCard(agent: LoadedAgent, ws: Workspace, schedules: ScheduleSummary[], deps: AppDeps): { heartbeat?: AgentHeartbeat | undefined; spend: AgentSpend } {
+  const d = agent.definition;
+  const spend: AgentSpend = {
+    todayUsd: deps.engine.spentTodayUsd(d.id),
+    thisMonthUsd: deps.engine.spentThisMonthUsd(d.id),
+    dailyCapUsd: d.budgets?.dailySpendCapUsd ?? null,
+    monthlyCapUsd: d.budgets?.monthlySpendCapUsd ?? null,
+  };
+  const mine = schedules.filter((s) => {
+    const first = ws.workflows.get(s.workflowId)?.definition.steps.find((step) => step.kind === 'agent');
+    return first?.kind === 'agent' && first.agent === d.id;
+  }).sort((a, b) => Number(b.enabled) - Number(a.enabled) || (a.nextFireAt ?? '~').localeCompare(b.nextFireAt ?? '~'));
+  const s = mine[0];
+  if (!s) return { spend };
+  return {
+    spend,
+    heartbeat: { scheduleId: s.id, workflowId: s.workflowId, workflowName: ws.workflows.get(s.workflowId)?.definition.name ?? s.workflowId, cron: s.cron, enabled: s.enabled, nextFireAt: s.nextFireAt, lastFiredAt: s.lastFiredAt },
   };
 }
 

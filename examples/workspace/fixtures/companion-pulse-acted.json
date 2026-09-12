@@ -1,0 +1,41 @@
+{
+  "match": {
+    "systemIncludes": "Companion",
+    "lastUserIncludes": "\"decided\""
+  },
+  "respond": {
+    "text": "The owner answered. Staffing the weaver and letting it go.",
+    "toolCalls": [
+      {
+        "name": "agent.delegate",
+        "input": {
+          "agent": "weaver",
+          "input": "Write the arcology, part two: the city in one building, seen from the street. Part one is filed in the anthology project; read nothing else. One draft, filed, and stop.",
+          "wait": false,
+          "maxModelCalls": 4,
+          "maxCostUsd": 0.1
+        }
+      },
+      {
+        "name": "work.file",
+        "input": {
+          "title": "The weaver is writing the arcology, part two",
+          "detail": "Chosen by the owner on the last pulse; let go with $0.10.",
+          "kind": "task",
+          "state": "staffed",
+          "assignee": "weaver",
+          "key": "staff:next-piece"
+        }
+      },
+      {
+        "name": "work.update",
+        "input": {
+          "key": "next-piece",
+          "state": "done",
+          "note": "Acted on: the weaver is on part two."
+        }
+      }
+    ],
+    "usage": { "input": 1500, "output": 260 }
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "id": "companion-pulse",
+  "name": "The pulse",
+  "description": "Every two hours, the companion reads the facts and its ledger, then acts: staffs what is ready and lets it go, files what it found, marks what needs you, asks at most one question. A note per pulse in the companion project. Off until you turn it on; a pulse missed is not caught up — the next one reads the same state.",
+  "defaultProject": "companion",
+  "inputs": {
+    "type": "object",
+    "properties": {
+      "limit": {
+        "type": "integer",
+        "title": "Runs to look at",
+        "description": "The most recent runs the pulse reads.",
+        "default": 30,
+        "minimum": 1,
+        "maximum": 100
+      }
+    }
+  },
+  "steps": [
+    {
+      "id": "facts",
+      "kind": "tool",
+      "tool": "runs.facts",
+      "agent": "companion",
+      "input": {
+        "limit": "{{inputs.limit}}"
+      }
+    },
+    {
+      "id": "ledger",
+      "kind": "tool",
+      "tool": "work.list",
+      "agent": "companion",
+      "input": {
+        "state": "open"
+      }
+    },
+    {
+      "id": "pulse",
+      "kind": "agent",
+      "agent": "companion",
+      "input": "This is the pulse. Read the facts and the ledger, then act as your instructions say: what the owner answered, what is in flight, what is ready to staff, what you found, what only the owner can move. Then write the pulse note: what you did, what is in flight, what needs the owner. Short.\n\nThe facts:\n{{steps.facts.output}}\n\nThe ledger:\n{{steps.ledger.output}}",
+      "output": {
+        "document": "pulse/{{runId}}.md"
+      },
+      "budget": {
+        "maxModelCalls": 12,
+        "maxToolCalls": 30
+      }
+    }
+  ],
+  "outputs": {
+    "pulse": "{{steps.pulse.output}}"
+  },
+  "schedule": {
+    "cron": "0 */2 * * *",
+    "catchUp": "none",
+    "enabled": false
+  }
+}

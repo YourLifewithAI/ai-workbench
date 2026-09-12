@@ -131,6 +131,27 @@ export const AgentModelPolicy = z.object({
   now: z.array(z.string()).default([]),
 });
 
+/** The schedule that runs this agent on a loop (RUN-24, D-76): the one whose workflow's first agent step is this agent. */
+export const AgentHeartbeat = z.object({
+  scheduleId: z.string(),
+  workflowId: z.string(),
+  workflowName: z.string(),
+  cron: z.string(),
+  enabled: z.boolean(),
+  nextFireAt: z.string().nullable(),
+  lastFiredAt: z.string().nullable(),
+});
+export type AgentHeartbeat = z.infer<typeof AgentHeartbeat>;
+
+/** What this agent's runs, and every run beneath them, have cost — against its own caps when it has any (SEC-46). */
+export const AgentSpend = z.object({
+  todayUsd: z.number(),
+  thisMonthUsd: z.number(),
+  dailyCapUsd: z.number().nullable(),
+  monthlyCapUsd: z.number().nullable(),
+});
+export type AgentSpend = z.infer<typeof AgentSpend>;
+
 export const AgentSummary = z.object({
   id: z.string(),
   name: z.string(),
@@ -140,6 +161,8 @@ export const AgentSummary = z.object({
   tools: z.array(z.string()),
   outputKind: z.string(),
   review: z.string(),
+  heartbeat: AgentHeartbeat.optional(),
+  spend: AgentSpend.optional(),
 });
 export type AgentSummary = z.infer<typeof AgentSummary>;
 

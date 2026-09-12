@@ -16,6 +16,8 @@ export interface WorkToolDeps {
   file: (input: FileWorkInput) => { item: WorkItem; outcome: 'filed' | 'refreshed' };
   list: (filter: ListWorkFilter) => WorkItem[];
   update: (id: string, patch: UpdateWorkInput) => WorkItem | null;
+  /** The open item under a key, so the pulse can move what it filed by key without carrying ids between runs. */
+  openByKey: (key: string) => WorkItem | null;
   /** `untrusted` once the run has consumed external content (D-17): the item is shown as content, not as the orchestrator's word. */
   trustFor: (runId: string) => 'trusted' | 'untrusted';
 }
@@ -75,12 +77,13 @@ export function workTools(deps: WorkToolDeps): ToolDefinition[] {
     execute: async (input) => ({ ok: true, output: { items: deps.list({ ...input }).map(brief) } }),
   };
 
-  const update: ToolDefinition<{ id: string; state?: (typeof SET_STATES)[number] | undefined; assignee?: string | undefined; detail?: string | undefined; note?: string | undefined }, Record<string, unknown>> = {
+  const update: ToolDefinition<{ id?: string | undefined; key?: string | undefined; state?: (typeof SET_STATES)[number] | undefined; assignee?: string | undefined; detail?: string | undefined; note?: string | undefined }, Record<string, unknown>> = {
     id: 'work.update',
     version: '1.0.0',
     description: 'Move an item: staffed when you dispatched it, in-review when the work came back, done or dropped when it is settled, needs-you when only the owner can move it. Add a note about what happened. A decision is answered by the owner, never here.',
     input: z.object({
-      id: z.string(),
+      id: z.string().optional().describe('The item, by id.'),
+      key: z.string().max(200).optional().describe('Or the open item filed under this key.'),
       state: z.enum(SET_STATES).optional(),
       assignee: z.string().optional(),
       detail: z.string().max(4000).optional(),
@@ -90,12 +93,15 @@ export function workTools(deps: WorkToolDeps): ToolDefinition[] {
     tier: 'write',
     maxPermissions: NOTHING,
     execute: async (input, ctx) => {
-      const item = deps.update(input.id, {
+      if (!input.id && !input.key) return toolError('ToolError', 'Name the item: its id, or the key it was filed under.');
+      const id = input.id ?? deps.openByKey(input.key!)?.id;
+      if (!id) return toolError('NotFound', `There is no open work item under the key "${input.key}".`);
+      const item = deps.update(id, {
         ...(input.state ? { state: input.state } : {}), ...(input.assignee ? { assignee: input.assignee } : {}),
         ...(input.detail ? { detail: input.detail } : {}), ...(input.note ? { note: input.note } : {}),
         run: { runId: ctx.runId, role: input.state === 'staffed' ? 'staffed' : 'worked' },
       });
-      if (!item) return toolError('NotFound', `There is no work item "${input.id}".`);
+      if (!item) return toolError('NotFound', `There is no work item "${id}".`);
       return { ok: true, output: brief(item) };
     },
   };

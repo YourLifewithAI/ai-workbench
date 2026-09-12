@@ -14,7 +14,8 @@ let rt: Started;
 let weaverRun: string;
 let failedRun: string;
 const PLANTED = { task: 'PLANTED-TASK-8r2', output: 'PLANTED-OUTPUT-k5m', document: 'PLANTED-DOC-w9c' };
-const ORCHESTRATOR_TOOLS = ['agent.delegate', 'workflow.run', 'runs.facts', 'agents.read', 'runs.rate', 'artifact.read', 'artifact.write', 'memory.remember', 'memory.search', 'datetime'];
+// RUN-24 added the ledger's four: work.file, work.list, work.update, owner.ask.
+const ORCHESTRATOR_TOOLS = ['agent.delegate', 'workflow.run', 'runs.facts', 'agents.read', 'runs.rate', 'artifact.read', 'artifact.write', 'memory.remember', 'memory.search', 'datetime', 'work.file', 'work.list', 'work.update', 'owner.ask'];
 
 function fixture(dir: string, name: string, body: unknown): void {
   fs.writeFileSync(path.join(dir, 'fixtures', `${name}.json`), JSON.stringify(body, null, 2));
@@ -82,7 +83,7 @@ async function companion(input: string): Promise<{ runId: string; events: EventR
 const toolResult = (events: EventRecord[], tool: string): EventRecord => events.find((e) => e.type === 'tool-completed' && e.payload['tool'] === tool)!;
 
 describe('the companion as shipped', () => {
-  it('holds exactly the ten tools, none of which reads outside the workspace, and its caps are the constraint', async () => {
+  it('holds exactly the fourteen tools, none of which reads outside the workspace, and its caps are the constraint', async () => {
     const tools = (await (await api('GET', '/tools')).json()) as ToolsResponse;
     const held = tools.matrix.filter((c: GrantCell) => c.agentId === 'companion' && c.granted === 'allow').map((c) => c.toolId).sort();
     expect(held).toEqual([...ORCHESTRATOR_TOOLS].sort());

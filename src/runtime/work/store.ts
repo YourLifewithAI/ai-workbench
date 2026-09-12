@@ -59,8 +59,7 @@ export class WorkStore {
   file(input: FileWorkInput): { item: WorkItem; outcome: 'filed' | 'refreshed' } {
     const now = new Date().toISOString();
     if (input.key) {
-      const open = this.db.prepare(`SELECT * FROM work_items WHERE key = ? AND state IN (${OPEN_STATES.map(() => '?').join(',')}) ORDER BY created_at LIMIT 1`)
-        .get(input.key, ...OPEN_STATES) as Row | undefined;
+      const open = this.openRowByKey(input.key);
       if (open) {
         const trust = open.trust === 'untrusted' || input.trust === 'untrusted' ? 'untrusted' : 'trusted';
         this.db.prepare('UPDATE work_items SET title = ?, detail = ?, trust = ?, run_id = COALESCE(?, run_id), updated_at = ? WHERE id = ?')
@@ -76,6 +75,17 @@ export class WorkStore {
         input.options?.length ? JSON.stringify(input.options) : null, input.lean ?? null, now, now);
     if (input.runId) this.link(id, input.runId, 'filed', now);
     return { item: this.get(id)!, outcome: 'filed' };
+  }
+
+  /** The open item filed under a key, if any: what a refresh lands on, and what `work.update` may name by key. */
+  openByKey(key: string): WorkItem | null {
+    const row = this.openRowByKey(key);
+    return row ? this.get(row.id) : null;
+  }
+
+  private openRowByKey(key: string): Row | undefined {
+    return this.db.prepare(`SELECT * FROM work_items WHERE key = ? AND state IN (${OPEN_STATES.map(() => '?').join(',')}) ORDER BY created_at LIMIT 1`)
+      .get(key, ...OPEN_STATES) as Row | undefined;
   }
 
   get(id: string): WorkItem | null {
