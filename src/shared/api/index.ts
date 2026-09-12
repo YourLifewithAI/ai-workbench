@@ -626,6 +626,65 @@ export const SpendResponse = z.object({
 });
 export type SpendResponse = z.infer<typeof SpendResponse>;
 
+// ---- the ledger (D-75, RUN-24) --------------------------------------------------------------------
+
+export const WorkKind = z.enum(['task', 'bug', 'decision', 'note']);
+export type WorkKind = z.infer<typeof WorkKind>;
+export const WorkState = z.enum(['backlog', 'staffed', 'in-review', 'needs-you', 'decided', 'done', 'dropped']);
+export type WorkState = z.infer<typeof WorkState>;
+export const WorkOption = z.object({ id: z.string(), label: z.string(), detail: z.string().nullable() });
+export type WorkOption = z.infer<typeof WorkOption>;
+
+/** One row of the ledger the orchestrator keeps. Text here is content with the trust of the run that wrote it. */
+export const WorkItem = z.object({
+  id: z.string(),
+  kind: WorkKind,
+  project: z.string().nullable(),
+  title: z.string(),
+  detail: z.string().nullable(),
+  state: WorkState,
+  assignee: z.string().nullable(),
+  key: z.string().nullable(),
+  /** `untrusted` when the run that wrote it had read outside the workspace (D-17): shown as content, not as its word. */
+  trust: z.enum(['trusted', 'untrusted']),
+  runId: z.string().nullable(),
+  /** A decision's options, the orchestrator's lean (an option id), and the person's answer. */
+  options: z.array(WorkOption),
+  lean: z.string().nullable(),
+  answer: z.string().nullable(),
+  note: z.string().nullable(),
+  runs: z.array(z.object({ runId: z.string(), role: z.string(), at: z.string() })),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  decidedAt: z.string().nullable(),
+});
+export type WorkItem = z.infer<typeof WorkItem>;
+
+export const WorkListResponse = z.object({ items: z.array(WorkItem) });
+export type WorkListResponse = z.infer<typeof WorkListResponse>;
+
+/** A person filing an item: trusted, from no run. */
+export const FileWorkRequest = z.object({
+  kind: WorkKind.exclude(['decision']).default('task'),
+  project: z.string().nullable().optional(),
+  title: z.string().min(1).max(200),
+  detail: z.string().max(4000).optional(),
+  state: WorkState.exclude(['decided']).default('backlog'),
+  assignee: z.string().optional(),
+  key: z.string().max(200).optional(),
+});
+export type FileWorkRequest = z.infer<typeof FileWorkRequest>;
+
+/** A person moving an item or answering a decision. An answer on a decision is what makes it `decided`. */
+export const UpdateWorkRequest = z.object({
+  state: WorkState.optional(),
+  assignee: z.string().nullable().optional(),
+  detail: z.string().max(4000).optional(),
+  answer: z.string().max(600).optional(),
+  note: z.string().max(2000).optional(),
+});
+export type UpdateWorkRequest = z.infer<typeof UpdateWorkRequest>;
+
 export const DashboardResponse = z.object({
   /** Blocking gates: a run is standing still until one of these is decided. */
   needsYou: z.array(ReviewItem),
@@ -646,6 +705,10 @@ export const DashboardResponse = z.object({
   networkMode: z.string(),
   /** How many of the permissions review's findings are open (F8). Nothing is blocked by them; Review decides each. */
   findings: z.number().int().nonnegative().default(0),
+  /** Decisions the orchestrator put to you (D-75): options, its lean, one click to answer. */
+  decisions: z.array(WorkItem).default([]),
+  /** The ledger at a glance, and the open items newest first. */
+  work: z.object({ open: z.number().int().nonnegative(), needsYou: z.number().int().nonnegative(), items: z.array(WorkItem) }).default({ open: 0, needsYou: 0, items: [] }),
 });
 export type DashboardResponse = z.infer<typeof DashboardResponse>;
 

@@ -30,7 +30,7 @@ import { validateWorkflow, type LoadedWorkflow } from '../../shared/workflow.js'
 import { WorkflowWriteError } from '../workspace/workflows.js';
 import { toolSpec } from '../../shared/tool.js';
 import { z } from 'zod';
-import { PushEventKind } from '../../shared/api/index.js';
+import { FileWorkRequest, PushEventKind, UpdateWorkRequest, type WorkKind, type WorkState } from '../../shared/api/index.js';
 import type { BudgetOverride } from '../engine/budget.js';
 import { SpaceWriteError } from '../workspace/spaces.js';
 
@@ -617,6 +617,50 @@ export function createApp(deps: AppDeps): Hono {
       ? json(c, { deleted: true })
       : fail(c, 'not_found', `There is no schedule with id "${c.req.param('id')}".`, 404));
 
+  // ---- the ledger (D-75) ------------------------------------------------------------------------
+  app.get('/api/v1/work', (c) => {
+    const state = c.req.query('state');
+    const kind = c.req.query('kind');
+    const items = deps.engine.work.list({
+      ...(state ? { state: state as WorkState | 'open' | 'all' } : {}),
+      ...(c.req.query('project') ? { project: c.req.query('project')! } : {}),
+      ...(kind ? { kind: kind as WorkKind } : {}),
+      ...(c.req.query('assignee') ? { assignee: c.req.query('assignee')! } : {}),
+    });
+    return json(c, { items });
+  });
+
+  // A person files: trusted, from no run.
+  app.post('/api/v1/work', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = FileWorkRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'A work item is { title, detail?, kind?, project?, state?, assignee?, key? }.', 400, parsed.error.issues);
+    const { item, outcome } = deps.engine.work.file({
+      kind: parsed.data.kind, project: parsed.data.project ?? null, title: parsed.data.title, detail: parsed.data.detail ?? null,
+      state: parsed.data.state, assignee: parsed.data.assignee ?? null, key: parsed.data.key ?? null, trust: 'trusted', runId: null,
+    });
+    return json(c, { ...item, outcome }, outcome === 'filed' ? 201 : 200);
+  });
+
+  // A person moves an item or answers a decision — the only way a decision gets an answer.
+  app.put('/api/v1/work/:id', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = UpdateWorkRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'Expected some of { state, assignee, detail, answer, note }.', 400, parsed.error.issues);
+    const item = deps.engine.work.update(c.req.param('id'), parsed.data);
+    return item ? json(c, item) : fail(c, 'not_found', `There is no work item "${c.req.param('id')}".`, 404);
+  });
+
   // What needs you, what is running, and what today cost (ui.md §Dashboard).
   app.get('/api/v1/dashboard', (c) => {
     const runs = deps.engine.listRuns({ limit: 200 });
@@ -638,6 +682,8 @@ export function createApp(deps: AppDeps): Hono {
       schedules: deps.scheduler.list().filter((s) => s.enabled).slice(0, 10),
       networkMode: deps.workspace().config.network.mode,
       findings: deps.findings.list('open').length,
+      decisions: deps.engine.work.list({ state: 'needs-you', kind: 'decision' }),
+      work: { ...deps.engine.work.counts(), items: deps.engine.work.list({ state: 'open', limit: 20 }) },
     };
     return json(c, body);
   });

@@ -23,6 +23,7 @@ import { searchProvider, type MockSearchFixture } from '../search/index.js';
 import { RunTaint } from './taint.js';
 import { MemoryStore } from '../memory/store.js';
 import { EvaluationStore } from '../evaluation/store.js';
+import { WorkStore } from '../work/store.js';
 import { ExperimentRunner } from '../evaluation/runner.js';
 import { DEFAULT_LIMITS, type Sandbox } from '../sandbox/deno.js';
 import type { McpHost } from '../mcp/host.js';
@@ -135,6 +136,8 @@ export class Engine {
   readonly tools: ToolExecutor;
   readonly memory: MemoryStore;
   readonly evaluation: EvaluationStore;
+  /** The ledger the orchestrator keeps (D-75). */
+  readonly work: WorkStore;
   readonly experiments: ExperimentRunner;
   private push: { notify: (kind: PushEventKind, ids: { id: string; runId: string }) => Promise<unknown> } | null = null;
 
@@ -155,6 +158,7 @@ export class Engine {
     this.approvals = new ApprovalStore(deps.db, () => deps.now?.() ?? new Date());
     this.memory = new MemoryStore(deps.db, deps.events);
     this.evaluation = new EvaluationStore(deps.db);
+    this.work = new WorkStore(deps.db);
     // Closes over `this` like the tool hosts: an experiment starts ordinary runs, so every trial has a trace.
     this.experiments = new ExperimentRunner({
       db: deps.db, log: deps.log, store: this.evaluation,
@@ -187,6 +191,12 @@ export class Engine {
         workspaceDir: deps.workspace().paths.dir,
         permissionsReview: deps.permissionsReview,
         orchestrator: this.orchestratorHost(),
+        work: {
+          file: (input) => this.work.file(input),
+          list: (filter) => this.work.list(filter),
+          update: (id, patch) => this.work.update(id, patch),
+          trustFor: (runId) => (this.taintFor(runId).externalTainted ? 'untrusted' : 'trusted'),
+        },
         delegate: this.delegateHost(),
         workflowRun: this.workflowRunHost(),
         permissions: this.permissionRequestHost(),

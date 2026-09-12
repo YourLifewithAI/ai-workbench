@@ -12,6 +12,7 @@ import { codeTools, type CodeToolDeps } from './builtin/code.js';
 import { repoTools } from './builtin/repo.js';
 import { permissionsTools, type PermissionsToolDeps } from './builtin/permissions.js';
 import { orchestratorTools, type OrchestratorToolDeps } from './builtin/orchestrator.js';
+import { workTools, type WorkToolDeps } from './builtin/work.js';
 
 export interface RegistryDeps {
   artifacts: ArtifactStore;
@@ -35,6 +36,8 @@ export interface RegistryDeps {
   permissionsReview?: PermissionsToolDeps | undefined;
   /** The orchestrator's read tools (RUN-23): run facts and agent definitions, never content or a grant. */
   orchestrator?: OrchestratorToolDeps | undefined;
+  /** The ledger's tools (RUN-24): items and decisions, never a path, a host or a credential. */
+  work?: WorkToolDeps | undefined;
 }
 
 export function builtinTools(deps: RegistryDeps): Map<string, ToolDefinition> {
@@ -54,6 +57,7 @@ export function builtinTools(deps: RegistryDeps): Map<string, ToolDefinition> {
     ...repoTools(),
     ...(deps.permissionsReview ? permissionsTools(deps.permissionsReview) : []),
     ...(deps.orchestrator ? orchestratorTools(deps.orchestrator) : []),
+    ...(deps.work ? workTools(deps.work) : []),
   ];
   return new Map(tools.map((t) => [t.id, t]));
 }
