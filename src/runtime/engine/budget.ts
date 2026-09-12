@@ -57,10 +57,13 @@ export class RunBudget {
     private readonly own?: OwnCaps | undefined,
   ) {}
 
-  /** A budget for one step: its own limits, never wider than this one's, spending counted in both. */
-  child(override: BudgetOverride | undefined): RunBudget {
-    if (!override) return this;
-    return new RunBudget(narrowBudgets(this.limits, override), this.startedMs, this.spentTodayUsd, this.spentThisMonthUsd, this, this.own);
+  /**
+   * A budget for one step: its own limits, never wider than this one's, spending counted in both. A step run by an
+   * agent with caps of its own checks those too (SEC-46): a workflow does not take an agent past its day.
+   */
+  child(override: BudgetOverride | undefined, own?: OwnCaps | undefined): RunBudget {
+    if (!override && !own) return this;
+    return new RunBudget(narrowBudgets(this.limits, override), this.startedMs, this.spentTodayUsd, this.spentThisMonthUsd, this, own ?? this.own);
   }
 
   get wallClockMs(): number {
@@ -80,6 +83,17 @@ export class RunBudget {
   recordToolCall(): void {
     this.spent.toolCalls += 1;
     this.parent?.recordToolCall();
+  }
+
+  /**
+   * What a child cost, or what a detached child was given (D-76): counted here as if this run had spent it, so
+   * the harness line, the 80% warning and the next carve all see it. A reservation is charged at dispatch and
+   * never refunded — the money was committed the moment the child was let go.
+   */
+  charge(modelCalls: number, costUsd: number): void {
+    this.spent.modelCalls += modelCalls;
+    this.spent.costUsd = round(this.spent.costUsd + costUsd);
+    this.parent?.charge(modelCalls, costUsd);
   }
 
   /** Budgets that just crossed 80% and have not been warned about yet. Each warns once (D-14). */

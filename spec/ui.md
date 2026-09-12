@@ -202,3 +202,11 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > owner's word, named as project/path, with *Use no page*. **Library** — a document whose latest version a run
 > wrote says so under its title and offers **Approve as written**: one click saves the same text as a human
 > version, which is what makes it the owner's word again where it is read as goals or as the page.
+
+> Amendment (RUN-24, 2026-09-12, D-75, D-76): **Dashboard** — under *Needs you*, each open decision is a card
+> (`decision-<id>`): the question, the agent's case, the options as buttons with the agent's lean marked, an
+> optional note; one click answers it and the next pulse reads the answer. A *Work* list follows, open items
+> with their state and whose words they carry; the *Needs you* empty state counts decisions. **Agents** — the
+> card gains *Spent* ("$0.42 today of $5 · $3.10 this month of $40", the agent's runs and every run beneath
+> them) and *Pulse* (the loop it runs on: "The pulse, next Thu 14:00", or "The pulse, off — turn it on under
+> Workflows").

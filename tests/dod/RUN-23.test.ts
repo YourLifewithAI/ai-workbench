@@ -14,7 +14,8 @@ let rt: Started;
 let weaverRun: string;
 let failedRun: string;
 const PLANTED = { task: 'PLANTED-TASK-8r2', output: 'PLANTED-OUTPUT-k5m', document: 'PLANTED-DOC-w9c' };
-const ORCHESTRATOR_TOOLS = ['agent.delegate', 'workflow.run', 'runs.facts', 'agents.read', 'runs.rate', 'artifact.read', 'artifact.write', 'memory.remember', 'memory.search', 'datetime'];
+// RUN-24 added the ledger's four: work.file, work.list, work.update, owner.ask.
+const ORCHESTRATOR_TOOLS = ['agent.delegate', 'workflow.run', 'runs.facts', 'agents.read', 'runs.rate', 'artifact.read', 'artifact.write', 'memory.remember', 'memory.search', 'datetime', 'work.file', 'work.list', 'work.update', 'owner.ask'];
 
 function fixture(dir: string, name: string, body: unknown): void {
   fs.writeFileSync(path.join(dir, 'fixtures', `${name}.json`), JSON.stringify(body, null, 2));
@@ -53,14 +54,17 @@ beforeAll(async () => {
     respond: { text: 'Running it, tightly.', toolCalls: [{ name: 'workflow.run', input: { workflow: 'ask', inputs: { question: 'What is the arcology?' }, maxModelCalls: 1 } }] } });
   fixture(ws, 'b5-companion-workflow', { match: { systemIncludes: 'Companion', lastUserIncludes: 'Run the ask workflow' },
     respond: { text: 'Running it.', toolCalls: [{ name: 'workflow.run', input: { workflow: 'ask', inputs: { question: 'What is the arcology?' } } }] } });
+  fixture(ws, 'a5-echo-refused', { match: { lastUserIncludes: 'NEVER-SENT' }, respond: { error: 'ContentFilter' } });
   rt = await startRuntime(ws, { providerOverride: 'mock', noScheduler: true });
 
   const wove = rt.runtime.engine.startAgentRun({ agentId: 'weaver', inputs: { input: `Write the ${PLANTED.task} note.` }, project: 'anthology' });
   await wove.done;
   weaverRun = wove.runId;
   expect(rt.runtime.engine.getRun(weaverRun)?.state).toBe('completed');
-  // A run that fails: no time at all, so it stops before its first model call and is filed as failed.
-  const failing = rt.runtime.engine.startAgentRun({ agentId: 'echo', inputs: { input: 'never sent' }, budget: { maxWallClockMs: 1 } });
+  // A run that fails, so `failing:` has something to name. It used to be a one-millisecond wall clock, which a
+  // fast machine beats: the check is `elapsed >= 1`, and a run that reaches its first model call inside the same
+  // millisecond is correctly inside its budget. CI caught that on ubuntu. A model that refuses is deterministic.
+  const failing = rt.runtime.engine.startAgentRun({ agentId: 'echo', inputs: { input: 'NEVER-SENT: the model refuses this one.' } });
   await failing.done;
   failedRun = failing.runId;
   expect(rt.runtime.engine.getRun(failedRun)?.state).toBe('failed');
@@ -82,7 +86,7 @@ async function companion(input: string): Promise<{ runId: string; events: EventR
 const toolResult = (events: EventRecord[], tool: string): EventRecord => events.find((e) => e.type === 'tool-completed' && e.payload['tool'] === tool)!;
 
 describe('the companion as shipped', () => {
-  it('holds exactly the ten tools, none of which reads outside the workspace, and its caps are the constraint', async () => {
+  it('holds exactly the fourteen tools, none of which reads outside the workspace, and its caps are the constraint', async () => {
     const tools = (await (await api('GET', '/tools')).json()) as ToolsResponse;
     const held = tools.matrix.filter((c: GrantCell) => c.agentId === 'companion' && c.granted === 'allow').map((c) => c.toolId).sort();
     expect(held).toEqual([...ORCHESTRATOR_TOOLS].sort());

@@ -135,7 +135,12 @@ describe('SEC-41 no run can point the page anywhere', () => {
   it('the setting is behind the token and the origin check, and the catalogue has no tool for it', async () => {
     expect((await fetch(`${rt.baseUrl}/api/v1/settings`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ owner: { profile: null } }) })).status).toBe(401);
     expect((await fetch(`${rt.baseUrl}/api/v1/settings`, { method: 'PUT', headers: { ...headers(), Origin: 'http://evil.example' }, body: JSON.stringify({ owner: { profile: null } }) })).status).toBe(403);
-    for (const tool of rt.runtime.engine.tools.catalog()) expect(tool.id, tool.id).not.toMatch(/settings|owner|profile/);
+    // No tool touches settings or the page. (`owner.ask`, RUN-24, asks the owner a question; its schema names no
+    // profile and it writes a ledger row, never a setting.)
+    for (const tool of rt.runtime.engine.tools.catalog()) {
+      expect(tool.id, tool.id).not.toMatch(/settings|profile/);
+      expect(JSON.stringify(tool.input), `${tool.id} takes no page`).not.toMatch(/owner\.profile|"profile"/);
+    }
     // And the page is still where the owner put it.
     expect(rt.runtime.workspace.config.owner.profile).toBe('companion/about.md');
   });

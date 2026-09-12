@@ -5,13 +5,13 @@ import { describeCron } from '../lib/cron';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { money } from '../../shared/summary.js';
-import type { DashboardResponse } from '../../shared/api/index.js';
+import type { DashboardResponse, WorkItem } from '../../shared/api/index.js';
 import { api } from '../lib/api.js';
 import { ApprovalCard } from '../components/ApprovalCard.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { RunningRuns } from '../components/RunningRuns.js';
 import { Button } from '../components/ui/button.js';
-import { Card } from '../components/ui/card.js';
+import { Badge, Card } from '../components/ui/card.js';
 import { useLiveRuns } from './Runs.js';
 import { ScreenTitle, SectionTitle, Subheading } from '../components/ui/text.js';
 
@@ -24,6 +24,10 @@ export function Dashboard() {
   const offline = useMutation({ mutationFn: () => api.setNetworkMode('offline'), onSuccess: () => client.invalidateQueries() });
   const decide = useMutation({
     mutationFn: (input: { batchId: string; decision: 'allow' | 'deny' }) => api.decideApproval(input.batchId, input.decision),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }),
+  });
+  const answer = useMutation({
+    mutationFn: (input: { id: string; answer: string }) => api.updateWork(input.id, { answer: input.answer }),
     onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }),
   });
 
@@ -72,7 +76,7 @@ export function Dashboard() {
               Keys: <kbd className="font-mono">a</kbd> allow · <kbd className="font-mono">d</kbd> deny · <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> move.
             </p>
           ) : null}
-          {d.approvals.length === 0 && d.needsYou.length === 0 && d.failed.length === 0 ? (
+          {d.approvals.length === 0 && d.needsYou.length === 0 && d.failed.length === 0 && d.decisions.length === 0 ? (
             <div className="mt-2">
               <EmptyState title={waitingTitle(d)}>
                 {d.unreviewed > 0 || d.findings > 0
@@ -99,6 +103,10 @@ export function Dashboard() {
                   </Card>
                 </li>
               ))}
+              {/* Decisions the orchestrator put to you (D-75): its options, its lean, one click. Nothing waits on them. */}
+              {d.decisions.map((w) => (
+                <li key={w.id}><DecisionCard item={w} onAnswer={(a) => answer.mutate({ id: w.id, answer: a })} pending={answer.isPending} /></li>
+              ))}
               {d.failed.map((r) => (
                 <li key={r.id}>
                   <Card className="border-l-4 border-l-red-600 dark:border-l-red-400">
@@ -123,6 +131,18 @@ export function Dashboard() {
             </p>
           ) : null}
           {resume.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{resume.error.message}</p> : null}
+          {answer.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{answer.error.message}</p> : null}
+
+          {/* The ledger (D-75): what the orchestrator has filed, staffed and settled, newest first. */}
+          <SectionTitle className="mt-8">Work</SectionTitle>
+          {d.work.items.length === 0 ? (
+            <p className="mt-2 text-sm text-gray-700 dark:text-gray-300" data-testid="work-empty">Nothing on the ledger. The companion files work here as it directs the village; so can you.</p>
+          ) : (
+            <ul className="mt-2 space-y-1" data-testid="work-list">
+              {d.work.items.map((w) => <li key={w.id}><WorkRow item={w} /></li>)}
+            </ul>
+          )}
+          {d.work.open > d.work.items.length ? <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">{d.work.open} open in all.</p> : null}
 
           <SectionTitle className="mt-8">Running</SectionTitle>
           {d.running.length === 0 ? (
@@ -202,4 +222,47 @@ function waitingTitle(d: DashboardResponse): string {
   if (d.unreviewed > 0) return `Nothing is blocked. ${d.unreviewed} output${d.unreviewed === 1 ? '' : 's'} would like a rating when you have a moment.`;
   if (d.findings > 0) return 'Nothing is blocked.';
   return 'Nothing is waiting on you.';
+}
+
+/** One decision as a card: the question, the case, the options as buttons, the orchestrator's lean marked (D-75). */
+function DecisionCard({ item, onAnswer, pending }: { item: WorkItem; onAnswer: (answer: string) => void; pending: boolean }) {
+  return (
+    <Card className="border-l-4 border-l-blue-700 dark:border-l-sky-400" data-testid={`decision-${item.id}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <Subheading as="h3">{item.title}</Subheading>
+          {item.detail ? <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">{item.detail}</p> : null}
+        </div>
+        <div className="flex gap-2">
+          <Badge tone="busy">decision</Badge>
+          {item.trust === 'untrusted' ? <Badge tone="neutral">written by a run that read outside</Badge> : null}
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {item.options.map((o) => (
+          <Button key={o.id} size="sm" variant={o.id === item.lean ? 'default' : 'secondary'} onClick={() => onAnswer(o.id)} disabled={pending} title={o.detail ?? undefined}>
+            {o.label}{o.id === item.lean ? ' (its lean)' : ''}<span className="sr-only"> — answer to: {item.title}</span>
+          </Button>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+const STATE_TONE: Record<WorkItem['state'], 'good' | 'bad' | 'busy' | 'neutral'> = {
+  backlog: 'neutral', staffed: 'busy', 'in-review': 'busy', 'needs-you': 'bad', decided: 'good', done: 'good', dropped: 'neutral',
+};
+
+function WorkRow({ item }: { item: WorkItem }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <Badge tone={STATE_TONE[item.state]}>{item.state}</Badge>
+      <span className="font-medium">{item.title}</span>
+      <span className="text-xs text-gray-600 dark:text-gray-400">
+        {item.kind}{item.project ? ` · ${item.project}` : ''}{item.assignee ? ` · ${item.assignee}` : ''}
+        {item.trust === 'untrusted' ? ' · written by a run that read outside' : ''}
+        {item.answer ? ` · answered: ${item.options.find((o) => o.id === item.answer)?.label ?? item.answer}` : ''}
+      </span>
+    </div>
+  );
 }

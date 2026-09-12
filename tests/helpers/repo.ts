@@ -121,12 +121,22 @@ export function protocolRepo(prefix: string, gate?: string): FixtureRepo {
 }
 
 export const MECHANIC = 'The Mechanic';
+export const REVIEWER = 'The Reviewer';
+/** What the mock reviewer says of the plan: nothing wrong, unless a case scripts otherwise (RUN-24). */
+export const PLAN_PROCEED = JSON.stringify({ verdict: 'proceed', issues: [] });
+export const PLAN_REVISE = JSON.stringify({ verdict: 'revise', issues: ['Item 2 (check passes) has no step that reads the gate output', 'README.md is in Reads and the plan never opens it'] });
 export const PLAN = JSON.stringify({ run: '99', name: 'fixture', branch: 'run/99-fixture', items: ['1. src/app.js exports state = "fixed"', '2. check passes'], files: ['src/app.js'], plan: 'Fix the constant, run the gate, commit.' });
 export const HANDOFF = '# RUN-99 handoff — fixture\n\n## Built\n- `src/app.js` — the state is fixed.\n\n## Verification transcript\n(quoted below by the workflow)\n\n## Known gaps\n- none\n';
 export const HANDOFF_UNMET = '# RUN-99 handoff — fixture\n\n## Built\n- `src/app.js` — an attempt.\n\n## Verification transcript\n(quoted below by the workflow)\n\n## Known gaps\n- 1. the state is still not fixed\n- 2. check does not pass\n';
 
-/** The Mechanic through every step of `coding-run` but implement, which each case scripts its own way. */
-export function protocolScripts(ws: string, handoff = HANDOFF): void {
+/**
+ * The Mechanic through every step of `coding-run` but implement, which each case scripts its own way; and the
+ * Reviewer's plan review (RUN-24), which says proceed unless the case says otherwise — revise parks the run at
+ * plan-check with the Mechanic's note.
+ */
+export function protocolScripts(ws: string, handoff = HANDOFF, planReview = PLAN_PROCEED): void {
+  script(ws, REVIEWER, 'PLANREVIEW', [{ when: 'The Mechanic\'s plan for this brief', text: planReview }]);
+  script(ws, MECHANIC, 'PLANCHECK', [{ when: 'asked for a revision', text: 'The reviewer asked for a revision.\n- Item 2: add a step that reads the end of the check output.\n- README.md: open it before the edit.' }]);
   script(ws, MECHANIC, 'READ', [
     { when: 'Answer with JSON only', text: 'Reading.', calls: [{ name: 'repo.read', input: { path: 'AGENTS.md' } }, { name: 'repo.read', input: { path: 'STATUS.md' } }, { name: 'repo.read', input: { path: 'spec/runs/RUN-99.md' } }] },
     { when: 'Answer with JSON only', after: 'repo.read', text: PLAN },

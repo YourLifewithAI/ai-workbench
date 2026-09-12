@@ -256,7 +256,8 @@ function detectSmells(workflow: Workflow, steps: Map<string, Step>, edges: Map<s
     }
   }
 
-  // An artifact handed through more than two agents in sequence tends to drift from the original intent.
+  // An artifact handed through more than two agents in sequence tends to drift from the original intent. A
+  // reviewer reads the work and answers with a verdict; it does not hand the work on, so it is not a link.
   const depth = new Map<string, number>();
   const chainOf = (id: string): number => {
     if (depth.has(id)) return depth.get(id)!;
@@ -264,7 +265,7 @@ function detectSmells(workflow: Workflow, steps: Map<string, Step>, edges: Map<s
     const step = steps.get(id);
     const parents = [...(edges.get(id) ?? [])].filter((p) => steps.get(p)?.kind !== 'tool');
     const longest = parents.length ? Math.max(...parents.map(chainOf)) : 0;
-    const value = step && step.kind !== 'tool' ? longest + 1 : longest;
+    const value = step && step.kind !== 'tool' && !looksLikeReview(step) ? longest + 1 : longest;
     depth.set(id, value);
     return value;
   };
@@ -275,16 +276,20 @@ function detectSmells(workflow: Workflow, steps: Map<string, Step>, edges: Map<s
   }
 
   for (const step of workflow.steps) {
-    if (step.kind !== 'agent') continue;
-    const looksLikeReview = /review|judge|critic|verify|check/i.test(step.id) || /review|judge|critic/i.test(step.agent);
-    if (!looksLikeReview) continue;
-    const hasRejectPath = workflow.steps.some((other) => other.when && other.when.includes(`steps.${step.id}`));
+    if (!looksLikeReview(step)) continue;
+    // A later step that branches on the verdict, or a person: a blocking review is the branch, with its onReject.
+    const hasRejectPath = step.review === 'blocking' || workflow.steps.some((other) => other.when && other.when.includes(`steps.${step.id}`));
     if (!hasRejectPath) {
       smells.push({ stepId: step.id, message: 'This step looks like a reviewer, but nothing branches on what it decides — its verdict is recorded and then ignored. Add a `when` on a later step, or drop it.' });
     }
   }
 
   return smells;
+}
+
+/** An agent step that judges rather than makes, by its name or its agent's: its verdict should gate something. */
+function looksLikeReview(step: Step): step is Extract<Step, { kind: 'agent' }> {
+  return step.kind === 'agent' && (/review|judge|critic|verify|check/i.test(step.id) || /review|judge|critic/i.test(step.agent));
 }
 
 /** A map item's step id, so its row and its events are addressable: `drafts[0]`. */

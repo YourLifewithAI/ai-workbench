@@ -6,7 +6,7 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import {
-  RerunRequest, ApprovalDecisionRequest, CompareRequest, CreateWorkflowRequest, EstimateRequest, FindingDecisionRequest, SaveWorkflowRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetReposRequest, SetPriceRequest, SetEnabledRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type DeleteWorkflowResponse, type EstimateResponse, type SpendResponse, type PermissionFinding, type PermissionFindingsResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary, SaveProjectSpaceRequest, type ProjectSpaceResponse } from '../../shared/api/index.js';
+  RerunRequest, ApprovalDecisionRequest, CompareRequest, CreateWorkflowRequest, EstimateRequest, FindingDecisionRequest, SaveWorkflowRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetReposRequest, SetPriceRequest, SetEnabledRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type AgentHeartbeat, type AgentSpend, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type ScheduleSummary, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type DeleteWorkflowResponse, type EstimateResponse, type SpendResponse, type PermissionFinding, type PermissionFindingsResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary, SaveProjectSpaceRequest, type ProjectSpaceResponse } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
@@ -30,7 +30,7 @@ import { validateWorkflow, type LoadedWorkflow } from '../../shared/workflow.js'
 import { WorkflowWriteError } from '../workspace/workflows.js';
 import { toolSpec } from '../../shared/tool.js';
 import { z } from 'zod';
-import { PushEventKind } from '../../shared/api/index.js';
+import { FileWorkRequest, PushEventKind, UpdateWorkRequest, type WorkKind, type WorkState } from '../../shared/api/index.js';
 import type { BudgetOverride } from '../engine/budget.js';
 import { SpaceWriteError } from '../workspace/spaces.js';
 
@@ -299,7 +299,8 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get('/api/v1/agents', (c) => {
     const ws = deps.workspace();
-    const body: AgentListResponse = { agents: [...ws.agents.values()].map((a) => agentSummary(a, deps.modelsNow(a.definition.modelPolicy))), errors: ws.brokenAgents };
+    const schedules = deps.scheduler.list();
+    const body: AgentListResponse = { agents: [...ws.agents.values()].map((a) => agentSummary(a, deps.modelsNow(a.definition.modelPolicy), onTheCard(a, ws, schedules, deps))), errors: ws.brokenAgents };
     return json(c, body);
   });
 
@@ -318,7 +319,7 @@ export function createApp(deps: AppDeps): Hono {
       return fail(c, 'not_found', broken ? `Agent "${id}" failed to load: ${broken.message}` : `Agent "${id}" does not exist in this workspace.`, 404);
     }
     const body: AgentDetail = {
-      ...agentSummary(agent, deps.modelsNow(agent.definition.modelPolicy)),
+      ...agentSummary(agent, deps.modelsNow(agent.definition.modelPolicy), onTheCard(agent, ws, deps.scheduler.list(), deps)),
       sections: agent.sections,
       instructionsSource: Array.isArray(agent.definition.instructions) ? 'inline' : 'file',
       documents: agent.definition.documents,
@@ -617,6 +618,50 @@ export function createApp(deps: AppDeps): Hono {
       ? json(c, { deleted: true })
       : fail(c, 'not_found', `There is no schedule with id "${c.req.param('id')}".`, 404));
 
+  // ---- the ledger (D-75) ------------------------------------------------------------------------
+  app.get('/api/v1/work', (c) => {
+    const state = c.req.query('state');
+    const kind = c.req.query('kind');
+    const items = deps.engine.work.list({
+      ...(state ? { state: state as WorkState | 'open' | 'all' } : {}),
+      ...(c.req.query('project') ? { project: c.req.query('project')! } : {}),
+      ...(kind ? { kind: kind as WorkKind } : {}),
+      ...(c.req.query('assignee') ? { assignee: c.req.query('assignee')! } : {}),
+    });
+    return json(c, { items });
+  });
+
+  // A person files: trusted, from no run.
+  app.post('/api/v1/work', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = FileWorkRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'A work item is { title, detail?, kind?, project?, state?, assignee?, key? }.', 400, parsed.error.issues);
+    const { item, outcome } = deps.engine.work.file({
+      kind: parsed.data.kind, project: parsed.data.project ?? null, title: parsed.data.title, detail: parsed.data.detail ?? null,
+      state: parsed.data.state, assignee: parsed.data.assignee ?? null, key: parsed.data.key ?? null, trust: 'trusted', runId: null,
+    });
+    return json(c, { ...item, outcome }, outcome === 'filed' ? 201 : 200);
+  });
+
+  // A person moves an item or answers a decision — the only way a decision gets an answer.
+  app.put('/api/v1/work/:id', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = UpdateWorkRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'Expected some of { state, assignee, detail, answer, note }.', 400, parsed.error.issues);
+    const item = deps.engine.work.update(c.req.param('id'), parsed.data);
+    return item ? json(c, item) : fail(c, 'not_found', `There is no work item "${c.req.param('id')}".`, 404);
+  });
+
   // What needs you, what is running, and what today cost (ui.md §Dashboard).
   app.get('/api/v1/dashboard', (c) => {
     const runs = deps.engine.listRuns({ limit: 200 });
@@ -638,6 +683,8 @@ export function createApp(deps: AppDeps): Hono {
       schedules: deps.scheduler.list().filter((s) => s.enabled).slice(0, 10),
       networkMode: deps.workspace().config.network.mode,
       findings: deps.findings.list('open').length,
+      decisions: deps.engine.work.list({ state: 'needs-you', kind: 'decision' }),
+      work: { ...deps.engine.work.counts(), items: deps.engine.work.list({ state: 'open', limit: 20 }) },
     };
     return json(c, body);
   });
@@ -1385,7 +1432,7 @@ function budgetOverride(overrides: Record<string, unknown> | undefined): BudgetO
   return Object.keys(out).length ? out : undefined;
 }
 
-function agentSummary(agent: LoadedAgent, now: string[]): AgentSummary {
+function agentSummary(agent: LoadedAgent, now: string[], card: { heartbeat?: AgentHeartbeat | undefined; spend: AgentSpend }): AgentSummary {
   const d = agent.definition;
   return {
     id: d.id,
@@ -1396,6 +1443,33 @@ function agentSummary(agent: LoadedAgent, now: string[]): AgentSummary {
     tools: d.tools.map((t) => t.id),
     outputKind: d.output.kind,
     review: d.review,
+    ...(card.heartbeat ? { heartbeat: card.heartbeat } : {}),
+    spend: card.spend,
+  };
+}
+
+/**
+ * Two facts the owner reads off the card (RUN-24): what the agent has cost — its runs and every run beneath them,
+ * against its own caps — and the loop it runs on, if any: the schedule whose workflow's first agent step names it.
+ * An enabled schedule beats a paused one; the soonest to fire beats the rest.
+ */
+function onTheCard(agent: LoadedAgent, ws: Workspace, schedules: ScheduleSummary[], deps: AppDeps): { heartbeat?: AgentHeartbeat | undefined; spend: AgentSpend } {
+  const d = agent.definition;
+  const spend: AgentSpend = {
+    todayUsd: deps.engine.spentTodayUsd(d.id),
+    thisMonthUsd: deps.engine.spentThisMonthUsd(d.id),
+    dailyCapUsd: d.budgets?.dailySpendCapUsd ?? null,
+    monthlyCapUsd: d.budgets?.monthlySpendCapUsd ?? null,
+  };
+  const mine = schedules.filter((s) => {
+    const first = ws.workflows.get(s.workflowId)?.definition.steps.find((step) => step.kind === 'agent');
+    return first?.kind === 'agent' && first.agent === d.id;
+  }).sort((a, b) => Number(b.enabled) - Number(a.enabled) || (a.nextFireAt ?? '~').localeCompare(b.nextFireAt ?? '~'));
+  const s = mine[0];
+  if (!s) return { spend };
+  return {
+    spend,
+    heartbeat: { scheduleId: s.id, workflowId: s.workflowId, workflowName: ws.workflows.get(s.workflowId)?.definition.name ?? s.workflowId, cron: s.cron, enabled: s.enabled, nextFireAt: s.nextFireAt, lastFiredAt: s.lastFiredAt },
   };
 }
 

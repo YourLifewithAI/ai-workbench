@@ -1,0 +1,11 @@
+{
+  "match": {
+    "systemIncludes": "Companion",
+    "lastUserIncludes": "\"decided\"",
+    "afterTool": "work.update"
+  },
+  "respond": {
+    "text": "# The pulse\n\n**Did:** you chose the arcology, part two; the weaver is on it, let go with $0.10, and the question is closed.\n\n**In flight:** the weaver's draft.\n\n**Needs you:** the last draft, still unrated.\n",
+    "usage": { "input": 1700, "output": 80 }
+  }
+}

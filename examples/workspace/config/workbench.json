@@ -42,7 +42,11 @@
         "artifact.write": "allow",
         "memory.remember": "allow",
         "memory.search": "allow",
-        "datetime": "allow"
+        "datetime": "allow",
+        "work.file": "allow",
+        "work.list": "allow",
+        "work.update": "allow",
+        "owner.ask": "allow"
       },
       "fs": {
         "read": [

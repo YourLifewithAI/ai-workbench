@@ -5,7 +5,7 @@ import type { Workspace } from '../workspace/loader.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import type { Logger } from '../log/index.js';
 import type { EventStore } from './events.js';
-import type { RunBudget } from './budget.js';
+import type { BudgetOverride, OwnCaps, RunBudget } from './budget.js';
 import { StepFailure, type StepOutcome, type StepRunner } from './step.js';
 import type { ToolExecutor } from '../tools/executor.js';
 import { evaluate, parseExpr, ReferenceError_, truthy, type Scope } from '../../shared/expr.js';
@@ -38,6 +38,8 @@ export interface WorkflowDeps {
   review: ReviewHost;
   /** Runs a `kind: 'tool'` step. The same executor the agent loop uses, so the same policy decides. */
   tools: ToolExecutor;
+  /** An agent's own daily and monthly caps, checked on its steps here as on its runs (SEC-46). */
+  ownCaps: (agentId: string, budgets: BudgetOverride | undefined) => OwnCaps | undefined;
 }
 
 export interface WorkflowRunInput {
@@ -255,7 +257,7 @@ export class WorkflowExecutor {
       ...(step.outputSchema ? { outputSchema: step.outputSchema } : {}),
       ...(document !== undefined ? { documentPath: document } : {}),
       ...(feedback ? { feedback } : {}),
-      budget: input.budget.child(step.budget),
+      budget: input.budget.child(step.budget, this.deps.ownCaps(agent.definition.id, agent.definition.budgets)),
       ...(input.workflow.definition.permissions ? { workflowCeiling: input.workflow.definition.permissions } : {}),
       ...(input.taint ? { taint: input.taint } : {}),
       scratchDir: `${this.deps.workspace().paths.runs}/${input.runId}`,
@@ -402,9 +404,9 @@ export class WorkflowExecutor {
   // ---- rows ----------------------------------------------------------------------------------------------
 
   private seedRow(runId: string, step: Step, stepId = step.id, parentStepId?: string, mapIndex?: number): void {
-    this.deps.db.prepare(`INSERT INTO run_steps (run_id, step_id, kind, parent_step_id, map_index, state)
-      VALUES (?, ?, ?, ?, ?, 'pending') ON CONFLICT(run_id, step_id) DO NOTHING`)
-      .run(runId, stepId, step.kind, parentStepId ?? null, mapIndex ?? null);
+    this.deps.db.prepare(`INSERT INTO run_steps (run_id, step_id, kind, parent_step_id, map_index, state, agent_id)
+      VALUES (?, ?, ?, ?, ?, 'pending', ?) ON CONFLICT(run_id, step_id) DO NOTHING`)
+      .run(runId, stepId, step.kind, parentStepId ?? null, mapIndex ?? null, 'agent' in step && typeof step.agent === 'string' ? step.agent : null);
   }
 
   private markRow(runId: string, stepId: string, state: StepState, kind?: string): void {

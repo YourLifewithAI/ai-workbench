@@ -105,6 +105,24 @@ describe('the smells (D-49) warn without blocking', () => {
     expect(result.errors).toEqual([]);
     expect(result.smells.some((s) => s.stepId === 'd' && s.message.includes('fourth agent'))).toBe(true);
   });
+
+  it('does not count a reviewer as a link in that chain: it reads the work and answers with a verdict', () => {
+    // a → review → check → b → c: three makers, with a reviewer and the gate that branches on its verdict between
+    // the first two — the coding run's shape (RUN-24).
+    const chain = [
+      { id: 'a', kind: 'agent' as const, agent: 'x', input: '{{inputs.topic}}' },
+      { id: 'review', kind: 'agent' as const, agent: 'x', input: '{{steps.a.output}}' },
+      { id: 'check', kind: 'agent' as const, agent: 'x', when: 'steps.review.output.ok == false', review: 'blocking' as const, input: '{{steps.a.output}} {{steps.review.output}}' },
+      { id: 'b', kind: 'agent' as const, agent: 'x', input: '{{steps.a.output}} {{steps.review.output}}', dependsOn: ['check'] },
+      { id: 'c', kind: 'agent' as const, agent: 'x', input: '{{steps.b.output}}' },
+    ];
+    const result = validateWorkflow(parse(chain));
+    expect(result.errors).toEqual([]);
+    expect(result.smells).toEqual([]);
+    // One more maker on the end, and it is the fourth.
+    const longer = [...chain, { id: 'd', kind: 'agent' as const, agent: 'x', input: '{{steps.c.output}}' }];
+    expect(validateWorkflow(parse(longer)).smells.some((s) => s.stepId === 'd' && s.message.includes('fourth agent'))).toBe(true);
+  });
 });
 
 describe('templates', () => {

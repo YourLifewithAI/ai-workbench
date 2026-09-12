@@ -58,6 +58,7 @@ Decided with the owner on 2026-09-06 (D-71), after the first owner-run verificat
 | V2 | **The villagers** (RUN-20) | Agents as figures placed by their runs' state; the town hall board says what finished while the owner was away; the workspace stream carries ids-only step, approval and review events. | M |
 | V3 | **The rooms** (RUN-21) | Projects and agents as rooms inside their buildings; N-1 (agents edited on a screen) and N-2 (the terminal made optional) land there. | L |
 | O1 | **The companion promoted** (RUN-23) | The orchestrator, pulled ahead of the rooms at the owner's word (D-73, D-74): directing into projects, workflows as children, the fleet's facts, ratings as estimates, the owner's page, the board. RUN-21 then gives it `agent.edit`; RUN-24 the second hand. | L |
+| O2 | **The pulse** (RUN-24) | The orchestrator acts on a loop (D-75, D-76): a work ledger it owns, a pulse workflow, detached children with the caps counting descendants, decisions as cards, plan review in the coding run, spend and the heartbeat on the agent's card. | L |
 
 ## Order
 

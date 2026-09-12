@@ -1,0 +1,35 @@
+{
+  "match": {
+    "systemIncludes": "Companion",
+    "lastUserIncludes": "This is the pulse"
+  },
+  "respond": {
+    "text": "Reading the facts and the ledger. One thing to file, one to ask.",
+    "toolCalls": [
+      {
+        "name": "work.file",
+        "input": {
+          "title": "Rate the weaver's last draft",
+          "detail": "The weaver filed a draft nobody has rated. A rating now is worth more than one next month.",
+          "kind": "task",
+          "state": "needs-you",
+          "key": "unrated:weaver"
+        }
+      },
+      {
+        "name": "owner.ask",
+        "input": {
+          "question": "Which piece does the weaver take next?",
+          "options": [
+            { "label": "The arcology, part two", "detail": "Part one landed and the notes are still fresh." },
+            { "label": "The village, from the inside", "detail": "New ground; needs research first." }
+          ],
+          "lean": 0,
+          "why": "Part one is done and rated well; part two rides on that while it is warm. The village piece needs a research run first, which costs a day.",
+          "key": "next-piece"
+        }
+      }
+    ],
+    "usage": { "input": 1400, "output": 220 }
+  }
+}

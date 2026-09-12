@@ -29,6 +29,7 @@ Order of checks: `Host`/`Origin` (403) before token (401). Requests without an `
 | experiments | `GET/POST /datasets` · `GET /datasets/:id/export` · `POST /datasets/import` · `GET/POST /experiments` · `GET /experiments/:id/results` · `POST /compare` |
 | export / import | `GET /export/agent/:id` · `GET /export/workflow/:id` · `GET /export/memory?scope=` · `GET /export/runs?ids=` · `POST /import/agent` · `POST /import/workflow` · `POST /import/memory` (project export/import are under projects) |
 | settings (RUN-23) | `GET /settings` also answers `owner: { profile, maxChars }`; `PUT /settings` takes `owner: { profile?: string \| null, maxChars? }` — the owner's page (D-74), refused with a 400 when the project does not exist; behind the token like every write, and no tool reaches it (SEC-41) |
+| work (RUN-24) | `GET /work?state=open\|all\|<state>&project=&kind=&assignee=` · `POST /work` `{ title, detail?, kind?, project?, state?, assignee?, key? }` (a person files, trusted; 200 with `outcome: refreshed` when an open item has the key) · `PUT /work/:id` `{ state?, assignee?, detail?, answer?, note? }` (a person moves it; an `answer` on a decision makes it `decided`) — the ledger the orchestrator keeps (D-75); `GET /dashboard` carries `decisions` and `work` |
 | spend | `GET /spend` → `{ todayUsd, last7DaysUsd, last30DaysUsd, thisMonthUsd, monthlySpendCapUsd, dailySpendCapUsd, projectedMonthUsd, daysLeftInMonth, schedulesPaused, byModel, bySubject }` (where the money went, from the same rows every cap reads, F3) |
 | settings | `GET /settings` → `{ workspacePath, networkMode, budgets, execution, retention, providersConfigured: string[], sandbox: { deno: boolean } }` · `PUT /settings` (rewrites `config/workbench.json`) · `PUT /settings/credentials` |
 | settings (RUN-11) | `PUT /settings` takes some of `{ budgets, retention, execution, mcp, push }` and merges each into the file — grants are **not** among them, because the matrix is the Tools screen. `PUT /settings/credentials` `{ name, apiKey }` writes the 0600 file (`apiKey: null` removes one) and answers with the configured *names*; the value is never read back out, and the runtime re-reads its credentials immediately so a key saved mid-session is redacted from the next trace. `POST /plugins/trust` `{ name, version }` records an acknowledgement (D-32). |
@@ -189,3 +190,14 @@ One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` �
 > digits and hyphens. `GET /agents` and `GET /agents/:id` carry `modelPolicy.now`: the ids the policy comes to
 > right now, roles expanded, only what is ready. `workbench doctor` gains a `model roles` check that names what
 > each role resolves to and any role an agent names that is not defined.
+
+> Amendment (RUN-24, 2026-09-12, D-75, D-76): the ledger's three routes — `GET /api/v1/work?state=&project=`
+> (`state` is `open` by default, `all`, or one state), `POST /api/v1/work` (a person files a `task`, `bug` or
+> `note`, `trusted`; `201` filed, `200` refreshed by `key`), `PUT /api/v1/work/:id` (a person moves it —
+> `state`, `assignee`, `note` — or answers a decision with `answer`, which sets `decided`). `GET /api/v1/dashboard`
+> gains `decisions` (open decisions) and `work: { open, needsYou, items }`. `AgentSummary` (so `GET
+> /api/v1/agents` and `/agents/:id`) gains `spend: { todayUsd, thisMonthUsd, dailyCapUsd, monthlyCapUsd }` —
+> the agent's runs and every run beneath them, caps `null` when the agent has none — and, when a schedule's
+> workflow has this agent as its first agent step, `heartbeat: { scheduleId, workflowId, workflowName, cron,
+> enabled, nextFireAt, lastFiredAt }`; an enabled schedule beats a paused one, the soonest to fire the rest.
+> `agent.delegate` and `workflow.run` outputs carry `detached`.

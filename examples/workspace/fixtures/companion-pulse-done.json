@@ -1,0 +1,11 @@
+{
+  "match": {
+    "systemIncludes": "Companion",
+    "lastUserIncludes": "This is the pulse",
+    "afterTool": "owner.ask"
+  },
+  "respond": {
+    "text": "# The pulse\n\n**Did:** filed one task (rate the weaver's last draft) and asked one question (which piece the weaver takes next; I lean to the arcology, part two).\n\n**In flight:** nothing.\n\n**Needs you:** the draft, unrated; the question, unanswered.\n",
+    "usage": { "input": 1600, "output": 90 }
+  }
+}
