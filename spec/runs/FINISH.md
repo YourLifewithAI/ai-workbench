@@ -50,6 +50,10 @@ at a time.
 
 ## D. The village
 
+> Withdrawn 2026-09-29 (D-79, RUN-26): the owner chose a board over the map. V1 shipped and is removed by RUN-26;
+> V2 is withdrawn; V3 survives only as RUN-21's agent editor and terminal-optional screens, without the rooms.
+> The rows stay as the record.
+
 Decided with the owner on 2026-09-06 (D-71), after the first owner-run verification.
 
 | # | Item | What | Size |
