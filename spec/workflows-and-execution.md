@@ -76,6 +76,11 @@ Planners call `agent.delegate({ agent, input, model?, budget? })`: a child run n
 > `run_steps.agent_id` and the child's `runs.parent_step_id` (SEC-46). A workflow step's budget carries its
 > agent's own daily and monthly caps, so a loop cannot take an agent past its day.
 
+> Amendment (RUN-26, 2026-09-12, D-77): **a pulse joins its agent's thread.** A workflow run nobody's message
+> started — the pulse, the board — appears in the thread of the agent its steps ran as, as a *pulse* entry with
+> the run's note and what it filed, by time among the exchanges. A child run is never a line of its own: the
+> exchange or the pulse that directed it says how many it directed. Nothing about the run changes.
+
 **Authoring guidance (D-49, D-50).** Start with one agent and the tools it needs. Add a step only when the work parallelizes (`map`), a different model is right for it (cheap models for extraction, classification, planning, and judging), or an independent verifier is worth its tokens. The validator warns — never blocks — on the smells that predict failure: a step with no declared inputs, an artifact passed through more than two agents in sequence, a reviewer step with no reject path.
 
 ## Lifecycle (D-14)

@@ -122,6 +122,13 @@ Vocabularies: `runs.kind ∈ agent | workflow | experiment`; `runs.state ∈ que
 > ran as, and `runs.parent_step_id` the step that started a child, so an agent's own caps can count its steps
 > inside workflow runs and the children those steps let go (SEC-46). Migration `0014`.
 
+> Amendment (RUN-26, 2026-09-12, D-77): **the room.** `conversations(id, title, agent_id, project, created_at,
+> updated_at, last_read_at)` — a thread is a row, titled from its first message, `last_read_at` what the
+> board's header counts from; `runs.conversation_id` names the thread an exchange belongs to
+> (`runs_conversation_idx` on `(conversation_id, started_at)`), and `runs_agent_idx` on `(agent_id, started_at)`
+> serves the board's per-agent counting. The thread itself is a view over `runs`: the conversation's own runs
+> and every workflow run with a step of its agent that nobody's message started. Migration `0015`.
+
 > Amendment (RUN-18, 2026-09-05, D-69): no new table. A project's space lives in `projects/<slug>/project.json`
 > (schema in `src/shared/project.ts`: `schemaVersion`, `name?`, `description?`, `goals?`, `agents[]`, `tools[]?`,
 > `memory[]`), loaded with the workspace and reloaded on save; its version is the content hash of the parsed form.

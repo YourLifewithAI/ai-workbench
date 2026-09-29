@@ -69,7 +69,9 @@ test('@run-06 a pending approval is allowed from the Dashboard with the keyboard
       return detail.state;
     }, { timeout: 20_000 })
     .toBe('completed');
-  await expect(page.getByText('Nothing is waiting on you.').or(page.getByText(/would like a rating/))).toBeVisible({ timeout: 20_000 });
+  // The board says it in two places since RUN-26 — the orchestrator's "since you were last here" and the empty
+  // state under Needs you — so either is enough.
+  await expect(page.getByText('Nothing is waiting on you.').or(page.getByText(/would like a rating/)).first()).toBeVisible({ timeout: 20_000 });
 });
 
 test('@run-07 the Tools screen says where each agent may actually go', async ({ page }) => {

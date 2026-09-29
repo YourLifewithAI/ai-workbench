@@ -10,7 +10,7 @@ The UI is the owner's control surface, not the product. It must let a verifier a
 
 1. **The first run is a guided path** (D-56): choose a workspace → add a provider key, or pick *offline with local models* or *try it with the mock* → run the example → read its trace. Four screens, each one action, each with a "why" line. Every empty list is an empty state that says what will appear there and offers the one action that fills it. (Nielsen: recognition over recall; progressive disclosure.)
 2. **Make clear what it can do and how well** (Amershi G1, G2): the Models screen shows capabilities and data policy; every judge score says *estimate*; every cost says *stored* or *estimate*; the harness never claims a capability it lacks.
-3. **Answer "what needs me?" first** (G4): the Dashboard's top block is *Needs you* — approvals, blocking reviews, failures — then *Running* with budget bars, then *Today* (spend vs cap, next scheduled). Nothing else competes above the fold.
+3. **Answer "what needs me?" first** (G4): the Dashboard opens on the orchestrator's band — what happened since you were last here, then *Needs you* (approvals, blocking reviews, decisions, failures), then *Running* with budget bars — with the agents' cards, *Work* and *Today* (spend vs cap, next scheduled) beneath. On a phone *Needs you* is above the fold.
 4. **Approvals designed against fatigue** (D-57): an approval card leads with a one-line risk summary in plain words ("wants to POST 2 KB of text to api.example.com; this run has read your project documents"), then *why this asked* (the policy that fired), then three buttons — *Allow once*, *Allow and remember for this host*, *Deny* — with the narrowest remember as the default. Approvals are batched per step, never one modal per action; routine allowlisted actions never prompt; the owner can see and tune the escalation rate in Settings. The evidence is blunt: escalate-everything policies are *less* safe because a fatigued human rubber-stamps, and the safety-optimal escalation rate sits below "everything."
 5. **Explain at the right depth** (G11; D-58): every run and every step has a *summary layer* — what happened, what it cost, what changed, what needs you, in at most three lines — above the raw timeline. Users diagnose failures 2.8× faster from structured summaries than from raw traces. Progressive disclosure is the rule: summary → step → call → payload; denials and fallbacks appear inline where they happened, with the reason.
 6. **Dismiss, correct, and undo are always at hand** (G8, G9): Cancel on every running run; edit-and-continue and reject-with-feedback on every output; every document edit is a version, so nothing is destructive.
@@ -26,7 +26,7 @@ The UI is the owner's control surface, not the product. It must let a verifier a
 | Screen | Shows | Ships in |
 |---|---|---|
 | **Welcome** | the first-run path (workspace, provider or offline/mock, run the example, read the trace); reachable later from Settings | 00 |
-| **Dashboard** | *Needs you* (approvals, blocking reviews, failures) · *Running* with budget bars and Cancel · *Today* (spend vs daily cap, next scheduled runs) · network mode · Pause all | 05 |
+| **Dashboard** | the board (RUN-26): the orchestrator's band — *Since you were last here*, *Needs you* (approvals, blocking reviews, decisions, failures), *Running* with budget bars and Cancel, the conversation and its composer — then a card per agent · *Work* · *Today and this month* (spend vs caps, next scheduled runs) · network mode · Pause all | 05 · 26 |
 | **Library** | projects → documents and files → version history, diff between versions, edit (creates a version), "re-run downstream", export; knowledge import | 03 · 05 (re-run downstream) · 08 (knowledge import) |
 | **Workflows** | list with versions; run form generated from `inputs` (strings, numbers, booleans, enums, string arrays, one level of objects; hand-built on shadcn inputs) with cost estimate and smell warnings; live DAG graph (`dagre` layout, SVG nodes, one node per map with item count) with per-step state, model, cost, Cancel and budget bar; schedule editor | 04 · 05 (schedules) |
 | **Agents** | list with version hash, model policy, tools, granted vs requested permissions, load errors; run form | 01 · 06 (grants) |
@@ -179,7 +179,8 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > project travels to the agent's run form. **Review** — a `nowhere` finding (a grant no project allows) is
 > labelled *allowed nowhere* and its button takes the grant back, never the ceiling.
 
-> Amendment (RUN-19, 2026-09-06, D-71): at `md` and above the primary navigation is **the village**. `/village` is
+> Amendment (RUN-19, 2026-09-06, D-71) — **WITHDRAWN 2026-09-29 (RUN-26, D-79); see the RUN-26 amendment at the end of this file.**
+> Kept as the record of what was built: at `md` and above the primary navigation was **the village**. `/village` is
 > *the square*: the full map, and under it the town hall's notice board — the Dashboard's *Needs you* and
 > *Running*, every running run with its budget and Cancel, and the empty state offering *Run a workflow*. Inside
 > any other screen the rail is *the street*: the same twelve buildings in navigation order, the current one lit,
@@ -210,3 +211,24 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > card gains *Spent* ("$0.42 today of $5 · $3.10 this month of $40", the agent's runs and every run beneath
 > them) and *Pulse* (the loop it runs on: "The pulse, next Thu 14:00", or "The pulse, off — turn it on under
 > Workflows").
+
+> Amendment (RUN-26, 2026-09-29, D-77, D-78, D-79): **the board is the front door; the village is withdrawn.**
+> The RUN-19 amendment above is withdrawn: there is no village, no square, no street and no `/village`, and `/`
+> goes to the Dashboard once the welcome path is done, at every width. The Dashboard is the board. Across the
+> top, **the orchestrator's band** (`orchestrator-band`): its name with a state chip beside it (working, needs
+> you, last run failed, idle, has not run yet), *Spent* against its caps and *Pulse*; *Since you were last here*
+> — what happened since its thread was last read, each line a link to the screen that holds it (runs finished
+> and failed and what they cost, running now, decisions waiting, runs held for review, permissions asked,
+> outputs unrated); *Needs you* and *Running* as they were, inside the band; then *The conversation* (`thread`,
+> a log, oldest first): each exchange as *You* and the companion's reply, plain text in a block, with its cost,
+> *its trace* and how many runs it directed; each pulse as *The pulse* with its note and what it filed; each
+> open decision as the same card as under *Needs you*, answerable there (`thread-decision-<id>`). The composer
+> at the bottom — *Message to the orchestrator*, *Send* or Ctrl+Enter — posts a message; the reply streams into
+> the thread as the run's page streams it and the composer waits until it lands. Opening the board marks the
+> thread read. Beneath, **The agents**: a card per agent (`agent-card-<id>`), busiest first — the name, a state
+> chip, *Lately* (runs and workflow steps this week, failed, running, and the latest run's headline), *Spent*
+> (as on the Agents screen), *Rated* ("orchestrator 3.5 over 4 · you: none yet", and the orchestrator's latest
+> *why* — two numbers, never one, D-36, D-50), *Pulse*; *Details* opens the card onto its last ten runs (state,
+> when, cost, project, *trace*), what of its needs you, and *Run it*, the run form at `/agents/:id`, which stays.
+> *Work* and *Today and this month* follow. On a phone the same board stacks, the band first and *Needs you*
+> above the fold. Nothing on the board costs a model call.

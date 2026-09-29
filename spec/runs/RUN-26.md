@@ -24,7 +24,7 @@ D-78, D-79; `spec/runs/RUN-23.md` and `RUN-24.md`; `runlog/RUN-24.md` (*Notes fo
 `src/runtime/conversations/store.ts`; `src/runtime/orchestrator/facts.ts` (what not to call per run);
 `src/shared/summary.ts`; `src/runtime/review/store.ts` (`estimatesFor`) and `src/runtime/evaluation/store.ts`
 (`addScore`); `src/ui/screens/Dashboard.tsx` (the decision card), `RunDetail.tsx` (how a run is followed),
-`Agents.tsx`; `src/ui/App.tsx` (`FrontDoor`), `src/ui/components/Shell.tsx`; commit `ec4afe1` (the shell before
+`Agents.tsx`; `src/ui/App.tsx` (`FrontDoor`), `src/ui/components/Shell.tsx`; commit `ec4afe1^` (the shell before
 the village).
 
 ## What is wrong today
@@ -72,7 +72,7 @@ noticeboard. This run makes it a conversation, and puts the team on one board be
   form at `/agents/:id`, which stays. The Dashboard's *Needs you* content stays on the board, above the fold on
   a phone. Running runs with a Cancel move into the band. The decision card becomes a shared component.
 - **The village leaves.** `src/ui/village/`, `src/ui/screens/Village.tsx`, `src/shared/village.ts`, the
-  `/village` route, the shell's village branches (the shell returns to the shape at `ec4afe1`), the sixty
+  `/village` route, the shell's village branches (the shell returns to the shape at `ec4afe1^`), the sixty
   `--color-village-*` token declarations, `tests/e2e/village.spec.ts`, `tests/unit/village.test.ts`,
   `tests/dod/RUN-19.test.ts`, `docs/village.md`. `FrontDoor` in `App.tsx` sends `/` to the welcome path until it
   is done and to the board after, with no breakpoint. RUN-20 and RUN-22 are withdrawn with it; RUN-21 keeps its

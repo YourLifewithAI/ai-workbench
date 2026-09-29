@@ -130,10 +130,11 @@ To make a new one, **New workflow** → *Copy of* story-pipeline, rename it, and
 
 ## Your own agent
 
-Agents → **Companion**, with the *Target project* set to `companion` (Welcome's last step opens it that way).
+The **Dashboard** is where you talk to it: the orchestrator's band across the top is a conversation with the companion (Welcome's last step opens it). Agents → **Companion** is still the run form, if you want one run on its own.
 It is the one agent that is yours: it reads `about.md` in the companion project as your word about yourself,
 remembers what you tell it in the `user` scope of Memory, files each exchange as a note in the Library, and
-spends inside its own caps ($2 a day, $20 a month as shipped) within the workspace's. Fill in `about.md` from
+spends inside its own caps ($5 a day, $40 a month as shipped) within the workspace's. Every other agent is a card
+beneath it on the Dashboard: what it did this week, what it spent, and how the orchestrator rated it beside how you did. Fill in `about.md` from
 the Library first; an empty page makes for a companion that knows nothing about you.
 
 ## What each screen is for
