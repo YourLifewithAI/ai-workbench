@@ -8,8 +8,11 @@ import { Subheading } from './ui/text.js';
 
 /** An answered card leaves the page and takes focus with it: hand focus back to the section it left. */
 export function refocusNeedsYou(): void {
-  if (document.activeElement && document.activeElement !== document.body) return;
-  document.getElementById('needs-you')?.focus();
+  // After the refetch has painted: the card is still mounted when the invalidation resolves.
+  window.setTimeout(() => {
+    if (document.activeElement && document.activeElement !== document.body) return;
+    document.getElementById('needs-you')?.focus({ preventScroll: true });
+  }, 100);
 }
 
 export function DecisionCard({ item, onAnswer, pending, testId }: { item: WorkItem; onAnswer: (answer: string) => void; pending: boolean; testId?: string }) {
@@ -27,7 +30,7 @@ export function DecisionCard({ item, onAnswer, pending, testId }: { item: WorkIt
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         {item.options.map((o) => (
-          <Button key={o.id} size="sm" variant={o.id === item.lean ? 'default' : 'secondary'} className="h-auto max-w-full whitespace-normal break-words py-2 text-left" onClick={() => onAnswer(o.id)} disabled={pending} title={o.detail ?? undefined}>
+          <Button key={o.id} size="sm" variant={o.id === item.lean ? 'default' : 'secondary'} className="h-auto max-w-full whitespace-normal py-2 text-left wrap-anywhere" onClick={() => onAnswer(o.id)} disabled={pending} title={o.detail ?? undefined}>
             {o.label}{o.id === item.lean ? ' (its lean)' : ''}<span className="sr-only"> — answer to: {item.title}</span>
           </Button>
         ))}

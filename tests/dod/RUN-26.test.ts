@@ -59,6 +59,8 @@ beforeAll(async () => {
   // Slow enough to be followed: the deltas are live, not replayed, so a follower has to arrive while it talks.
   fixture('aa2-dod26-say', { match: { systemIncludes: 'Companion', lastUserIncludes: 'SAY:' }, respond: { text: 'Heard. Nothing of the others has moved since you asked.', chunkDelayMs: 80, usage: { input: 400, output: 30 } } });
   // Slow enough to be answering for a few seconds, so a second message can arrive while it is (DoD 8).
+  // The same words as SAY:, said slowly enough that a second message can be caught arriving while it talks.
+  fixture('aa2b-dod26-say-slowly', { match: { systemIncludes: 'Companion', lastUserIncludes: 'SAY-SLOWLY:' }, respond: { text: 'Heard. Nothing of the others has moved since you asked.', chunkDelayMs: 300, usage: { input: 400, output: 30 } } });
   fixture('aa3-dod26-slow', { match: { systemIncludes: 'Companion', lastUserIncludes: 'SLOW:' }, respond: { text: 'Slowly, so that there is time to interrupt it.', chunkDelayMs: 400, usage: { input: 300, output: 20 } } });
   rt = await startRuntime(ws, { providerOverride: 'mock', noScheduler: true });
 });
@@ -284,14 +286,14 @@ describe('DoD 7: the header counts from the last read, and opening the board is 
   }, 90_000);
 });
 
-describe('DoD 8: a second message while the first is still being answered is refused, so no turn is answered without the one before it', () => {
+describe('DoD 8: a second message while the first is still being answered is refused, so a turn is not answered blind to the one before it', () => {
   const converse = async (): Promise<string> => ((await (await api('POST', '/conversations', { agent: 'companion' })).json()) as ConversationSummary).id;
   const post = (conversation: string, message: string): Promise<Response> => api('POST', `/conversations/${conversation}/messages`, { message, provider: 'mock' });
   const runsIn = (conversation: string): number => (rt.runtime.db.prepare('SELECT COUNT(*) AS n FROM runs WHERE conversation_id = ?').get(conversation) as { n: number }).n;
 
   it('answers 409 naming the run that is still going, starts nothing, and takes the next message once that run has completed', async () => {
     const thread8 = await converse();
-    const first = await post(thread8, 'SAY: first, and slowly enough to be caught.');
+    const first = await post(thread8, 'SAY-SLOWLY: first, and slowly enough to be caught.');
     expect(first.status, await first.clone().text()).toBe(202);
     const { runId } = (await first.json()) as { runId: string };
     expect(['queued', 'running']).toContain((await detail(runId)).state);
@@ -301,7 +303,7 @@ describe('DoD 8: a second message while the first is still being answered is ref
     const refused = (await second.json()) as { error: { code: string; message: string; details?: { runId: string } } };
     expect(refused.error).toMatchObject({ code: 'conflict', message: 'It is still answering your last message. Wait for it, or cancel that run.', details: { runId } });
     expect(runsIn(thread8), 'the refused message started nothing').toBe(1);
-    expect(((await (await api('GET', `/conversations/${thread8}`)).json()) as ConversationResponse).conversation.title, 'nor did it retitle the thread').toBe('SAY: first, and slowly enough to be caught.');
+    expect(((await (await api('GET', `/conversations/${thread8}`)).json()) as ConversationResponse).conversation.title, 'nor did it retitle the thread').toBe('SAY-SLOWLY: first, and slowly enough to be caught.');
 
     // Another thread is not held by this one, and a run parked on an approval is waiting for you, not answering: it holds nothing.
     const other = await converse();

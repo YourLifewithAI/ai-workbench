@@ -147,10 +147,13 @@ describe('the fleet report', () => {
     rating('w2', 4, 'better on the second read', at(1, 2));
     report = fleetReport(deps());
     expect(by('weaver').ratings.owner).toEqual({ count: 2, mean: 4.5, latestWhy: 'better on the second read', latestAt: at(1, 2) });
-    // The same for the orchestrator: its re-estimate of one thing replaces; another step is another thing.
+    // The same for the orchestrator: its re-estimate of one thing replaces; a step of a workflow is another thing
+    // (an agent run has the one step, however the estimate was named — that is the next test).
     score('w1', 2, 'first look', at(2, 2));
     score('w1', 4, 'second look', at(1, 3));
-    score('w1', 3, 'the draft step', at(1, 4), 'orchestrator', 'rating:draft');
+    run('wfx', null, 'completed', at(1), 0, 0, { kind: 'workflow', workflow: 'story-pipeline' });
+    step('wfx', 'draft', 'weaver', 'completed', 0, at(1));
+    score('wfx', 3, 'the draft step', at(1, 4), 'orchestrator', 'rating:draft');
     report = fleetReport(deps());
     expect(by('weaver').ratings.orchestrator).toEqual({ count: 2, mean: 3.5, latestWhy: 'the draft step', latestAt: at(1, 4) });
     // A judge's estimate on the same metric does not replace the orchestrator's.
@@ -399,5 +402,38 @@ describe('the thread header\'s counts', () => {
     run('cut', 'weaver', 'interrupted', at(1), 0, 0, { finished: at(1) });
     expect(threadActivity(db, at(2)).failed).toBe(1);
     expect(threadActivity(db, at(0, -2)).failed).toBe(0);
+  });
+});
+
+describe('after the cross-check', () => {
+  it('counts a child that outlived its parent — a let-go run failing overnight is news — and not one the parent waited for', () => {
+    run('p', 'companion', 'completed', at(1, 0), 0.1, 1, { finished: at(1, 1) });
+    run('waited', 'weaver', 'completed', at(1, 0.2), 0.1, 1, { parent: 'p', finished: at(1, 0.8) });
+    run('gone', 'researcher', 'failed', at(1, 0.5), 0.1, 1, { parent: 'p', finished: at(1, 5) });
+    run('still', 'researcher', 'running', at(1, 0.6), 0.1, 1, { parent: 'p', finished: null });
+    // Everything: the parent, and the two children that were still going when it ended.
+    expect(threadActivity(db, null)).toMatchObject({ finished: 1, failed: 1, running: 1 });
+    // Since after the parent's own end: only what happened to the ones it let go.
+    expect(threadActivity(db, at(1, 2))).toMatchObject({ finished: 0, failed: 1, running: 1 });
+  });
+
+  it('counts an agent run once however its rating was named, and a step of it as the same run', () => {
+    run('w1', 'weaver', 'completed', at(1), 0.1, 1);
+    db.prepare(`INSERT INTO scores (id, run_id, evaluator_id, metric, value, rationale, estimate, ts) VALUES ('s-a', 'w1', 'orchestrator', 'rating', 4, 'first', 1, ?), ('s-b', 'w1', 'orchestrator', 'rating:main', 2, 'second', 1, ?)`).run(at(1, 1), at(1, 2));
+    db.prepare(`INSERT INTO ratings (id, run_id, step_id, value, note, ts) VALUES ('r-a', 'w1', 'main', 5, 'a', ?), ('r-b', 'w1', 'other', 3, 'b', ?)`).run(at(1, 1), at(1, 2));
+    const weaver = fleetReport(deps()).agents.find((a) => a.agent.id === 'weaver')!;
+    expect(weaver.ratings.orchestrator).toMatchObject({ count: 1, mean: 2, latestWhy: 'second' });
+    expect(weaver.ratings.owner).toMatchObject({ count: 1, mean: 3, latestWhy: 'b' });
+  });
+
+  it('reads a workflow step parked on an approval as waiting on you, not as running', () => {
+    run('wf', null, 'waiting_approval', at(1), 0, 0, { kind: 'workflow', workflow: 'story-pipeline', finished: null });
+    step('wf', 'draft', 'weaver', 'running', 0, at(1));
+    const d = deps();
+    d.approvals = [{ runId: 'wf', stepId: 'draft' }];
+    const weaver = fleetReport(d).agents.find((a) => a.agent.id === 'weaver')!;
+    expect(weaver.needsYou.approvals).toBe(1);
+    expect(weaver.window.running).toBe(0);
+    expect(weaver.state).toBe('waiting');
   });
 });

@@ -186,6 +186,9 @@ describe('SEC-47 a thread carries trust as well as words', () => {
     expect(handed.conversationId).toBe(room);
     expect(handed.taintedFrom, 'the first turn is named as the source').toEqual([read.id]);
     expect(handed.carried.map((m) => m.runId)).toEqual([read.id, read.id]);
+    // The trace names turns, never their words: descriptors and lengths, so the audit trail is not a second copy
+    // of the thread (and a page read one turn ago cannot ride into every trace after it).
+    expect(JSON.stringify(handed), 'no message text in the thread payload').not.toMatch(/arcology|Thanks|remember that|city in one building/i);
     const items = ((await (await api('GET', '/memory')).json()) as MemoryResponse).items;
     const written = items.find((i) => i.runId === next.id)!;
     expect(written, 'the turn remembered something').toBeDefined();
@@ -382,6 +385,34 @@ describe('SEC-47 a thread carries what a run had read, and a resumed turn carrie
     await deny();
     await c.settle(failed.id);
     expect(dialled).toBe(0);
+  }, 90_000);
+
+  it('a resumed turn whose earlier turn read the web is handed that mark by name: resume consults the thread, not only its own row', async () => {
+    const room = await c.newRoom();
+    const read = await c.say(room, 'Please look it up on the web.');
+    expect(row(read.id).external_tainted, 'the first turn searched the web itself').toBe(1);
+    const failed = await c.settle(await c.post(room, 'FAIL-FIRST what time is it'));
+    expect(failed.state).toBe('failed');
+    await resume(failed.id);
+    expect((await c.settle(failed.id)).state).toBe('completed');
+    expect(row(failed.id).external_tainted).toBe(1);
+    // Its own row would say 1 whatever resume did; the resumed attempt's run-started names the thread it was given.
+    const resumed = (await c.trace(failed.id)).filter((e) => e.type === 'run-started').at(-1)!;
+    expect(resumed.payload['resumed']).toBe(true);
+    expect((resumed.payload['thread'] as Handed).taintedFrom, 'the earlier web turn is named').toEqual([read.id]);
+  }, 90_000);
+
+  it('a resumed turn whose earlier turn had read private content is handed that mark by name too', async () => {
+    const room = await c.newRoom();
+    const first = await c.say(room, 'Hello.');
+    rt2.runtime.db.prepare('UPDATE runs SET private_tainted = 1 WHERE id = ?').run(first.id);
+    const failed = await c.settle(await c.post(room, 'FAIL-FIRST and then just answer'));
+    expect(failed.state).toBe('failed');
+    await resume(failed.id);
+    expect((await c.settle(failed.id)).state).toBe('completed');
+    expect(row(failed.id).private_tainted).toBe(1);
+    const resumed = (await c.trace(failed.id)).filter((e) => e.type === 'run-started').at(-1)!;
+    expect((resumed.payload['thread'] as Handed).privateFrom, 'the earlier private turn is named').toEqual([first.id]);
   }, 90_000);
 
   it('a resumed turn that reads the web is externally tainted, and what the next turn remembers is untrusted', async () => {

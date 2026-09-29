@@ -82,7 +82,7 @@ export function Dashboard() {
 
       {d ? (
         <>
-        <OrchestratorBand report={fleet.data?.orchestrator ?? null}>
+        <OrchestratorBand report={fleet.data?.orchestrator ?? null} live={{ decisions: d.decisions.length, reviews: d.needsYou.length, approvals: d.approvals.length, unrated: d.unreviewed }}>
           <SectionTitle className="mt-6" id="needs-you" tabIndex={-1}>Needs you</SectionTitle>
           {pending.length ? (
             <p className="mt-1 hidden text-sm text-gray-600 md:block dark:text-gray-400">

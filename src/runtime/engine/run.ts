@@ -1038,12 +1038,14 @@ export class Engine {
     const agent = this.deps.workspace().agents.get(row.agent_id);
     if (!agent) throw new NotFoundError(`Agent "${row.agent_id}" is no longer in this workspace, so this run cannot be resumed.`);
     const inputs = JSON.parse(row.inputs_json) as Record<string, unknown>;
-    this.deps.db.prepare("UPDATE runs SET state = 'running', finished_at = NULL, error_json = NULL WHERE id = ?").run(row.id);
     // A resumed run is the same run: whatever tainted it is still true (what it read is in `runs`, and the rule
     // for an outbound request reads the same tracker), and a turn of a thread is handed its thread again, the
     // turns that came before it, with the same marking a fresh start would give (D-78).
     const taint = this.trackTaint(row.id, RunTaint.load(this.deps.db, row.id));
     const { messages: history, thread } = this.historyFor(row.conversation_id, taint, row.id);
+    // Only now does the row say it is running: worked out first, so a failure above cannot leave a row stuck
+    // running that the thread would then treat as still answering.
+    this.deps.db.prepare("UPDATE runs SET state = 'running', finished_at = NULL, error_json = NULL WHERE id = ?").run(row.id);
     this.deps.events.append(row.id, null, 'run-started', {
       kind: 'agent', agentId: agent.definition.id, agentVersion: agent.version, resumed: true, ...(thread ? { thread } : {}),
     });

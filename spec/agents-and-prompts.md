@@ -118,7 +118,7 @@ it with the project chosen. It is a recipe for "a space of my own" until project
 > pair is always carried, cut to the budget with a `[…clipped]` mark when it is larger, and older pairs are added
 > whole while they fit. The turn's first event, `run-started`, names the thread — `thread: { conversationId,
 > carried, taintedFrom, privateFrom }` — so the trace says which turn tainted it. The taint is sticky: once one
-> turn read the web, every later turn of the thread is tainted, and a person starts a fresh thread to shed it.
+> turn read the web, every later turn of the thread is tainted, and a person starts a new conversation (the *New conversation* button on the board) to shed it; a privately-tainted reply is carried the same way.
 > Nothing of a thread reaches a delegated child (D-48), and a run is never both a child and a turn. The
 > companion's description calls it the orchestrator of the others; its *the village* section keeps its name, the
 > metaphor being the agent's, not the screen's.

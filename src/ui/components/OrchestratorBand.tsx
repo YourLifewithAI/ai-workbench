@@ -4,21 +4,23 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import type { ThreadEntry, ThreadHeader } from '../../shared/api/index.js';
-import { api } from '../lib/api.js';
+import type { AgentReport, ThreadEntry, ThreadHeader } from '../../shared/api/index.js';
+import { ApiRequestError, api } from '../lib/api.js';
 import { STATE_TONE, STATE_WORD, heartbeatLine, money, spentLine } from '../lib/agentLines.js';
 import { useRunStream } from '../lib/useRunStream.js';
 import { DecisionCard, WorkRow, refocusNeedsYou } from './DecisionCard.js';
 import { Button } from './ui/button.js';
 import { Badge } from './ui/card.js';
 import { CardTitle, Hint, Subheading } from './ui/text.js';
-import type { AgentReport } from '../../shared/api/index.js';
 
 /** A run in one of these has no reply yet: what has streamed stands in for it, and nothing else may be said. */
 const ANSWERING = new Set(['queued', 'running']);
 const isAnswering = (e: ThreadEntry): boolean => e.kind === 'exchange' && ANSWERING.has(e.state);
 
-export function OrchestratorBand({ report, children }: { report: AgentReport | null; children?: ReactNode }) {
+/** What needs the owner right now, from the live dashboard: the header is frozen for the visit, this is not. */
+export interface LiveNeeds { decisions: number; reviews: number; approvals: number; unrated: number }
+
+export function OrchestratorBand({ report, live, children }: { report: AgentReport | null; live?: LiveNeeds | undefined; children?: ReactNode }) {
   const client = useQueryClient();
   // Two states, because a message is a run and the thread lists a run from the moment it starts: `posted` is
   // the gap between the 202 and the thread having the exchange; `following` is the run whose reply is arriving.
@@ -42,21 +44,43 @@ export function OrchestratorBand({ report, children }: { report: AgentReport | n
   // new entries, not a new header; that one waits for the next visit.
   const [header, setHeader] = useState<ThreadHeader | null>(null);
   const marked = useRef<string | null>(null);
+  const mountedAt = useRef(Date.now());
+  const fetchedNow = thread.isSuccess && thread.dataUpdatedAt >= mountedAt.current;
   useEffect(() => {
-    if (!thread.data || !thread.isFetchedAfterMount || header) return;
+    if (!thread.data || !fetchedNow || header) return;
     setHeader(thread.data.header);
     if (marked.current !== thread.data.conversation.id) {
       marked.current = thread.data.conversation.id;
-      void api.markRead(thread.data.conversation.id);
+      api.markRead(thread.data.conversation.id).catch(() => undefined);
     }
-  }, [thread.data, thread.isFetchedAfterMount, header]);
+  }, [thread.data, fetchedNow, header]);
 
   const [draft, setDraft] = useState('');
+  const sending = useRef(false);
   const post = useMutation({
     mutationFn: (message: string) => api.postMessage(id!, message),
     onSuccess: ({ runId }, message) => { setPosted({ runId, you: message }); setFollowing(runId); setDraft(''); },
+    // Another tab or the CLI has a run of this thread going: the thread will show it (and poll while it runs).
+    onError: (e) => { if (e instanceof ApiRequestError && e.status === 409) void client.invalidateQueries({ queryKey: ['conversation'] }); },
+    onSettled: () => { sending.current = false; },
   });
   const stream = useRunStream(following, ['conversation', 'fleet', 'dashboard']);
+  // A fresh conversation carries nothing of this one — including anything the agent read from outside, which
+  // rides a thread from turn to turn (D-78). It starts read, so its header says nothing happened while away.
+  const fresh = useMutation({
+    mutationFn: async () => {
+      const created = await api.newConversation(report?.agent.id ?? 'companion', latest.data?.project ?? undefined);
+      await api.markRead(created.id);
+      return { created, thread: await api.conversation(created.id) };
+    },
+    onSuccess: ({ created, thread: opened }) => {
+      client.setQueryData(['conversation-latest'], created);
+      client.setQueryData(['conversation', created.id], opened);
+      marked.current = created.id;
+      setHeader(opened.header);
+      setDraft('');
+    },
+  });
   const answer = useMutation({
     mutationFn: (input: { id: string; answer: string }) => api.updateWork(input.id, { answer: input.answer }),
     // The same three queries as the card under Needs you refreshes: whichever copy was answered, both go.
@@ -84,7 +108,7 @@ export function OrchestratorBand({ report, children }: { report: AgentReport | n
   useEffect(() => {
     // The run ended and the thread has not caught up: give it a moment, then hand the composer back regardless.
     if (!stream.done) return;
-    const t = setTimeout(() => setFollowing(null), 5000);
+    const t = setTimeout(() => { setFollowing(null); setPosted(null); }, 5000);
     return () => clearTimeout(t);
   }, [stream.done]);
 
@@ -94,19 +118,31 @@ export function OrchestratorBand({ report, children }: { report: AgentReport | n
   // Busy from every side: the request in flight, the gap, the run being followed, and what the server says is
   // still answering (another tab, the CLI). The textarea stays focusable — read-only, not disabled — so focus
   // and the hotkeys stay where the person left them.
-  const busy = post.isPending || gap || following !== null || entries.some(isAnswering);
+  const busy = post.isPending || gap || following !== null || entries.some(isAnswering) || fresh.isPending;
   const box = useRef<HTMLTextAreaElement>(null);
-  const send = (): void => { const text = draft.trim(); if (text && id && !busy) { post.mutate(text); box.current?.focus(); } };
+  const send = (): void => {
+    const text = draft.trim();
+    if (!text || !id || busy || sending.current) return;
+    sending.current = true;
+    post.mutate(text);
+    if (window.matchMedia?.('(pointer: fine)').matches) box.current?.focus();
+  };
   const agent = report?.agent;
 
   // One polite line for a screen reader, instead of every streamed chunk.
   const [said, setSaid] = useState('');
-  const wasBusy = useRef(false);
+  const answering = gap || following !== null || entries.some(isAnswering);
+  const wasAnswering = useRef(false);
+  const lastExchange = [...entries].reverse().find((e) => e.kind === 'exchange');
   useEffect(() => {
-    if (busy && !wasBusy.current) setSaid(`${agent?.name ?? 'The companion'} is answering.`);
-    if (!busy && wasBusy.current) setSaid(`${agent?.name ?? 'The companion'} answered.`);
-    wasBusy.current = busy;
-  }, [busy, agent?.name]);
+    const name = agent?.name ?? 'The companion';
+    if (answering && !wasAnswering.current) setSaid(`${name} is answering.`);
+    if (!answering && wasAnswering.current) {
+      const state = lastExchange?.kind === 'exchange' ? lastExchange.state : 'completed';
+      setSaid(state === 'completed' ? `${name} answered.` : state === 'cancelled' ? `${name}'s answer was cancelled.` : `${name} could not answer.`);
+    }
+    wasAnswering.current = answering;
+  }, [answering, agent?.name, lastExchange]);
 
   return (
     <section aria-labelledby="orchestrator-title" data-testid="orchestrator-band" className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-900/60">
@@ -128,11 +164,17 @@ export function OrchestratorBand({ report, children }: { report: AgentReport | n
       </div>
 
       <Subheading className="mt-4">Since you were last here</Subheading>
-      {header ? <SinceLines header={header} /> : <Hint className="mt-1">Reading the room…</Hint>}
+      {header ? <SinceLines header={header} live={live} /> : <Hint className="mt-1">{thread.isError || latest.isError ? 'Could not read what happened while you were away.' : 'Reading the room…'}</Hint>}
 
       {children}
 
-      <Subheading className="mt-6" id="thread-title">The conversation</Subheading>
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
+        <Subheading id="thread-title">The conversation</Subheading>
+        <Button type="button" size="sm" variant="ghost" onClick={() => fresh.mutate()} disabled={!id || busy}>New conversation</Button>
+      </div>
+      {entries.some((e) => (e.kind === 'exchange' || e.kind === 'pulse') && e.tainted) ? (
+        <Hint className="mt-1">Something read from outside is carried through this conversation, so what it remembers is marked as not yours. A new conversation starts clean.</Hint>
+      ) : null}
       {latest.isError ? <p role="alert" className="mt-1 text-sm text-red-700 dark:text-red-300">Could not find your conversation with the companion: {latest.error.message}</p> : null}
       {thread.isError ? <p role="alert" className="mt-1 text-sm text-red-700 dark:text-red-300">Could not open the thread: {thread.error.message}</p> : null}
       <div
@@ -141,6 +183,7 @@ export function OrchestratorBand({ report, children }: { report: AgentReport | n
         tabIndex={0}
         aria-labelledby="thread-title"
         aria-busy={busy}
+        aria-live={busy ? 'off' : 'polite'}
         data-testid="thread"
         className="mt-2 max-h-[22rem] space-y-3 overflow-y-auto rounded-md border border-gray-200 bg-white p-3 md:max-h-[28rem] dark:border-gray-800 dark:bg-gray-950"
       >
@@ -171,8 +214,11 @@ export function OrchestratorBand({ report, children }: { report: AgentReport | n
           <textarea
             ref={box}
             value={draft}
-            onChange={(e) => { if (!busy) setDraft(e.target.value); }}
-            onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(); } }}
+            onChange={(e) => { if (!busy) { setDraft(e.target.value); if (post.isError) post.reset(); } }}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(); }
+              if (e.key === 'Escape') e.currentTarget.blur();
+            }}
             rows={2}
             readOnly={busy}
             disabled={!id}
@@ -185,25 +231,29 @@ export function OrchestratorBand({ report, children }: { report: AgentReport | n
       </form>
       {post.isError ? <p role="alert" className="mt-1 text-sm text-red-700 dark:text-red-300">{post.error.message}</p> : null}
       {answer.isError ? <p role="alert" className="mt-1 text-sm text-red-700 dark:text-red-300">{answer.error.message}</p> : null}
+      {fresh.isError ? <p role="alert" className="mt-1 text-sm text-red-700 dark:text-red-300">Could not start a new conversation: {fresh.error.message}</p> : null}
     </section>
   );
 }
 
 /** What happened since the room was last read, each line a link to the screen that holds it. Only what is non-zero. */
-function SinceLines({ header: h }: { header: ThreadHeader }) {
+function SinceLines({ header: h, live }: { header: ThreadHeader; live: LiveNeeds | undefined }) {
+  const needs = live ?? h.needsYou;
   const since = h.since ? `Since ${new Date(h.since).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}.` : 'First visit: everything so far.';
+  const nothing = h.since ? 'Nothing happened while you were away.' : 'Nothing has happened yet.';
   const lines: { key: string; to: string; text: string }[] = [];
-  if (h.finished || h.failed) lines.push({ key: 'runs', to: '/runs', text: `${h.finished} run${h.finished === 1 ? '' : 's'} finished${h.failed ? `, ${h.failed} failed` : ''}, ${money(h.spentUsd)} spent` });
+  if (h.finished || h.failed) lines.push({ key: 'runs', to: '/runs', text: `${h.finished} run${h.finished === 1 ? '' : 's'} finished${h.failed ? `, ${h.failed} failed` : ''}` });
+  if (h.spentUsd > 0) lines.push({ key: 'spent', to: '/runs', text: `${money(h.spentUsd)} spent${h.since ? ' while you were away' : ' so far'}` });
   if (h.running) lines.push({ key: 'running', to: '/runs', text: `${h.running} running now` });
-  if (h.needsYou.decisions) lines.push({ key: 'decisions', to: '#needs-you', text: `${h.needsYou.decisions} decision${h.needsYou.decisions === 1 ? '' : 's'} waiting on you` });
-  if (h.needsYou.reviews) lines.push({ key: 'reviews', to: '/review', text: `${h.needsYou.reviews} run${h.needsYou.reviews === 1 ? '' : 's'} held for your review` });
-  if (h.needsYou.approvals) lines.push({ key: 'approvals', to: '#needs-you', text: `${h.needsYou.approvals} permission${h.needsYou.approvals === 1 ? '' : 's'} asked` });
-  if (h.needsYou.unrated) lines.push({ key: 'unrated', to: '/review', text: `${h.needsYou.unrated} output${h.needsYou.unrated === 1 ? '' : 's'} would like a rating` });
+  if (needs.decisions) lines.push({ key: 'decisions', to: '#needs-you', text: `${needs.decisions} decision${needs.decisions === 1 ? '' : 's'} waiting on you` });
+  if (needs.reviews) lines.push({ key: 'reviews', to: '/review', text: `${needs.reviews} run${needs.reviews === 1 ? '' : 's'} held for your review` });
+  if (needs.approvals) lines.push({ key: 'approvals', to: '#needs-you', text: `${needs.approvals} permission${needs.approvals === 1 ? '' : 's'} asked` });
+  if (needs.unrated) lines.push({ key: 'unrated', to: '/review', text: `${needs.unrated} output${needs.unrated === 1 ? '' : 's'} would like a rating` });
   const target = 'inline-flex min-h-11 items-center py-1 text-blue-700 underline underline-offset-4 md:min-h-0 dark:text-sky-300';
   return (
     <div data-testid="since-lines">
       <Hint className="mt-1">{since}</Hint>
-      {lines.length === 0 ? <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">Nothing happened while you were away.</p> : (
+      {lines.length === 0 ? <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{nothing}</p> : (
         <ul className="mt-1 text-sm">
           {lines.map((l) => (
             <li key={l.key}>
@@ -249,7 +299,7 @@ function Entry({ entry: e, live, who, onAnswer, answering }: {
     );
   }
   const arriving = e.reply === null && live !== undefined && ANSWERING.has(e.state);
-  const stand = e.state === 'failed' ? `(the run failed${e.error ? `: ${e.error}` : ''})` : e.state === 'cancelled' ? '(cancelled)' : e.state === 'interrupted' ? '(interrupted by a restart)' : '…';
+  const stand = e.state === 'waiting_approval' ? '(waiting for your permission — see Needs you)' : e.state === 'waiting_review' ? '(waiting for your review — see Needs you)' : e.state === 'failed' ? `(the run failed${e.error ? `: ${e.error}` : ''})` : e.state === 'cancelled' ? '(cancelled)' : e.state === 'interrupted' ? '(interrupted by a restart)' : '…';
   return (
     <div data-testid={`exchange-${e.runId}`}>
       <Bubble who="You" text={e.you} />

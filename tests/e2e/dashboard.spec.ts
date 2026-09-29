@@ -149,6 +149,104 @@ test('@run-26 a decision the pulse left in the thread is answered there, and the
   expect(await work(request, 'open')).toEqual([]);
 });
 
+/** A companion reply that calls no tool: the shipped fixtures answer a free-text message by remembering something, which the next spec would then retrieve. */
+async function plainReplies(request: APIRequestContext): Promise<void> {
+  fs.writeFileSync(path.join(ws(), 'fixtures', 'aab-e2e-plain.json'), JSON.stringify({
+    match: { systemIncludes: 'Companion', lastUserIncludes: 'PLAIN:' },
+    respond: { text: 'Understood. Nothing to add.' },
+  }));
+  expect((await request.post(base() + '/api/v1/agents/reload', { headers: auth() })).ok()).toBe(true);
+}
+
+const runState = async (request: APIRequestContext, runId: string): Promise<string> =>
+  ((await (await request.get(base() + `/api/v1/runs/${runId}`, { headers: auth() })).json()) as { state: string }).state;
+
+test('@run-26 a phone that lost its live streams still gets its composer back, from the thread', async ({ page, request }) => {
+  fs.writeFileSync(path.join(ws(), 'fixtures', 'aab-e2e-quiet.json'), JSON.stringify({
+    match: { systemIncludes: 'Companion', lastUserIncludes: 'QUIET-ONE' },
+    respond: { text: 'Nothing has moved since you last looked.', chunkDelayMs: 100 },
+  }));
+  expect((await request.post(base() + '/api/v1/agents/reload', { headers: auth() })).ok()).toBe(true);
+
+  await land(page);
+  // A locked screen kills both streams; the run goes on without them.
+  await page.route('**/api/v1/runs/events', (route) => route.abort());
+  await page.route('**/api/v1/runs/*/events', (route) => route.abort());
+  const composer = page.getByLabel('Message to the orchestrator');
+  await composer.fill('QUIET-ONE: anything?');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(composer).toBeDisabled();
+  const exchange = page.getByTestId('thread').locator('[data-testid^="exchange-"]').filter({ hasText: 'QUIET-ONE: anything?' });
+  await expect(exchange).toContainText('Nothing has moved since you last looked.', { timeout: 20_000 });
+  await expect(composer, 'the thread is polled, so the composer comes back without the streams').toBeEnabled({ timeout: 20_000 });
+});
+
+test('@run-26 a key pressed after sending never decides a permission', async ({ page, request }) => {
+  const started = await request.post(base() + '/api/v1/runs', { headers: auth(), data: { kind: 'agent', id: 'weaver', inputs: { input: 'APPROVE-ME: the keystroke test.' }, project: 'anthology', provider: 'mock' } });
+  expect(started.status(), await started.text()).toBe(202);
+  const { runId } = (await started.json()) as { runId: string };
+  await expect.poll(() => runState(request, runId), { timeout: 30_000 }).toBe('waiting_approval');
+
+  await plainReplies(request);
+  await land(page);
+  const composer = page.getByLabel('Message to the orchestrator');
+  await composer.fill('PLAIN: hello there');
+  await composer.press('Control+Enter');
+  // The box is read-only while it waits, not disabled: focus stays in it, so the board's `a` (allow) goes nowhere.
+  await page.keyboard.press('a');
+  await page.waitForTimeout(1500);
+  expect(await runState(request, runId), 'the permission is still waiting for a person').toBe('waiting_approval');
+
+  // Leave the board as found: a person allows it, with the button.
+  await page.getByRole('button', { name: /Allow once/ }).first().click();
+  await expect.poll(() => runState(request, runId), { timeout: 30_000 }).toBe('completed');
+  await expect(composer).toBeEnabled({ timeout: 30_000 });
+});
+
+test('@run-26 a decision answered on the Needs-you card takes the thread\'s copy with it', async ({ page, request }) => {
+  await startRun(request, { kind: 'workflow', id: 'companion-pulse', inputs: {} });
+  const decision = (await work(request, 'open')).find((i) => i.kind === 'decision')!;
+  expect(decision, 'the pulse asked').toBeDefined();
+
+  await land(page);
+  const card = page.getByTestId(`decision-${decision.id}`);
+  const inBand = page.getByTestId(`thread-decision-${decision.id}`);
+  await expect(card).toBeVisible({ timeout: 20_000 });
+  await expect(inBand).toBeVisible();
+  await card.getByRole('button', { name: /The arcology, part two/ }).click();
+  await expect(card).toBeHidden({ timeout: 20_000 });
+  await expect(inBand, 'the other copy is not left answerable').toBeHidden({ timeout: 20_000 });
+
+  for (const item of await work(request, 'open')) {
+    expect((await request.put(base() + `/api/v1/work/${item.id}`, { headers: auth(), data: { state: 'done' } })).ok()).toBe(true);
+  }
+});
+
+test('@run-26 a new conversation starts clean: the old exchanges stay behind and the header says nothing is new', async ({ page, request }) => {
+  await plainReplies(request);
+  await land(page);
+  const composer = page.getByLabel('Message to the orchestrator');
+  await composer.fill('PLAIN: REMEMBER-THE-OLD-ONE, a thing to leave behind.');
+  await page.getByRole('button', { name: 'Send' }).click();
+  const thread = page.getByTestId('thread');
+  await expect(thread.locator('[data-testid^="exchange-"]').filter({ hasText: 'REMEMBER-THE-OLD-ONE' })).toBeVisible({ timeout: 30_000 });
+  await expect(composer).toBeEnabled({ timeout: 30_000 });
+  const latest = async (): Promise<string> => ((await (await request.get(base() + '/api/v1/conversations/latest', { headers: auth() })).json()) as { id: string }).id;
+  const before = await latest();
+
+  await page.getByRole('button', { name: 'New conversation' }).click();
+  await expect(thread.locator('[data-testid^="exchange-"]')).toHaveCount(0, { timeout: 20_000 });
+  await expect(thread.getByText(/Nothing said yet/)).toBeVisible();
+  // Read at the moment it began: it has a "since", and no finished runs or spend to report. (What still needs you,
+  // such as outputs waiting for a rating, is live state and rightly stays.)
+  const since = page.getByTestId('since-lines');
+  await expect(since).toContainText(/^Since /);
+  await expect(since).not.toContainText('finished');
+  await expect(since).not.toContainText('spent');
+  expect(await latest(), 'the server opens the board on the new thread from now on').not.toBe(before);
+  await expectNoA11yViolations(page, 'the board after a new conversation');
+});
+
 test.describe('on a phone', () => {
   const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch } = devices['iPhone 14'];
   test.use({ viewport, userAgent, deviceScaleFactor, isMobile, hasTouch });

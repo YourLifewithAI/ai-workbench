@@ -218,16 +218,23 @@ Every error follows *what happened · why · what to do*: "The run stopped: it r
 > top, **the orchestrator's band** (`orchestrator-band`): its name with a state chip beside it (working, needs
 > you, last run failed, idle, has not run yet), *Spent* against its caps and *Pulse*; *Since you were last here*
 > — what happened since its thread was last read, each line a link to the screen that holds it (runs finished
-> and failed and what they cost, running now, decisions waiting, runs held for review, permissions asked,
+> and failed, what was spent by any run in the meantime, running now, decisions waiting, runs held for review, permissions asked,
 > outputs unrated); *Needs you* and *Running* as they were, inside the band; then *The conversation* (`thread`,
 > a log, oldest first): each exchange as *You* and the companion's reply, plain text in a block, with its cost,
 > *its trace* and how many runs it directed; each pulse as *The pulse* with its note and what it filed; each
 > open decision as the same card as under *Needs you*, answerable there (`thread-decision-<id>`). The composer
-> at the bottom — *Message to the orchestrator*, *Send* or Ctrl+Enter — posts a message; the reply streams into
-> the thread as the run's page streams it and the composer waits until it lands. Opening the board marks the
-> thread read. Beneath, **The agents**: a card per agent (`agent-card-<id>`), busiest first — the name, a state
+> at the bottom — *Message to the orchestrator*, *Send* or Ctrl or Cmd+Enter (the hint shows from `md` up) —
+> posts a message; the reply streams into the thread as the run's page streams it, and the composer waits until
+> it lands: it stays focusable but read-only while it waits, so a later keypress goes nowhere, and the thread is
+> polled while an answer is pending so a phone that lost its live streams still gets it back. A second message
+> while one is being answered is refused (409) and the thread shows the run that is. A failed exchange says why,
+> in a line. *New conversation*, above the thread, starts a clean one — an empty thread that shows only pulses from then on, and nothing of the last is carried, including
+> anything read from outside, which otherwise rides a thread from turn to turn (D-78); a line under it says so when
+> the current one carries it. The header's counts of what needs you are live; its runs, spend and running counts
+> are frozen for the visit and count top-level runs and the children a parent let go. Opening the board marks
+> the thread read. Beneath, **The agents**: a card per agent (`agent-card-<id>`), busiest first — the name, a state
 > chip, *Lately* (runs and workflow steps this week, failed, running, and the latest run's headline), *Spent*
-> (as on the Agents screen), *Rated* ("orchestrator 3.5 over 4 · you: none yet", and the orchestrator's latest
+> (as on the Agents screen), *Rated* ("orchestrator's estimate 3.5/5 (4 rated) · you: none yet", and the orchestrator's latest
 > *why* — two numbers, never one, D-36, D-50), *Pulse*; *Details* opens the card onto its last ten runs (state,
 > when, cost, project, *trace*), what of its needs you, and *Run it*, the run form at `/agents/:id`, which stays.
 > *Work* and *Today and this month* follow. On a phone the same board stacks, the band first and *Needs you*

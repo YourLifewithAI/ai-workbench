@@ -69,7 +69,7 @@ export function fleetReport(deps: FleetDeps, opts: { since?: string | undefined 
   // A step row is seeded `pending` with its agent when the workflow starts and stamped `started_at` only when it
   // runs, so a step that never ran (skipped, cancelled behind a failure, still waiting its turn) is not activity.
   const steps = db.prepare(`SELECT s.agent_id, COUNT(*) AS n,
-      SUM(CASE WHEN s.state = 'running' THEN 1 ELSE 0 END) AS running,
+      SUM(CASE WHEN s.state = 'running' AND r.state = 'running' THEN 1 ELSE 0 END) AS running, -- a step parked on an approval says running; its run says waiting
       SUM(CASE WHEN s.state = 'failed' THEN 1 ELSE 0 END) AS failed
     FROM run_steps s JOIN runs r ON r.id = s.run_id
     WHERE s.agent_id IS NOT NULL AND s.started_at IS NOT NULL AND r.kind = 'workflow' AND r.started_at >= ? GROUP BY s.agent_id`).all(since) as StepCount[];
@@ -85,7 +85,8 @@ export function fleetReport(deps: FleetDeps, opts: { since?: string | undefined 
 
   // Ratings, all-time: the orchestrator's estimates and the owner's own, never merged (D-36, D-50). A workflow run
   // has no agent of its own, so a rating on one of its steps belongs to the agent that ran the step. Only the latest
-  // word on each thing counts — the latest row per (run, step) for the owner, per (run, metric) for the orchestrator —
+  // word on each thing counts — the latest row per run for an agent run (its one step is `main` however it was
+  // named), per (run, step) for the owner and per (run, metric) for the orchestrator on a workflow run —
   // so a re-rating replaces the earlier one instead of adding to it; the latest why is the newest of those, and the
   // insertion order settles rows that share a timestamp. A Compare pick is not a rating: it is a preference between
   // two runs, written on both, and would read as a "meh" on the one that lost.
@@ -95,12 +96,12 @@ export function fleetReport(deps: FleetDeps, opts: { since?: string | undefined 
           ROW_NUMBER() OVER (PARTITION BY agent_id ORDER BY ts DESC, rid DESC) AS recent FROM kept)
     SELECT agent_id, n, mean, why, ts FROM ranked WHERE recent = 1`).all(...params) as RatingRow[];
   const estimates = ratingsOf(`SELECT COALESCE(r.agent_id, st.agent_id) AS agent_id, s.value AS value, s.rationale AS why, s.ts AS ts, s.rowid AS rid,
-        ROW_NUMBER() OVER (PARTITION BY s.run_id, s.metric ORDER BY s.ts DESC, s.rowid DESC) AS rn
+        ROW_NUMBER() OVER (PARTITION BY s.run_id, CASE WHEN r.agent_id IS NULL THEN s.metric END ORDER BY s.ts DESC, s.rowid DESC) AS rn
       FROM scores s JOIN runs r ON r.id = s.run_id
       LEFT JOIN run_steps st ON st.run_id = s.run_id AND st.step_id = CASE WHEN s.metric LIKE 'rating:%' THEN substr(s.metric, 8) END
       WHERE s.evaluator_id = ? AND s.estimate = 1 AND (s.metric = 'rating' OR s.metric LIKE 'rating:%')`, ORCHESTRATOR_EVALUATOR);
   const owner = ratingsOf(`SELECT COALESCE(r.agent_id, st.agent_id) AS agent_id, v.value AS value, v.note AS why, v.ts AS ts, v.rowid AS rid,
-        ROW_NUMBER() OVER (PARTITION BY v.run_id, v.step_id ORDER BY v.ts DESC, v.rowid DESC) AS rn
+        ROW_NUMBER() OVER (PARTITION BY v.run_id, CASE WHEN r.agent_id IS NULL THEN v.step_id END ORDER BY v.ts DESC, v.rowid DESC) AS rn
       FROM ratings v JOIN runs r ON r.id = v.run_id
       LEFT JOIN run_steps st ON st.run_id = v.run_id AND st.step_id = v.step_id
       WHERE v.compare_id IS NULL`);

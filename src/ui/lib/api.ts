@@ -140,6 +140,10 @@ export const api = {
   postMessage: (id: string, message: string, provider?: 'mock'): Promise<{ runId: string; conversationId: string }> =>
     apiFetch(`/conversations/${encodeURIComponent(id)}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message, ...(provider ? { provider } : {}) }) })
       .then((r) => r.json() as Promise<{ runId: string; conversationId: string }>),
+  /** A new, empty conversation with `agent` (the orchestrator's project when it has one): it carries nothing of the last. */
+  newConversation: (agent: string, project?: string): Promise<ConversationSummary> =>
+    apiFetch('/conversations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent, ...(project ? { project } : {}) }) })
+      .then((r) => r.json() as Promise<ConversationSummary>),
   markRead: (id: string): Promise<ConversationSummary> =>
     apiFetch(`/conversations/${encodeURIComponent(id)}/read`, { method: 'POST' }).then((r) => r.json() as Promise<ConversationSummary>),
   reviews: (state = 'open'): Promise<ReviewItem[]> =>

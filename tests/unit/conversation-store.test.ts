@@ -118,6 +118,23 @@ describe('the thread', () => {
     expect(store.thread('nope')).toEqual([]);
   });
 
+  it('shows every pulse in the first conversation, and in one the person started later only the pulses since', () => {
+    const first = store.create({ agentId: 'companion' });
+    const second = store.create({ agentId: 'companion' });
+    db.prepare('UPDATE conversations SET created_at = ? WHERE id = ?').run('2026-09-10T00:00:00.000Z', first.id);
+    db.prepare('UPDATE conversations SET created_at = ? WHERE id = ?').run('2026-09-12T00:00:30.000Z', second.id);
+    const pulseAt = (when: string): string => {
+      const id = exchange(null, '', '# The pulse', { kind: 'workflow', workflow: 'companion-pulse', agent: null as unknown as string, startedAt: when });
+      db.prepare("INSERT INTO run_steps (run_id, step_id, kind, state, agent_id) VALUES (?, 'pulse', 'agent', 'completed', 'companion')").run(id);
+      return id;
+    };
+    const early = pulseAt('2026-09-11T00:00:00.000Z');
+    const late = pulseAt('2026-09-12T01:00:00.000Z');
+    const pulses = (conversationId: string): string[] => store.thread(conversationId).filter((e) => e.kind === 'pulse').map((e) => (e as { runId: string }).runId);
+    expect(pulses(first.id), 'the first conversation is where what happened overnight is read').toEqual([early, late]);
+    expect(pulses(second.id), 'a fresh one begins where it was started').toEqual([late]);
+  });
+
   it('keeps exchanges that began in the same millisecond in the order they were made', () => {
     const conversation = store.create({ agentId: 'companion' });
     const stamp = '2026-09-12T00:00:00.000Z';

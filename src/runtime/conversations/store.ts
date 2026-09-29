@@ -114,6 +114,10 @@ export class ConversationStore {
   thread(id: string, limit = 100): ThreadEntry[] {
     const conversation = this.get(id);
     if (!conversation) return [];
+    // A pulse belongs to its agent, not to a conversation, so the first conversation shows every one (that is where
+    // what happened overnight is read). One the person started later begins where he started it: the pulses since.
+    const earliest = this.db.prepare('SELECT MIN(created_at) AS at FROM conversations WHERE agent_id = ?').get(conversation.agentId) as { at: string | null };
+    const horizon = earliest.at === conversation.createdAt ? null : conversation.createdAt;
     const runs = this.db.prepare(`
       SELECT r.id, r.kind, r.state, r.agent_id, r.workflow_id, r.conversation_id, r.inputs_json, r.outputs_json,
              r.spent_json, r.external_tainted, r.started_at, r.finished_at, r.error_json,
@@ -121,10 +125,10 @@ export class ConversationStore {
       FROM runs r
       WHERE r.parent_run_id IS NULL AND (
         r.conversation_id = ?
-        OR (r.conversation_id IS NULL AND r.kind = 'workflow' AND EXISTS (
+        OR (r.conversation_id IS NULL AND r.kind = 'workflow' AND (? IS NULL OR r.started_at >= ?) AND EXISTS (
               SELECT 1 FROM run_steps s WHERE s.run_id = r.id AND s.agent_id = ?))
       )
-      ORDER BY r.started_at DESC, r.rowid DESC LIMIT ?`).all(id, conversation.agentId, limit) as RunRow[];
+      ORDER BY r.started_at DESC, r.rowid DESC LIMIT ?`).all(id, horizon, horizon, conversation.agentId, limit) as RunRow[];
 
     const entries: ThreadEntry[] = [];
     for (const row of runs.reverse()) {
@@ -232,13 +236,20 @@ function plainReason(errorJson: string | null): string {
   } catch {
     text = FAILED;
   }
-  const line = text.split('\n').map((l) => l.trim()).find((l) => l !== '' && !/^at\s/.test(l)) ?? FAILED;
+  // A stack frame is `at fn (file:line:col)` or `at file:line:col`; a sentence that happens to start with "at" is not.
+  const frame = /^at\s+(?:.+\(.*:\d+:\d+\)|\S+:\d+:\d+)$/;
+  const line = text.split('\n').map((l) => l.trim()).find((l) => l !== '' && !frame.test(l)) ?? FAILED;
   const scrubbed = line
-    .replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]')
+    .replace(/\b(?:Bearer|Basic)\s+\S+/gi, (m) => `${m.split(/\s/)[0]} [redacted]`)
+    .replace(/\bcookie:.*$/i, 'Cookie: [redacted]')
+    .replace(/([?&](?:api[_-]?key|key|token|access[_-]?token|secret|password)=)[^&\s]+/gi, '$1[redacted]')
     .replace(/\b(?:sk|pk|rk|ghp|gho|ghs|github_pat|xox[a-z]|AKIA|AIza)[-_A-Za-z0-9]{8,}/g, '[redacted]')
     .replace(/\b[A-Za-z0-9_\-+/=]{32,}\b/g, '[redacted]')
     .replace(/\s+/g, ' ');
-  return scrubbed.length > REASON_CHARS ? `${scrubbed.slice(0, REASON_CHARS - 1).trimEnd()}…` : scrubbed;
+  if (scrubbed.length <= REASON_CHARS) return scrubbed;
+  let cut = scrubbed.slice(0, REASON_CHARS - 1);
+  if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1); // never leave half an emoji
+  return `${cut.trimEnd()}…`;
 }
 
 function outputText(outputs: string | null): string | null {
