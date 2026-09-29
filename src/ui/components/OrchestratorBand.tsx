@@ -4,42 +4,54 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import type { AgentReport, ThreadEntry, ThreadHeader } from '../../shared/api/index.js';
+import type { ThreadEntry, ThreadHeader } from '../../shared/api/index.js';
 import { api } from '../lib/api.js';
-import { heartbeatLine, money, spentLine } from '../lib/agentLines.js';
+import { STATE_TONE, STATE_WORD, heartbeatLine, money, spentLine } from '../lib/agentLines.js';
 import { useRunStream } from '../lib/useRunStream.js';
-import { DecisionCard, WorkRow } from './DecisionCard.js';
+import { DecisionCard, WorkRow, refocusNeedsYou } from './DecisionCard.js';
 import { Button } from './ui/button.js';
 import { Badge } from './ui/card.js';
 import { CardTitle, Hint, Subheading } from './ui/text.js';
+import type { AgentReport } from '../../shared/api/index.js';
 
-const STATE_TONE: Record<AgentReport['state'], 'neutral' | 'good' | 'bad' | 'busy'> = { running: 'busy', waiting: 'bad', failed: 'bad', idle: 'good', never: 'neutral' };
-const STATE_WORD: Record<AgentReport['state'], string> = { running: 'working', waiting: 'needs you', failed: 'last run failed', idle: 'idle', never: 'has not run yet' };
+/** A run in one of these has no reply yet: what has streamed stands in for it, and nothing else may be said. */
+const ANSWERING = new Set(['queued', 'running']);
+const isAnswering = (e: ThreadEntry): boolean => e.kind === 'exchange' && ANSWERING.has(e.state);
 
 export function OrchestratorBand({ report, children }: { report: AgentReport | null; children?: ReactNode }) {
   const client = useQueryClient();
+  // Two states, because a message is a run and the thread lists a run from the moment it starts: `posted` is
+  // the gap between the 202 and the thread having the exchange; `following` is the run whose reply is arriving.
+  const [posted, setPosted] = useState<{ runId: string; you: string } | null>(null);
+  const [following, setFollowing] = useState<string | null>(null);
+
   const latest = useQuery({ queryKey: ['conversation-latest'], queryFn: () => api.conversationLatest(), staleTime: 60_000 });
   const id = latest.data?.id ?? null;
-  const thread = useQuery({ queryKey: ['conversation', id], queryFn: () => api.conversation(id!), enabled: id !== null });
+  // While an answer is on its way the thread is polled as well as pushed to: a phone that locked its screen has
+  // lost its live streams, and the thread is the truth about whether the run finished.
+  const thread = useQuery({
+    queryKey: ['conversation', id],
+    queryFn: () => api.conversation(id!),
+    enabled: id !== null,
+    refetchInterval: (q) => (posted || following || q.state.data?.entries.some(isAnswering) ? 3000 : false),
+  });
+  const entries = thread.data?.entries ?? [];
 
-  // "Since you were last here" is fixed for this visit: held from the first load, then the room is marked read.
-  // Later refetches bring new entries, not a new header — that one waits for the next visit.
+  // "Since you were last here" is fixed for this visit: held from the first FRESH load — a cached thread from an
+  // earlier visit would show what was true then — and then the room is marked read once. Later refetches bring
+  // new entries, not a new header; that one waits for the next visit.
   const [header, setHeader] = useState<ThreadHeader | null>(null);
   const marked = useRef<string | null>(null);
   useEffect(() => {
-    if (!thread.data || header) return;
+    if (!thread.data || !thread.isFetchedAfterMount || header) return;
     setHeader(thread.data.header);
     if (marked.current !== thread.data.conversation.id) {
       marked.current = thread.data.conversation.id;
       void api.markRead(thread.data.conversation.id);
     }
-  }, [thread.data, header]);
+  }, [thread.data, thread.isFetchedAfterMount, header]);
 
   const [draft, setDraft] = useState('');
-  // Two states, because a message is a run and the thread lists a run from the moment it starts: `posted` is
-  // the gap between the 202 and the thread having the exchange; `following` is the run whose reply is arriving.
-  const [posted, setPosted] = useState<{ runId: string; you: string } | null>(null);
-  const [following, setFollowing] = useState<string | null>(null);
   const post = useMutation({
     mutationFn: (message: string) => api.postMessage(id!, message),
     onSuccess: ({ runId }, message) => { setPosted({ runId, you: message }); setFollowing(runId); setDraft(''); },
@@ -47,23 +59,27 @@ export function OrchestratorBand({ report, children }: { report: AgentReport | n
   const stream = useRunStream(following, ['conversation', 'fleet', 'dashboard']);
   const answer = useMutation({
     mutationFn: (input: { id: string; answer: string }) => api.updateWork(input.id, { answer: input.answer }),
-    onSuccess: () => { void client.invalidateQueries({ queryKey: ['conversation'] }); void client.invalidateQueries({ queryKey: ['dashboard'] }); },
+    // The same three queries as the card under Needs you refreshes: whichever copy was answered, both go.
+    onSuccess: () => Promise.all([
+      client.invalidateQueries({ queryKey: ['conversation'] }),
+      client.invalidateQueries({ queryKey: ['dashboard'] }),
+      client.invalidateQueries({ queryKey: ['fleet'] }),
+    ]).then(refocusNeedsYou),
   });
 
-  const entries = thread.data?.entries ?? [];
   // What has streamed so far stays on the entry until its reply is written, so nothing blinks between the two.
   const shown = useRef('');
   const streamed = Object.values(stream.streaming).join('');
   if (streamed) shown.current = streamed;
-  useEffect(() => {
-    if (posted && entries.some((e) => e.kind !== 'decision' && e.runId === posted.runId)) setPosted(null);
-  }, [posted, entries]);
+  // The gap bubble is shown only while the thread does not have the exchange yet: derived, not an effect's echo.
+  const gap = posted !== null && !entries.some((e) => e.kind !== 'decision' && e.runId === posted.runId);
+  useEffect(() => { if (posted && !gap) setPosted(null); }, [posted, gap]);
   useEffect(() => {
     if (!following) { shown.current = ''; return; }
     const entry = entries.find((e) => e.kind === 'exchange' && e.runId === following);
     // Done when the thread says so; and if the follower itself fails, the composer is given back — the run
-    // goes on without it, and the thread refreshes from the live run events anyway.
-    if (stream.error || (entry && entry.kind === 'exchange' && !LIVE_STATES.has(entry.state))) setFollowing(null);
+    // goes on without it, and the polled thread says how it ended.
+    if (stream.error || (entry && !isAnswering(entry))) setFollowing(null);
   }, [following, entries, stream.error]);
   useEffect(() => {
     // The run ended and the thread has not caught up: give it a moment, then hand the composer back regardless.
@@ -73,11 +89,24 @@ export function OrchestratorBand({ report, children }: { report: AgentReport | n
   }, [stream.done]);
 
   const log = useRef<HTMLDivElement>(null);
-  useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight }); }, [entries.length, posted?.runId, streamed]);
+  useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight }); }, [entries.length, gap, streamed]);
 
-  const busy = posted !== null || following !== null;
-  const send = (): void => { const text = draft.trim(); if (text && id && !busy) post.mutate(text); };
+  // Busy from every side: the request in flight, the gap, the run being followed, and what the server says is
+  // still answering (another tab, the CLI). The textarea stays focusable — read-only, not disabled — so focus
+  // and the hotkeys stay where the person left them.
+  const busy = post.isPending || gap || following !== null || entries.some(isAnswering);
+  const box = useRef<HTMLTextAreaElement>(null);
+  const send = (): void => { const text = draft.trim(); if (text && id && !busy) { post.mutate(text); box.current?.focus(); } };
   const agent = report?.agent;
+
+  // One polite line for a screen reader, instead of every streamed chunk.
+  const [said, setSaid] = useState('');
+  const wasBusy = useRef(false);
+  useEffect(() => {
+    if (busy && !wasBusy.current) setSaid(`${agent?.name ?? 'The companion'} is answering.`);
+    if (!busy && wasBusy.current) setSaid(`${agent?.name ?? 'The companion'} answered.`);
+    wasBusy.current = busy;
+  }, [busy, agent?.name]);
 
   return (
     <section aria-labelledby="orchestrator-title" data-testid="orchestrator-band" className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-900/60">
@@ -104,9 +133,18 @@ export function OrchestratorBand({ report, children }: { report: AgentReport | n
       {children}
 
       <Subheading className="mt-6" id="thread-title">The conversation</Subheading>
+      {latest.isError ? <p role="alert" className="mt-1 text-sm text-red-700 dark:text-red-300">Could not find your conversation with the companion: {latest.error.message}</p> : null}
       {thread.isError ? <p role="alert" className="mt-1 text-sm text-red-700 dark:text-red-300">Could not open the thread: {thread.error.message}</p> : null}
-      <div ref={log} role="log" aria-labelledby="thread-title" data-testid="thread" className="mt-2 max-h-[22rem] space-y-3 overflow-y-auto rounded-md border border-gray-200 bg-white p-3 md:max-h-[28rem] dark:border-gray-800 dark:bg-gray-950">
-        {entries.length === 0 && !posted ? <Hint>Nothing said yet. Ask it what the others have been doing.</Hint> : null}
+      <div
+        ref={log}
+        role="log"
+        tabIndex={0}
+        aria-labelledby="thread-title"
+        aria-busy={busy}
+        data-testid="thread"
+        className="mt-2 max-h-[22rem] space-y-3 overflow-y-auto rounded-md border border-gray-200 bg-white p-3 md:max-h-[28rem] dark:border-gray-800 dark:bg-gray-950"
+      >
+        {thread.isSuccess && entries.length === 0 && !gap ? <Hint>Nothing said yet. Ask it what the others have been doing.</Hint> : null}
         {entries.map((e) => (
           <Entry
             key={e.kind === 'decision' ? `d-${e.item.id}` : e.runId}
@@ -117,37 +155,43 @@ export function OrchestratorBand({ report, children }: { report: AgentReport | n
             answering={answer.isPending}
           />
         ))}
-        {posted ? (
+        {gap && posted ? (
           <div data-testid="pending-exchange">
             <Bubble who="You" text={posted.you} />
             <Bubble who={agent?.name ?? 'Companion'} text={shown.current || '…'} live />
           </div>
         ) : null}
       </div>
+      <p role="status" className="sr-only">{said}</p>
+      <Hint className="mt-2 hidden md:block">Ctrl or Cmd+Enter sends.</Hint>
 
       <form className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-end" onSubmit={(e) => { e.preventDefault(); send(); }}>
         <label className="flex-1 text-sm">
           <span className="sr-only">Message to the orchestrator</span>
           <textarea
+            ref={box}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => { if (!busy) setDraft(e.target.value); }}
             onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(); } }}
             rows={2}
-            placeholder={busy ? 'Waiting for its answer…' : 'Say something. Ctrl+Enter sends.'}
-            disabled={!id || busy}
-            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-950"
+            readOnly={busy}
+            disabled={!id}
+            aria-disabled={busy || !id}
+            placeholder={busy ? 'Waiting for its answer…' : 'Say something.'}
+            className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-base md:text-sm dark:border-gray-700 dark:bg-gray-950"
           />
         </label>
-        <Button type="submit" disabled={!id || busy || draft.trim() === '' || post.isPending}>{post.isPending ? 'Sending…' : 'Send'}</Button>
+        <Button type="submit" disabled={!id || busy || draft.trim() === ''}>{post.isPending ? 'Sending…' : 'Send'}</Button>
       </form>
       {post.isError ? <p role="alert" className="mt-1 text-sm text-red-700 dark:text-red-300">{post.error.message}</p> : null}
+      {answer.isError ? <p role="alert" className="mt-1 text-sm text-red-700 dark:text-red-300">{answer.error.message}</p> : null}
     </section>
   );
 }
 
 /** What happened since the room was last read, each line a link to the screen that holds it. Only what is non-zero. */
 function SinceLines({ header: h }: { header: ThreadHeader }) {
-  const since = h.since ? `since ${new Date(h.since).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}` : 'ever';
+  const since = h.since ? `Since ${new Date(h.since).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}.` : 'First visit: everything so far.';
   const lines: { key: string; to: string; text: string }[] = [];
   if (h.finished || h.failed) lines.push({ key: 'runs', to: '/runs', text: `${h.finished} run${h.finished === 1 ? '' : 's'} finished${h.failed ? `, ${h.failed} failed` : ''}, ${money(h.spentUsd)} spent` });
   if (h.running) lines.push({ key: 'running', to: '/runs', text: `${h.running} running now` });
@@ -155,21 +199,27 @@ function SinceLines({ header: h }: { header: ThreadHeader }) {
   if (h.needsYou.reviews) lines.push({ key: 'reviews', to: '/review', text: `${h.needsYou.reviews} run${h.needsYou.reviews === 1 ? '' : 's'} held for your review` });
   if (h.needsYou.approvals) lines.push({ key: 'approvals', to: '#needs-you', text: `${h.needsYou.approvals} permission${h.needsYou.approvals === 1 ? '' : 's'} asked` });
   if (h.needsYou.unrated) lines.push({ key: 'unrated', to: '/review', text: `${h.needsYou.unrated} output${h.needsYou.unrated === 1 ? '' : 's'} would like a rating` });
+  const target = 'inline-flex min-h-11 items-center py-1 text-blue-700 underline underline-offset-4 md:min-h-0 dark:text-sky-300';
   return (
     <div data-testid="since-lines">
-      <Hint className="mt-1">{since}.</Hint>
+      <Hint className="mt-1">{since}</Hint>
       {lines.length === 0 ? <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">Nothing happened while you were away.</p> : (
         <ul className="mt-1 text-sm">
-          {/* Each line is a target of its own (WCAG 2.5.8): padded to a box, not a bare line of text. */}
-          {lines.map((l) => <li key={l.key}><Link to={l.to} className="inline-block py-1 text-blue-700 underline underline-offset-4 dark:text-sky-300">{l.text}</Link></li>)}
+          {lines.map((l) => (
+            <li key={l.key}>
+              {l.to.startsWith('#') ? (
+                // A hash link inside a BrowserRouter changes the address and scrolls nowhere: scroll it ourselves.
+                <a href={l.to} className={target} onClick={(ev) => { ev.preventDefault(); const el = document.getElementById(l.to.slice(1)); el?.scrollIntoView({ block: 'start' }); el?.focus(); }}>{l.text}</a>
+              ) : (
+                <Link to={l.to} className={target}>{l.text}</Link>
+              )}
+            </li>
+          ))}
         </ul>
       )}
     </div>
   );
 }
-
-/** An exchange whose run is still in one of these has no reply yet: what has streamed stands in for it. */
-const LIVE_STATES = new Set(['queued', 'running', 'waiting_review', 'waiting_approval']);
 
 function Entry({ entry: e, live, who, onAnswer, answering }: {
   entry: ThreadEntry;
@@ -182,27 +232,28 @@ function Entry({ entry: e, live, who, onAnswer, answering }: {
   // The same card as under Needs you, drawn once (DecisionCard); its own id here, since the board shows both.
   if (e.kind === 'decision') return <DecisionCard item={e.item} onAnswer={(a) => onAnswer(e.item.id, a)} pending={answering} testId={`thread-decision-${e.item.id}`} />;
   const meta = (
-    <Hint className="mt-1">
-      {money(e.costUsd)} · <Link to={`/runs/${e.runId}`} className="underline underline-offset-4">its trace</Link>
+    <Hint className="mt-1 break-words">
+      {money(e.costUsd)} · <Link to={`/runs/${e.runId}`} className="inline-flex min-h-11 items-center underline underline-offset-4 md:min-h-0">its trace</Link>
       {e.children ? ` · directed ${e.children} run${e.children === 1 ? '' : 's'}` : ''}
-      {e.kind === 'exchange' && e.tainted ? ' · this turn read something from outside' : ''}
       {e.state !== 'completed' ? ` · ${e.state}` : ''}
     </Hint>
   );
+  const outside = e.tainted ? <Badge tone="neutral">carried something read from outside</Badge> : null;
   if (e.kind === 'pulse') {
     return (
       <div data-testid={`pulse-${e.runId}`}>
-        <Bubble who="The pulse" text={e.note ?? '(no note)'} />
+        <Bubble who="The pulse" text={e.note ?? (ANSWERING.has(e.state) ? '…' : '(no note)')} badge={outside} />
         {meta}
         {e.filed.length ? <ul className="mt-1 space-y-1">{e.filed.map((w) => <li key={w.id}><WorkRow item={w} /></li>)}</ul> : null}
       </div>
     );
   }
-  const arriving = e.reply === null && live !== undefined && LIVE_STATES.has(e.state);
+  const arriving = e.reply === null && live !== undefined && ANSWERING.has(e.state);
+  const stand = e.state === 'failed' ? `(the run failed${e.error ? `: ${e.error}` : ''})` : e.state === 'cancelled' ? '(cancelled)' : e.state === 'interrupted' ? '(interrupted by a restart)' : '…';
   return (
     <div data-testid={`exchange-${e.runId}`}>
       <Bubble who="You" text={e.you} />
-      <Bubble who={who} text={e.reply ?? (arriving ? live || '…' : e.state === 'failed' ? '(the run failed)' : '…')} live={arriving} />
+      <Bubble who={who} text={e.reply ?? (arriving ? live || '…' : stand)} live={arriving} badge={outside} />
       {meta}
       {e.filed.length ? <ul className="mt-1 space-y-1">{e.filed.map((w) => <li key={w.id}><WorkRow item={w} /></li>)}</ul> : null}
     </div>
@@ -210,11 +261,11 @@ function Entry({ entry: e, live, who, onAnswer, answering }: {
 }
 
 /** One turn. Plain text in a block, as documents and outputs are everywhere else: no renderer, no surprises. */
-function Bubble({ who, text, live }: { who: string; text: string; live?: boolean }) {
+function Bubble({ who, text, live, badge }: { who: string; text: string; live?: boolean; badge?: ReactNode }) {
   return (
     <div className="mt-2 first:mt-0">
-      <p className="text-xs font-medium text-gray-600 dark:text-gray-400">{who}</p>
-      <pre aria-live={live ? 'polite' : undefined} className="mt-0.5 max-h-72 overflow-auto whitespace-pre-wrap rounded bg-gray-50 p-2 font-sans text-sm dark:bg-gray-900">{text}{live ? <span aria-hidden="true" className="opacity-60">▌</span> : null}</pre>
+      <p className="flex flex-wrap items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-400">{who}{badge}</p>
+      <pre data-live={live ? 'true' : undefined} className="mt-0.5 whitespace-pre-wrap break-words rounded bg-gray-50 p-2 font-sans text-sm dark:bg-gray-900">{text}{live ? <span aria-hidden="true" className="opacity-60">▌</span> : null}</pre>
     </div>
   );
 }

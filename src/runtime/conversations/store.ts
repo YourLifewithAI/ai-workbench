@@ -25,12 +25,29 @@ interface Row {
 interface RunRow {
   id: string; kind: string; state: string; agent_id: string | null; workflow_id: string | null;
   conversation_id: string | null; inputs_json: string; outputs_json: string | null; spent_json: string;
-  external_tainted: number; started_at: string; finished_at: string | null; children: number;
+  external_tainted: number; started_at: string; finished_at: string | null; error_json: string | null; children: number;
+}
+
+/** One message a thread hands the next turn, with where it came from and what the run that wrote it had read. */
+export interface HistoryMessage {
+  role: 'user' | 'assistant';
+  text: string;
+  /** The exchange this message belongs to: what the trace names when it says where a taint came from. */
+  runId: string;
+  /** The reply came from a run that had read the web (or something a run that had read it wrote). */
+  tainted: boolean;
+  /** The reply came from a run that had read private content, so the turn that quotes it has too (D-29). */
+  privateTainted: boolean;
 }
 
 /** What a title takes from the first thing said, until someone renames the thread. */
 const TITLE_CHARS = 60;
 const UNTITLED = 'New conversation';
+/** What is left where a turn was cut to fit the budget, so nothing reads as if it had ended there. */
+const CLIPPED = '[…clipped]';
+/** The most a failed exchange says about itself in the thread: the run page holds the rest. */
+const REASON_CHARS = 200;
+const FAILED = 'The run failed.';
 
 export class ConversationStore {
   constructor(private readonly db: Db, private readonly work: WorkStore) {}
@@ -50,12 +67,16 @@ export class ConversationStore {
 
   list(agentId?: string): Conversation[] {
     const rows = (agentId === undefined
-      ? this.db.prepare('SELECT * FROM conversations ORDER BY updated_at DESC').all()
-      : this.db.prepare('SELECT * FROM conversations WHERE agent_id = ? ORDER BY updated_at DESC').all(agentId)) as Row[];
+      ? this.db.prepare('SELECT * FROM conversations ORDER BY updated_at DESC, rowid DESC').all()
+      : this.db.prepare('SELECT * FROM conversations WHERE agent_id = ? ORDER BY updated_at DESC, rowid DESC').all(agentId)) as Row[];
     return rows.map(shape);
   }
 
-  /** The room the owner lands in: this agent's most recent thread, or a new one the first time. */
+  /**
+   * The room the owner lands in: this agent's most recent thread, or a new one the first time. Two threads
+   * touched in one millisecond are ordered by when they were made (`rowid`, not the id: a ulid is not monotonic
+   * inside a millisecond), so the newer of them is the one he lands in.
+   */
   latestOrCreate(agentId: string, project?: string | null | undefined): Conversation {
     return this.list(agentId)[0] ?? this.create({ agentId, project: project ?? null });
   }
@@ -95,7 +116,7 @@ export class ConversationStore {
     if (!conversation) return [];
     const runs = this.db.prepare(`
       SELECT r.id, r.kind, r.state, r.agent_id, r.workflow_id, r.conversation_id, r.inputs_json, r.outputs_json,
-             r.spent_json, r.external_tainted, r.started_at, r.finished_at,
+             r.spent_json, r.external_tainted, r.started_at, r.finished_at, r.error_json,
              (SELECT COUNT(*) FROM runs c WHERE c.parent_run_id = r.id) AS children
       FROM runs r
       WHERE r.parent_run_id IS NULL AND (
@@ -103,7 +124,7 @@ export class ConversationStore {
         OR (r.conversation_id IS NULL AND r.kind = 'workflow' AND EXISTS (
               SELECT 1 FROM run_steps s WHERE s.run_id = r.id AND s.agent_id = ?))
       )
-      ORDER BY r.started_at DESC LIMIT ?`).all(id, conversation.agentId, limit) as RunRow[];
+      ORDER BY r.started_at DESC, r.rowid DESC LIMIT ?`).all(id, conversation.agentId, limit) as RunRow[];
 
     const entries: ThreadEntry[] = [];
     for (const row of runs.reverse()) {
@@ -117,9 +138,13 @@ export class ConversationStore {
           you: String(inputs.input ?? ''),
           reply: outputText(row.outputs_json),
           tainted: row.external_tainted === 1,
+          error: row.state === 'failed' ? plainReason(row.error_json) : null,
         });
       } else {
-        entries.push({ kind: 'pulse', ...common, workflowId: row.workflow_id ?? '', note: outputText(row.outputs_json) });
+        entries.push({
+          kind: 'pulse', ...common, workflowId: row.workflow_id ?? '', note: outputText(row.outputs_json),
+          tainted: row.external_tainted === 1,
+        });
       }
     }
     // What only a person can answer, where the person already is: the open decisions, when they were asked.
@@ -129,26 +154,91 @@ export class ConversationStore {
     return entries.sort((a, b) => a.at.localeCompare(b.at));
   }
 
-  /** The last turns of a thread, oldest first: what the next run carries to the model as messages (D-78). */
-  history(id: string, opts: { turns: number; chars: number }): { role: 'user' | 'assistant'; text: string; runId: string; tainted: boolean }[] {
+  /**
+   * The last turns of a thread, oldest first: what the next run carries to the model as messages (D-78).
+   * A pair (what he said, what it answered) is the unit. The newest pair is always carried, cut to fit the
+   * budget if it is bigger than it — one long message must never leave a thread with no memory at all — and an
+   * older pair is added whole while it fits, so the oldest go first and a turn is never half-remembered. A cut
+   * pair keeps its taint: what was clipped off does not wash the rest clean. `before` is a run: only the turns
+   * that began before it are carried, which is what resuming an earlier turn is owed.
+   */
+  history(id: string, opts: { turns: number; chars: number; before?: string | undefined }): HistoryMessage[] {
+    if (opts.turns <= 0 || opts.chars <= 0) return [];
     const rows = this.db.prepare(`
-      SELECT id, inputs_json, outputs_json, external_tainted, state FROM runs
-      WHERE conversation_id = ? AND state = 'completed' ORDER BY started_at DESC LIMIT ?`)
-      .all(id, opts.turns) as { id: string; inputs_json: string; outputs_json: string | null; external_tainted: number; state: string }[];
-    const out: { role: 'user' | 'assistant'; text: string; runId: string; tainted: boolean }[] = [];
+      SELECT r.id, r.inputs_json, r.outputs_json, r.external_tainted, r.private_tainted FROM runs r
+      WHERE r.conversation_id = ? AND r.state = 'completed'
+        AND (? IS NULL OR (r.started_at, r.rowid) < (SELECT p.started_at, p.rowid FROM runs p WHERE p.id = ?))
+      ORDER BY r.started_at DESC, r.rowid DESC LIMIT ?`)
+      .all(id, opts.before ?? null, opts.before ?? null, opts.turns) as
+      { id: string; inputs_json: string; outputs_json: string | null; external_tainted: number; private_tainted: number }[];
+    const out: HistoryMessage[] = [];
     let budget = opts.chars;
+    let newest = true;
     for (const row of rows) {
-      const you = String((JSON.parse(row.inputs_json) as { input?: unknown }).input ?? '').trim();
-      const reply = (outputText(row.outputs_json) ?? '').trim();
+      let you = String((JSON.parse(row.inputs_json) as { input?: unknown }).input ?? '').trim();
+      let reply = (outputText(row.outputs_json) ?? '').trim();
       if (!you || !reply) continue;
-      // Oldest dropped: the pair is added whole or not at all, so a turn is never half-remembered.
-      if (you.length + reply.length > budget) break;
+      if (newest) {
+        ({ you, reply } = clipPair(you, reply, budget));
+        newest = false;
+      } else if (you.length + reply.length > budget) {
+        break;
+      }
       budget -= you.length + reply.length;
-      out.unshift({ role: 'assistant', text: reply, runId: row.id, tainted: row.external_tainted === 1 });
-      out.unshift({ role: 'user', text: you, runId: row.id, tainted: false });
+      out.unshift({ role: 'assistant', text: reply, runId: row.id, tainted: row.external_tainted === 1, privateTainted: row.private_tainted === 1 });
+      out.unshift({ role: 'user', text: you, runId: row.id, tainted: false, privateTainted: false });
     }
     return out;
   }
+}
+
+/**
+ * Cut a pair to a budget, keeping the head of each. The shorter side keeps all it has up to half the budget, so
+ * a one-line reply beside a very long message is not cut to nothing; the longer side gets the rest. Only the
+ * side that is cut carries the mark, and the mark counts against the budget.
+ */
+function clipPair(you: string, reply: string, budget: number): { you: string; reply: string } {
+  if (you.length + reply.length <= budget) return { you, reply };
+  const half = Math.floor(budget / 2);
+  let youMax: number;
+  let replyMax: number;
+  if (reply.length <= half) { replyMax = reply.length; youMax = budget - reply.length; }
+  else if (you.length <= budget - half) { youMax = you.length; replyMax = budget - you.length; }
+  else { youMax = half; replyMax = budget - half; }
+  return { you: clip(you, youMax), reply: clip(reply, replyMax) };
+}
+
+function clip(text: string, max: number): string {
+  if (text.length <= max) return text;
+  let head = text.slice(0, Math.max(0, max - CLIPPED.length - 1));
+  // Never leave half of a surrogate pair at the cut: a provider would reject the request as malformed.
+  if (/[\uD800-\uDBFF]$/.test(head)) head = head.slice(0, -1);
+  head = head.trimEnd();
+  return head ? `${head} ${CLIPPED}` : CLIPPED;
+}
+
+/**
+ * A failed exchange's reason in a sentence a person can read in the thread: the run's own message, one line, no
+ * stack, nothing that looks like a key, at most REASON_CHARS. The run page holds the full error (D-58).
+ */
+function plainReason(errorJson: string | null): string {
+  if (!errorJson) return FAILED;
+  let text: string;
+  try {
+    const e = JSON.parse(errorJson) as unknown;
+    const o = (typeof e === 'object' && e !== null ? e : {}) as { message?: unknown; reason?: unknown; code?: unknown };
+    const picked = [o.message, o.reason, o.code, typeof e === 'string' ? e : undefined].find((v) => typeof v === 'string' && v.trim() !== '');
+    text = typeof picked === 'string' ? picked : FAILED;
+  } catch {
+    text = FAILED;
+  }
+  const line = text.split('\n').map((l) => l.trim()).find((l) => l !== '' && !/^at\s/.test(l)) ?? FAILED;
+  const scrubbed = line
+    .replace(/\bBearer\s+\S+/gi, 'Bearer [redacted]')
+    .replace(/\b(?:sk|pk|rk|ghp|gho|ghs|github_pat|xox[a-z]|AKIA|AIza)[-_A-Za-z0-9]{8,}/g, '[redacted]')
+    .replace(/\b[A-Za-z0-9_\-+/=]{32,}\b/g, '[redacted]')
+    .replace(/\s+/g, ' ');
+  return scrubbed.length > REASON_CHARS ? `${scrubbed.slice(0, REASON_CHARS - 1).trimEnd()}…` : scrubbed;
 }
 
 function outputText(outputs: string | null): string | null {

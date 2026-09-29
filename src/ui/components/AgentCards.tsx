@@ -6,14 +6,11 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import type { AgentReport, RatingAggregate } from '../../shared/api/index.js';
 import { api } from '../lib/api.js';
-import { heartbeatLine, money, spentLine } from '../lib/agentLines.js';
+import { STATE_TONE, STATE_WORD, heartbeatLine, money, spentLine } from '../lib/agentLines.js';
 import { stateTone } from '../screens/Runs.js';
 import { Button } from './ui/button.js';
 import { Badge, Card } from './ui/card.js';
 import { CardTitle, Hint } from './ui/text.js';
-
-const STATE_TONE: Record<AgentReport['state'], 'neutral' | 'good' | 'bad' | 'busy'> = { running: 'busy', waiting: 'bad', failed: 'bad', idle: 'good', never: 'neutral' };
-const STATE_WORD: Record<AgentReport['state'], string> = { running: 'working', waiting: 'needs you', failed: 'last run failed', idle: 'idle', never: 'has not run yet' };
 
 export function AgentCards({ agents }: { agents: AgentReport[] }) {
   const [selected, setSelected] = useState<string | null>(null);
@@ -52,7 +49,7 @@ function AgentCard({ report: r, open, onToggle }: { report: AgentReport; open: b
           <dt className="w-14 shrink-0 text-gray-600 dark:text-gray-400">Lately</dt>
           <dd className="min-w-0">
             {w.runs + w.steps === 0 ? 'nothing this week' : `${w.runs} run${w.runs === 1 ? '' : 's'}${w.steps ? `, ${w.steps} step${w.steps === 1 ? '' : 's'} in workflows` : ''}${w.failed ? `, ${w.failed} failed` : ''}${w.running ? `, ${w.running} running` : ''}`}
-            {r.latest ? <span className="block truncate text-xs text-gray-600 dark:text-gray-400" title={r.latest.summary.join(' ')}>{r.latest.summary[0]}</span> : null}
+            {r.latest ? <span className="line-clamp-2 break-words text-xs text-gray-600 dark:text-gray-400" title={r.latest.summary.join(' ')}>{r.latest.summary[0]}</span> : null}
           </dd>
         </div>
         {a.spend ? (
@@ -61,8 +58,8 @@ function AgentCard({ report: r, open, onToggle }: { report: AgentReport; open: b
         <div className="flex gap-2" data-testid={`card-rated-${a.id}`}>
           <dt className="w-14 shrink-0 text-gray-600 dark:text-gray-400">Rated</dt>
           <dd className="min-w-0">
-            <span>{ratingWords('orchestrator', r.ratings.orchestrator)} · {ratingWords('you', r.ratings.owner)}</span>
-            {r.ratings.orchestrator.latestWhy ? <span className="block truncate text-xs text-gray-600 dark:text-gray-400" title={r.ratings.orchestrator.latestWhy}>“{r.ratings.orchestrator.latestWhy}”</span> : null}
+            <span>{ratingWords("orchestrator's estimate", r.ratings.orchestrator)} · {ratingWords('you', r.ratings.owner)}</span>
+            {r.ratings.orchestrator.latestWhy ? <span className="line-clamp-2 break-words text-xs text-gray-600 dark:text-gray-400" title={r.ratings.orchestrator.latestWhy}>The orchestrator: “{r.ratings.orchestrator.latestWhy}”</span> : null}
           </dd>
         </div>
         {a.heartbeat ? (
@@ -74,10 +71,13 @@ function AgentCard({ report: r, open, onToggle }: { report: AgentReport; open: b
   );
 }
 
-/** "orchestrator 3.5 over 4" / "you 4.0 over 2" / "you: none yet": a number always says whose it is (D-36, D-50). */
+/**
+ * "orchestrator's estimate 3.5/5 (4 rated)" / "you 4.0/5 (2 rated)" / "you: none yet": a number always says whose it
+ * is and on what scale, and the orchestrator's is always an estimate (D-06, D-36, D-50).
+ */
 function ratingWords(whose: string, agg: RatingAggregate): string {
   if (agg.count === 0) return `${whose}: none yet`;
-  return `${whose} ${agg.mean?.toFixed(1)} over ${agg.count}`;
+  return `${whose} ${agg.mean?.toFixed(1)}/5 (${agg.count} rated)`;
 }
 
 function Details({ report: r }: { report: AgentReport }) {
@@ -90,7 +90,7 @@ function Details({ report: r }: { report: AgentReport }) {
           {r.needsYou.reviews + r.needsYou.approvals + r.needsYou.decisions > 0 ? (
             <Badge tone="bad">{r.needsYou.reviews ? `${r.needsYou.reviews} for review` : r.needsYou.approvals ? `${r.needsYou.approvals} asking permission` : `${r.needsYou.decisions} asked you`}</Badge>
           ) : null}
-          <Link to={`/agents/${r.agent.id}`} className="inline-block py-1 text-sm text-blue-700 underline underline-offset-4 dark:text-sky-300">Run it</Link>
+          <Link to={`/agents/${r.agent.id}`} className="inline-flex min-h-11 items-center py-1 text-sm text-blue-700 underline underline-offset-4 md:min-h-0 dark:text-sky-300">Run it</Link>
         </div>
       </div>
       {runs.isPending ? <Hint className="mt-2">Loading…</Hint> : null}
@@ -104,15 +104,21 @@ function Details({ report: r }: { report: AgentReport }) {
               <span className="text-gray-700 dark:text-gray-300">{new Date(run.startedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
               <span className="font-mono text-xs">{money(run.spent.costUsd)}</span>
               {run.project ? <span className="text-xs text-gray-600 dark:text-gray-400">{run.project}</span> : null}
-              <Link to={`/runs/${run.id}`} className="ml-auto inline-block py-1 text-blue-700 underline underline-offset-4 dark:text-sky-300">trace</Link>
+              <Link to={`/runs/${run.id}`} className="ml-auto inline-flex min-h-11 items-center py-1 text-blue-700 underline underline-offset-4 md:min-h-0 dark:text-sky-300">trace</Link>
             </li>
           ))}
         </ul>
       ) : null}
       {r.latest ? (
-        <ul className="mt-3 space-y-0.5 text-xs text-gray-600 dark:text-gray-400">
+        <ul className="mt-3 space-y-0.5 break-words text-xs text-gray-600 dark:text-gray-400">
           {r.latest.summary.map((line, i) => <li key={i}>{line}</li>)}
         </ul>
+      ) : null}
+      {r.ratings.orchestrator.latestWhy || r.ratings.owner.latestWhy ? (
+        <dl className="mt-3 space-y-1 break-words text-xs text-gray-600 dark:text-gray-400">
+          {r.ratings.orchestrator.latestWhy ? <div><dt className="inline font-medium">The orchestrator&apos;s last estimate: </dt><dd className="inline">“{r.ratings.orchestrator.latestWhy}”</dd></div> : null}
+          {r.ratings.owner.latestWhy ? <div><dt className="inline font-medium">Your last note: </dt><dd className="inline">“{r.ratings.owner.latestWhy}”</dd></div> : null}
+        </dl>
       ) : null}
     </div>
   );

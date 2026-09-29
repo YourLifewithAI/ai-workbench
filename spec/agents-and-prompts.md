@@ -112,9 +112,16 @@ it with the project chosen. It is a recipe for "a space of my own" until project
 > user and assistant in turn, and never as a `## ` section: the instruction sections stay the agent's, the
 > owner's page and the project's goals (SEC-47). `promptVersion` does not move for it — history is input, as
 > the task is. A carried reply that came from an externally tainted run marks the carrying turn external, as
-> `artifact.read` of a tainted version does, so what that turn remembers is `untrusted`. Nothing of a thread
-> reaches a delegated child (D-48). The companion's description calls it the orchestrator of the others; its
-> *the village* section keeps its name, the metaphor being the agent's, not the screen's.
+> `artifact.read` of a tainted version does, so what that turn remembers is `untrusted`; a reply from a run that
+> read private content makes it private-tainted, so D-29's approval applies to its outbound requests. A resumed
+> turn is handed its thread again (the turns before it) and keeps its taint, as a fresh start would. The newest
+> pair is always carried, cut to the budget with a `[…clipped]` mark when it is larger, and older pairs are added
+> whole while they fit. The turn's first event, `run-started`, names the thread — `thread: { conversationId,
+> carried, taintedFrom, privateFrom }` — so the trace says which turn tainted it. The taint is sticky: once one
+> turn read the web, every later turn of the thread is tainted, and a person starts a fresh thread to shed it.
+> Nothing of a thread reaches a delegated child (D-48), and a run is never both a child and a turn. The
+> companion's description calls it the orchestrator of the others; its *the village* section keeps its name, the
+> metaphor being the agent's, not the screen's.
 
 ## Import trust (D-34)
 

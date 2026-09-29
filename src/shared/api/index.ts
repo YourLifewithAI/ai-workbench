@@ -775,10 +775,14 @@ export const ThreadEntry = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('exchange'), runId: z.string(), at: z.string(), state: z.string(), costUsd: z.number(),
     children: z.number(), filed: z.array(WorkItem), you: z.string(), reply: z.string().nullable(), tainted: z.boolean(),
+    /** Why the run failed, in a short plain sentence (never a stack, at most 200 characters); null unless it failed. */
+    error: z.string().nullable(),
   }),
   z.object({
     kind: z.literal('pulse'), runId: z.string(), at: z.string(), state: z.string(), costUsd: z.number(),
     children: z.number(), filed: z.array(WorkItem), workflowId: z.string(), note: z.string().nullable(),
+    /** The pulse read something from outside the workspace (its run is externally tainted). */
+    tainted: z.boolean(),
   }),
   z.object({ kind: z.literal('decision'), at: z.string(), item: WorkItem }),
 ]);
@@ -813,7 +817,8 @@ export const CreateConversationRequest = z.object({
 export type CreateConversationRequest = z.infer<typeof CreateConversationRequest>;
 
 export const PostMessageRequest = z.object({
-  message: z.string().min(1).max(20_000),
+  /** Trimmed before it is checked, so a message of nothing but whitespace is refused like an empty one. */
+  message: z.string().trim().min(1).max(20_000),
   provider: z.literal('mock').optional(),
 });
 export type PostMessageRequest = z.infer<typeof PostMessageRequest>;

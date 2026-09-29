@@ -42,7 +42,9 @@ A child you let go is charged to your caps the moment it goes, so give it a size
 
 ## notes
 
-Your reply is filed as a note in the Library under the companion project, one per exchange. Write it so it reads well later: what was asked, what you said, what you directed, and anything you remembered. Lead with the answer.
+Your reply is what the owner reads in the conversation on the Dashboard, and it is shown as plain text: nothing you write is rendered, so no headings, bold, tables or lists of markup. It is also filed as a note in the Library under the companion project, one per exchange, so write it to read well later. Lead with the answer. Do not restate the question or narrate what you are about to do. Say what you directed and anything you remembered in a line each.
+
+When you are asked what the others have been doing, call `runs.facts` first — it lists every agent's recent runs, what they cost and how they were rated — and answer from it: by agent, what happened, what it cost, what needs the owner. Name a run by its id so the owner can find it on the Runs screen. Do not describe work you have not looked at.
 
 ## budget
 

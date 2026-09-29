@@ -27,7 +27,8 @@ import type { Logger } from '../log/index.js';
 import type { BrokenAgent, Workspace } from '../workspace/loader.js';
 import type { LoadedAgent } from '../../shared/agent.js';
 import { validateWorkflow, type LoadedWorkflow } from '../../shared/workflow.js';
-import { ORCHESTRATOR_AGENT } from '../orchestrator/fleet.js';
+import { normalizeSince, ORCHESTRATOR_AGENT } from '../orchestrator/fleet.js';
+import { threadActivity } from '../conversations/activity.js';
 import { WorkflowWriteError } from '../workspace/workflows.js';
 import { toolSpec } from '../../shared/tool.js';
 import { z } from 'zod';
@@ -666,8 +667,11 @@ export function createApp(deps: AppDeps): Hono {
   // ---- the board (RUN-26, D-79) -----------------------------------------------------------------
   // What every card says, computed: counted in SQL by agent, one summary line per agent, no model call.
   app.get('/api/v1/fleet', (c) => {
-    const since = c.req.query('since');
-    if (since !== undefined && Number.isNaN(Date.parse(since))) return fail(c, 'validation', '`since` must be an ISO timestamp.', 400);
+    // Normalised once, here: the window is compared as text against timestamps written by `toISOString()`, and the
+    // response echoes what was actually used.
+    const raw = c.req.query('since');
+    const since = raw === undefined ? undefined : normalizeSince(raw);
+    if (since === null) return fail(c, 'validation', '`since` must be a date or an ISO timestamp.', 400);
     const ws = deps.workspace();
     const schedules = deps.scheduler.list();
     const summaries = new Map([...ws.agents.values()].map((a) => [a.definition.id, agentSummary(a, deps.modelsNow(a.definition.modelPolicy), onTheCard(a, ws, schedules, deps))]));
@@ -739,6 +743,11 @@ export function createApp(deps: AppDeps): Hono {
     }
     const parsed = PostMessageRequest.safeParse(body);
     if (!parsed.success) return fail(c, 'validation', 'A message is { message, provider? }.', 400, parsed.error.issues);
+    // One exchange at a time. The next turn carries the earlier ones as messages, and the reply still being written
+    // is not among them yet: a second message posted now would be answered without it, silently. A run parked on a
+    // review or an approval is waiting on the owner, not answering, so it does not hold the thread.
+    const answering = deps.db.prepare(`SELECT id FROM runs WHERE conversation_id = ? AND state IN ('queued', 'running') ORDER BY started_at LIMIT 1`).get(id) as { id: string } | undefined;
+    if (answering) return fail(c, 'conflict', 'It is still answering your last message. Wait for it, or cancel that run.', 409, { runId: answering.id });
     try {
       const { runId } = deps.engine.startAgentRun({
         agentId: conversation.agentId,
@@ -1536,16 +1545,11 @@ function budgetOverride(overrides: Record<string, unknown> | undefined): BudgetO
  * the pulse ran.
  */
 function threadHeader(deps: AppDeps, since: string | null): ThreadHeader {
-  const runs = deps.engine.listRuns({ limit: 200 });
-  const after = (at: string | null | undefined): boolean => since === null || (at !== null && at !== undefined && at > since);
   const reviews = deps.engine.reviews.list({ state: 'open' });
-  const finished = runs.filter((r) => after(r.finishedAt));
   return {
     since,
-    finished: finished.filter((r) => r.state === 'completed').length,
-    failed: finished.filter((r) => r.state === 'failed' || r.state === 'interrupted').length,
-    running: runs.filter((r) => r.state === 'running' || r.state === 'queued' || r.state === 'waiting_review').length,
-    spentUsd: round2(finished.reduce((sum, r) => sum + (r.spent?.costUsd ?? 0), 0)),
+    // The runs, counted in SQL over every top-level run, so nothing is capped and no waited child is counted twice.
+    ...threadActivity(deps.db, since),
     needsYou: {
       decisions: deps.engine.work.list({ state: 'needs-you', kind: 'decision' }).length,
       reviews: reviews.filter((r) => r.blocking).length,
@@ -1553,10 +1557,6 @@ function threadHeader(deps: AppDeps, since: string | null): ThreadHeader {
       unrated: reviews.filter((r) => !r.blocking).length,
     },
   };
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
 }
 
 function agentSummary(agent: LoadedAgent, now: string[], card: { heartbeat?: AgentHeartbeat | undefined; spend: AgentSpend }): AgentSummary {

@@ -72,7 +72,7 @@ test('@run-26 the board is the front door, and two messages to the orchestrator 
   await expect(composer, 'the composer waits for the answer').toBeDisabled();
   // Deltas are live, not replayed: the mock's first chunk is out before the follower has subscribed, so the
   // arriving text is read from its second chunk on; the reply as written is what the exchange settles on.
-  const arriving = first.locator('[aria-live="polite"]');
+  const arriving = first.locator('[data-live="true"]');
   await expect(arriving).toBeVisible({ timeout: 20_000 });
   await expect(arriving).toContainText('the researcher filed a briefing', { timeout: 20_000 });
   await expect(first).toContainText('nothing is waiting on you but the draft.', { timeout: 30_000 });
@@ -104,7 +104,7 @@ test('@run-26 an agent\'s card says what it did lately, what it spent and how it
   await expect(card.getByTestId('card-lately-weaver')).toContainText(/\d+ runs?|nothing this week/);
   await expect(card.getByTestId('card-spent-weaver').locator('dd')).toHaveText(/^\$\d+\.\d{2,4} today · \$\d+\.\d{2,4} this month$/);
   // Two numbers, each saying whose it is; none yet says so too.
-  await expect(card.getByTestId('card-rated-weaver')).toContainText(/orchestrator( \d\.\d over \d+|: none yet) · you( \d\.\d over \d+|: none yet)/);
+  await expect(card.getByTestId('card-rated-weaver')).toContainText(/orchestrator's estimate( \d\.\d\/5 \(\d+ rated\)|: none yet) · you( \d\.\d\/5 \(\d+ rated\)|: none yet)/);
 
   await card.getByRole('button', { name: 'Details for The Weaver' }).click();
   const details = page.getByTestId('agent-details-weaver');

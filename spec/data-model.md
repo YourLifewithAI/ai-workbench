@@ -63,7 +63,7 @@ Vocabularies: `runs.kind ∈ agent | workflow | experiment`; `runs.state ∈ que
 
 | Type | Payload |
 |---|---|
-| `run-started` | `{ kind, agentId?, workflowId?, agentVersion?, workflowVersion?, inputs, project?, budgets, provider? }` |
+| `run-started` | `{ kind, agentId?, workflowId?, agentVersion?, workflowVersion?, inputs, project?, budgets, provider?, thread? }` — `thread` (RUN-26, D-78), on a run started in a conversation: `{ conversationId, carried: [{ runId, role, chars }], taintedFrom, privateFrom }`, naming the turns it carried and which of them were externally or privately tainted |
 | `step-started` / `step-completed` / `step-failed` / `step-skipped` | `{ stepId, kind, agentId?, modelCandidates?, output?, error?, reason? }` |
 | `model-started` | `{ modelId, adapter, attempt, request: { system, messages, tools: ToolSpec[], outputSchema?, providerOptions? } }` (no `abortSignal`) |
 | `model-completed` | `{ modelId, response, usage, costUsd, latencyMs, promptVersion, agentVersion }` |

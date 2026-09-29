@@ -10,7 +10,7 @@ import type { DashboardResponse } from '../../shared/api/index.js';
 import { api } from '../lib/api.js';
 import { ApprovalCard } from '../components/ApprovalCard.js';
 import { AgentCards } from '../components/AgentCards.js';
-import { DecisionCard, WorkRow } from '../components/DecisionCard.js';
+import { DecisionCard, WorkRow, refocusNeedsYou } from '../components/DecisionCard.js';
 import { EmptyState } from '../components/EmptyState.js';
 import { OrchestratorBand } from '../components/OrchestratorBand.js';
 import { RunningRuns } from '../components/RunningRuns.js';
@@ -22,7 +22,7 @@ import { ScreenTitle, SectionTitle, Subheading } from '../components/ui/text.js'
 export function Dashboard() {
   const q = useQuery({ queryKey: ['dashboard'], queryFn: api.dashboard, refetchInterval: 5000 });
   const fleet = useQuery({ queryKey: ['fleet'], queryFn: api.fleet, refetchInterval: 15_000 });
-  useLiveRuns(['dashboard', 'fleet', 'conversation']);
+  useLiveRuns(['dashboard', 'fleet', 'conversation', 'runs-for']);
   const client = useQueryClient();
   const navigate = useNavigate();
   const resume = useMutation({ mutationFn: (id: string) => api.resumeRun(id), onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }) });
@@ -33,7 +33,12 @@ export function Dashboard() {
   });
   const answer = useMutation({
     mutationFn: (input: { id: string; answer: string }) => api.updateWork(input.id, { answer: input.answer }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }),
+    // Whichever copy of the decision was answered, both go: the card here and the one in the orchestrator's thread.
+    onSuccess: () => Promise.all([
+      client.invalidateQueries({ queryKey: ['dashboard'] }),
+      client.invalidateQueries({ queryKey: ['conversation'] }),
+      client.invalidateQueries({ queryKey: ['fleet'] }),
+    ]).then(refocusNeedsYou),
   });
 
   const d = q.data;
@@ -78,7 +83,7 @@ export function Dashboard() {
       {d ? (
         <>
         <OrchestratorBand report={fleet.data?.orchestrator ?? null}>
-          <SectionTitle className="mt-6" id="needs-you">Needs you</SectionTitle>
+          <SectionTitle className="mt-6" id="needs-you" tabIndex={-1}>Needs you</SectionTitle>
           {pending.length ? (
             <p className="mt-1 hidden text-sm text-gray-600 md:block dark:text-gray-400">
               Keys: <kbd className="font-mono">a</kbd> allow · <kbd className="font-mono">d</kbd> deny · <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> move.

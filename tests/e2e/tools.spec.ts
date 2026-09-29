@@ -69,9 +69,10 @@ test('@run-06 a pending approval is allowed from the Dashboard with the keyboard
       return detail.state;
     }, { timeout: 20_000 })
     .toBe('completed');
-  // The board says it in two places since RUN-26 — the orchestrator's "since you were last here" and the empty
-  // state under Needs you — so either is enough.
-  await expect(page.getByText('Nothing is waiting on you.').or(page.getByText(/would like a rating/)).first()).toBeVisible({ timeout: 20_000 });
+  // The approval card is gone, and Needs you says so. (The board says the rating count in two places since RUN-26
+  // — the orchestrator's "since you were last here" holds an earlier header — so the card leaving is the proof.)
+  await expect(card).toBeHidden({ timeout: 20_000 });
+  await expect(page.getByText('Nothing is waiting on you.').or(page.getByText(/Nothing is blocked\./))).toBeVisible({ timeout: 20_000 });
 });
 
 test('@run-07 the Tools screen says where each agent may actually go', async ({ page }) => {
