@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import type { EventRecord } from '../../shared/events.js';
 import type { RunDetail as RunDetailShape, StepSummary } from '../../shared/api/index.js';
 import { money, seconds, summarizeRun, summarizeStep } from '../../shared/summary.js';
-import { api, parseEvent, subscribeSse } from '../lib/api.js';
+import { api } from '../lib/api.js';
+import { useRunStream } from '../lib/useRunStream.js';
 import { Badge, Card } from '../components/ui/card.js';
 import { Button } from '../components/ui/button.js';
 import { SummaryCard } from '../components/SummaryCard.js';
@@ -15,10 +16,6 @@ import { CANCELLABLE, stateTone } from './Runs.js';
 import { ScreenTitle, SectionTitle, Subheading } from '../components/ui/text.js';
 import { MOCK_NOTE, usedMock } from '../lib/mock.js';
 
-const TERMINAL = new Set(['run-completed', 'run-failed', 'run-cancelled', 'run-interrupted']);
-
-interface Delta { runId: string; stepId: string; modelId: string; kind: 'text' | 'reasoning'; text: string }
-
 /** Summary first, then steps and their model calls, then the raw timeline (D-58: progressive disclosure). */
 export function RunDetail() {
   const { id = '' } = useParams();
@@ -27,35 +24,9 @@ export function RunDetail() {
   // Cached across screens by React Query; it only supplies the agent's display name for the summary sentence.
   const agents = useQuery({ queryKey: ['agents'], queryFn: api.agents, staleTime: 60_000 });
   const ratings = useQuery({ queryKey: ['run-ratings', id], queryFn: () => api.runRatings(id), enabled: id !== '' });
-  const [events, setEvents] = useState<EventRecord[]>([]);
-  const [streaming, setStreaming] = useState<Record<string, string>>({});
-  const [streamError, setStreamError] = useState<string | null>(null);
   const [tab, setTab] = useState<'trace' | 'privacy'>('trace');
-
-  useEffect(() => {
-    if (!id) return;
-    setEvents([]);
-    setStreaming({});
-    const controller = new AbortController();
-    let last = 0;
-    subscribeSse(`/runs/${encodeURIComponent(id)}/events`, (m) => {
-      if (m.event === 'model-delta') {
-        const d = JSON.parse(m.data) as Delta;
-        if (d.kind !== 'text') return;
-        setStreaming((prev) => ({ ...prev, [d.stepId]: (prev[d.stepId] ?? '') + d.text }));
-        return;
-      }
-      const e = parseEvent(m);
-      if (!e || e.seq <= last) return;
-      last = e.seq;
-      setEvents((prev) => [...prev, e]);
-      if (e.type === 'model-aborted' || e.type === 'step-completed' || e.type === 'step-failed') {
-        setStreaming((prev) => { const next = { ...prev }; delete next[e.stepId ?? '']; return next; });
-      }
-      if (TERMINAL.has(e.type)) void client.invalidateQueries({ queryKey: ['run', id] });
-    }, controller.signal).catch((e: unknown) => { if (!controller.signal.aborted) setStreamError((e as Error).message); });
-    return () => controller.abort();
-  }, [id, client]);
+  // The one follower (src/ui/lib/useRunStream.ts): events as they land, text as it streams.
+  const { events, streaming, error: streamError } = useRunStream(id || null);
 
   const workflow = useQuery({
     queryKey: ['workflow', run.data?.workflowId ?? ''],

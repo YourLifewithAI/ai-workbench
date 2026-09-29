@@ -1,5 +1,5 @@
 // Every call carries the bearer token; SSE is fetch-based (never EventSource) so it can too.
-import type { AgentDetail, AgentGrantSummary, AgentListResponse, ApprovalItem, ApprovalListResponse, CompareRequest, ComparePickRequest, CompareResponse, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, DashboardResponse, DatasetSummary, DeleteMemoryResponse, ExperimentResults, ExperimentSummary, DiffResponse, DocumentDetail, DocumentSummary, GrantCell, KnowledgeSearchResponse, MemoryItem, MemoryResponse, MemoryTracesResponse, ModelListResponse, PrivacyResponse, Project, PushEventKind, PushSubscription, PushSubscriptionsResponse, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunRatingsResponse, RunSummary, UpdateWorkRequest, WorkItem, WorkListResponse, ScheduleListResponse, ScheduleSummary, SetGrantRequest, SettingsResponse, UpdateSettingsRequest, SubscribePushRequest, ToolsResponse, UpsertScheduleRequest, CreateWorkflowRequest, DeleteWorkflowResponse, EstimateRequest, EstimateResponse, SpendResponse, PermissionFinding, PermissionFindingsResponse, SaveWorkflowRequest, WorkflowDetail, WorkflowListResponse, ProjectSpaceResponse, SaveProjectSpaceRequest } from '../../shared/api/index.js';
+import type { AgentDetail, AgentGrantSummary, AgentListResponse, ConversationResponse, ConversationSummary, FleetResponse, ApprovalItem, ApprovalListResponse, CompareRequest, ComparePickRequest, CompareResponse, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, DashboardResponse, DatasetSummary, DeleteMemoryResponse, ExperimentResults, ExperimentSummary, DiffResponse, DocumentDetail, DocumentSummary, GrantCell, KnowledgeSearchResponse, MemoryItem, MemoryResponse, MemoryTracesResponse, ModelListResponse, PrivacyResponse, Project, PushEventKind, PushSubscription, PushSubscriptionsResponse, RateRequest, RatingSummary, ReloadAgentsResponse, ReviewItem, RunDetail, RunRatingsResponse, RunSummary, UpdateWorkRequest, WorkItem, WorkListResponse, ScheduleListResponse, ScheduleSummary, SetGrantRequest, SettingsResponse, UpdateSettingsRequest, SubscribePushRequest, ToolsResponse, UpsertScheduleRequest, CreateWorkflowRequest, DeleteWorkflowResponse, EstimateRequest, EstimateResponse, SpendResponse, PermissionFinding, PermissionFindingsResponse, SaveWorkflowRequest, WorkflowDetail, WorkflowListResponse, ProjectSpaceResponse, SaveProjectSpaceRequest } from '../../shared/api/index.js';
 import type { EventRecord } from '../../shared/events.js';
 import { getToken, markUnauthorized } from './auth.js';
 
@@ -130,6 +130,18 @@ export const api = {
   updateWork: (id: string, body: UpdateWorkRequest): Promise<WorkItem> =>
     apiFetch(`/work/${encodeURIComponent(id)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<WorkItem>),
   dashboard: (): Promise<DashboardResponse> => apiFetch('/dashboard').then((r) => r.json() as Promise<DashboardResponse>),
+  // The board (RUN-26, D-79): the fleet report, and the orchestrator's thread.
+  fleet: (): Promise<FleetResponse> => apiFetch('/fleet').then((r) => r.json() as Promise<FleetResponse>),
+  runsFor: (agent: string, limit = 10): Promise<RunSummary[]> =>
+    apiFetch(`/runs?agent=${encodeURIComponent(agent)}&limit=${limit}`).then((r) => r.json() as Promise<{ runs: RunSummary[] }>).then((b) => b.runs),
+  conversationLatest: (agent?: string): Promise<ConversationSummary> =>
+    apiFetch(`/conversations/latest${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`).then((r) => r.json() as Promise<ConversationSummary>),
+  conversation: (id: string): Promise<ConversationResponse> => apiFetch(`/conversations/${encodeURIComponent(id)}`).then((r) => r.json() as Promise<ConversationResponse>),
+  postMessage: (id: string, message: string, provider?: 'mock'): Promise<{ runId: string; conversationId: string }> =>
+    apiFetch(`/conversations/${encodeURIComponent(id)}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message, ...(provider ? { provider } : {}) }) })
+      .then((r) => r.json() as Promise<{ runId: string; conversationId: string }>),
+  markRead: (id: string): Promise<ConversationSummary> =>
+    apiFetch(`/conversations/${encodeURIComponent(id)}/read`, { method: 'POST' }).then((r) => r.json() as Promise<ConversationSummary>),
   reviews: (state = 'open'): Promise<ReviewItem[]> =>
     apiFetch(`/reviews?state=${encodeURIComponent(state)}`).then((r) => r.json() as Promise<{ reviews: ReviewItem[] }>).then((b) => b.reviews),
   decideReview: (id: string, decision: 'continue' | 'reject' | 'dismiss', feedback?: string): Promise<ReviewItem> =>

@@ -1,5 +1,5 @@
 // A media query as React state. `useSyncExternalStore` so the value is right on the first render and follows the
-// window: the village exists at `md` and above (D-71), and the phone layout below it must be exactly what it was.
+// window: the desktop layout begins at `md`, and the phone layout below it must be exactly what it was.
 import { useSyncExternalStore } from 'react';
 
 /** Tailwind v4's `md` breakpoint. A rem in a media query is always the initial 16px, so this is 768px. */

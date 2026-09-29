@@ -9,6 +9,7 @@ import { Badge, Card } from '../components/ui/card.js';
 import { CardTitle, Prose, ScreenTitle, SectionTitle } from '../components/ui/text.js';
 import type { AgentSummary } from '../../shared/api/index.js';
 import { MOCK_NOTE } from '../lib/mock.js';
+import { heartbeatLine, spentLine } from '../lib/agentLines.js';
 
 export function Agents() {
   const q = useQuery({ queryKey: ['agents'], queryFn: api.agents });
@@ -231,17 +232,3 @@ function AgentCard({ agent: a, carried }: { agent: AgentSummary; carried: string
   );
 }
 
-const money = (n: number): string => (n > 0 && n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`);
-
-/** "$0.42 today of $5 · $3.10 this month of $40": the agent's runs and every run beneath them, against its own caps. */
-function spentLine(spend: NonNullable<AgentSummary['spend']>): string {
-  const cap = (n: number | null): string => (n === null ? '' : ` of $${n}`);
-  return `${money(spend.todayUsd)} today${cap(spend.dailyCapUsd)} · ${money(spend.thisMonthUsd)} this month${cap(spend.monthlyCapUsd)}`;
-}
-
-/** The loop the agent runs on: when it next fires, or that it is off and where to turn it on. */
-function heartbeatLine(h: NonNullable<AgentSummary['heartbeat']>): string {
-  if (!h.enabled) return `${h.workflowName}, off — turn it on under Workflows`;
-  const next = h.nextFireAt ? new Date(h.nextFireAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : 'soon';
-  return `${h.workflowName}, next ${next}`;
-}

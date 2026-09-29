@@ -3,7 +3,6 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { getAuthState, onAuthChange } from './lib/auth.js';
 import { welcomeDone } from './lib/welcome.js';
-import { MD, useMediaQuery } from './lib/media.js';
 import { Shell, SCREENS } from './components/Shell.js';
 import { Placeholder } from './components/Placeholder.js';
 import { TokenRequired } from './components/TokenRequired.js';
@@ -21,18 +20,15 @@ import { Memory } from './screens/Memory.js';
 import { Evaluate } from './screens/Evaluate.js';
 import { RunDetail } from './screens/RunDetail.js';
 import { Settings } from './screens/Settings.js';
-import { Village } from './screens/Village.js';
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });
 
 /**
  * Where `/` goes, decided when the route matches rather than when the app first rendered: the welcome path until it
- * is done, then the village on a desktop and the Dashboard on a phone (D-71; the installed app's start_url is the
- * Dashboard for the same reason).
+ * is done, then the board — the Dashboard — at every width (D-79; the installed app's start_url is the same).
  */
 function FrontDoor() {
-  const wide = useMediaQuery(MD);
-  return <Navigate to={welcomeDone() ? (wide ? '/village' : '/dashboard') : '/welcome'} replace />;
+  return <Navigate to={welcomeDone() ? '/dashboard' : '/welcome'} replace />;
 }
 
 export function App() {
@@ -47,7 +43,6 @@ export function App() {
         <Routes>
           <Route element={<Shell />}>
             <Route index element={<FrontDoor />} />
-            <Route path="/village" element={<Village />} />
             <Route path="/welcome" element={<Welcome />} />
             <Route path="/agents" element={<Agents />} />
             <Route path="/agents/:id" element={<AgentDetail />} />

@@ -26,8 +26,9 @@ async function expectTouchTargets(page: Page, name: string): Promise<void> {
       if (box.width === 0 && box.height === 0) continue; // hidden
       const style = getComputedStyle(el);
       if (style.visibility === 'hidden' || style.display === 'none') continue;
-      // Links inside a paragraph are text, not targets: they inherit the line box and are exempt by design.
-      if (el.tagName === 'A' && el.parentElement && ['P', 'SPAN', 'LI', 'TD', 'DD'].includes(el.parentElement.tagName)) continue;
+      // Links inside a paragraph, or that are a heading's own text, are text, not targets: they inherit the line
+      // box and are exempt by design.
+      if (el.tagName === 'A' && el.parentElement && ['P', 'SPAN', 'LI', 'TD', 'DD', 'H1', 'H2', 'H3', 'H4'].includes(el.parentElement.tagName)) continue;
       // The skip link is 1px until it is focused, at which point it is full size. That is what it is for.
       if (el.classList.contains('skip-link')) continue;
       if (box.height < 44) out.push(`${el.tagName.toLowerCase()} "${(el.textContent ?? '').trim().slice(0, 30)}" is ${Math.round(box.height)}px`);
@@ -120,15 +121,18 @@ test('@run-12 the Library reads on a phone', async ({ page }) => {
   await expectNoA11yViolations(page, 'Library on a phone');
 });
 
-test('@run-19 below md the village does not exist, and the front door is the Dashboard', async ({ page }) => {
-  // The village is the desktop's front door (D-71); a phone keeps every layout RUN-12 gave it.
+test('@run-26 the front door is the board at every width, and the village is gone', async ({ page }) => {
+  // The village was withdrawn (D-79): its address is no screen at all, on a phone as on a desktop.
   await page.goto(base() + '/village#token=' + token());
-  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Not found' })).toBeVisible();
   await expect(page.locator('[data-village]')).toHaveCount(0);
   await expect(page.locator('[data-interior]')).toHaveCount(0);
+  // After the welcome path, `/` is the board: the orchestrator's band across the top, the sections nav beneath.
   await page.evaluate(() => window.localStorage.setItem('workbench.welcome-done', '1'));
   await page.goto(base() + '/#token=' + token());
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+  await expect(page.getByTestId('orchestrator-band')).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible();
   await expectTouchTargets(page, 'Dashboard from the front door');
+  await expectNoA11yViolations(page, 'the board on a phone');
 });
