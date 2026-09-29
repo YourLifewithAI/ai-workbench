@@ -49,7 +49,7 @@ in `runlog/RUN-26.md`), `refuted`.
 | R4-5 | a failed exchange shows only "(the run failed)"; no reason | open |
 | R4-6 | companion instructions: `## notes` restates each reply; nothing says the thread is plain text or how to answer "what have the others been doing?" | open |
 | R4-7 | *Rated* never says *estimate* (brief "Do not", ui.md rule 2) | open |
-| R4-8 | the brief promises children links, per-run summary lines, filed documents and decisions asked in a card's panel; the build ships fewer | fixed in the brief's scope note |
+| R4-8 | the brief promises children links, per-run summary lines, filed documents and decisions asked in a card's panel; the build ships fewer (a directed-run count as text; last runs with a trace link; needs-you counts) | open: build it, or the owner narrows the brief; not to be narrowed silently |
 | R4-9 | Welcome step 5 opens the run form | fixed |
 | R4-10 | RUN-19 amendment not marked withdrawn; Dashboard row; D-71 pointer | fixed |
 | R4-11 | brief and runlog cite the wrong commit for the pre-village shell | fixed (`ec4afe1^`) |
