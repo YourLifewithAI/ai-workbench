@@ -28,7 +28,9 @@
     "keepRecentToolResults": 5,
     "maxToolResultChars": 8000,
     "memoryItems": 8,
-    "knowledgeChunks": 6
+    "knowledgeChunks": 6,
+    "conversationTurns": 8,
+    "conversationChars": 12000
   },
   "search": {
     "provider": "mock"

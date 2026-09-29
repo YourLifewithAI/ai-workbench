@@ -6,7 +6,7 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import {
-  RerunRequest, ApprovalDecisionRequest, CompareRequest, CreateWorkflowRequest, EstimateRequest, FindingDecisionRequest, SaveWorkflowRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetReposRequest, SetPriceRequest, SetEnabledRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type AgentHeartbeat, type AgentSpend, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type ScheduleSummary, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type DeleteWorkflowResponse, type EstimateResponse, type SpendResponse, type PermissionFinding, type PermissionFindingsResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary, SaveProjectSpaceRequest, type ProjectSpaceResponse } from '../../shared/api/index.js';
+  RerunRequest, ApprovalDecisionRequest, CompareRequest, CreateWorkflowRequest, EstimateRequest, FindingDecisionRequest, SaveWorkflowRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetReposRequest, SetPriceRequest, SetEnabledRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type AgentHeartbeat, type AgentSpend, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type ScheduleSummary, type ConversationListResponse, type ConversationResponse, type FleetResponse, CreateConversationRequest, PostMessageRequest, type ThreadHeader, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type DeleteWorkflowResponse, type EstimateResponse, type SpendResponse, type PermissionFinding, type PermissionFindingsResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary, SaveProjectSpaceRequest, type ProjectSpaceResponse } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
@@ -27,6 +27,8 @@ import type { Logger } from '../log/index.js';
 import type { BrokenAgent, Workspace } from '../workspace/loader.js';
 import type { LoadedAgent } from '../../shared/agent.js';
 import { validateWorkflow, type LoadedWorkflow } from '../../shared/workflow.js';
+import { normalizeSince, ORCHESTRATOR_AGENT } from '../orchestrator/fleet.js';
+import { threadActivity } from '../conversations/activity.js';
 import { WorkflowWriteError } from '../workspace/workflows.js';
 import { toolSpec } from '../../shared/tool.js';
 import { z } from 'zod';
@@ -199,7 +201,7 @@ export function createApp(deps: AppDeps): Hono {
     const limitRaw = c.req.query('limit');
     const limit = limitRaw !== undefined ? Number(limitRaw) : undefined;
     if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 1000)) return fail(c, 'validation', '`limit` must be an integer between 1 and 1000.', 400);
-    const runs = deps.engine.listRuns({ state: c.req.query('state'), kind: c.req.query('kind'), project: c.req.query('project'), limit });
+    const runs = deps.engine.listRuns({ state: c.req.query('state'), kind: c.req.query('kind'), project: c.req.query('project'), agent: c.req.query('agent'), limit });
     return json(c, { runs });
   });
 
@@ -660,6 +662,111 @@ export function createApp(deps: AppDeps): Hono {
     if (!parsed.success) return fail(c, 'validation', 'Expected some of { state, assignee, detail, answer, note }.', 400, parsed.error.issues);
     const item = deps.engine.work.update(c.req.param('id'), parsed.data);
     return item ? json(c, item) : fail(c, 'not_found', `There is no work item "${c.req.param('id')}".`, 404);
+  });
+
+  // ---- the board (RUN-26, D-79) -----------------------------------------------------------------
+  // What every card says, computed: counted in SQL by agent, one summary line per agent, no model call.
+  app.get('/api/v1/fleet', (c) => {
+    // Normalised once, here: the window is compared as text against timestamps written by `toISOString()`, and the
+    // response echoes what was actually used.
+    const raw = c.req.query('since');
+    const since = raw === undefined ? undefined : normalizeSince(raw);
+    if (since === null) return fail(c, 'validation', '`since` must be a date or an ISO timestamp.', 400);
+    const ws = deps.workspace();
+    const schedules = deps.scheduler.list();
+    const summaries = new Map([...ws.agents.values()].map((a) => [a.definition.id, agentSummary(a, deps.modelsNow(a.definition.modelPolicy), onTheCard(a, ws, schedules, deps))]));
+    const body: FleetResponse = deps.engine.fleet(summaries, since);
+    return json(c, body);
+  });
+
+  // The thread the board lands in: the agent's most recent, or a new one the first time.
+  app.get('/api/v1/conversations/latest', (c) => {
+    const agent = c.req.query('agent') ?? ORCHESTRATOR_AGENT;
+    const ws = deps.workspace();
+    if (!ws.agents.has(agent)) return fail(c, 'not_found', `Agent "${agent}" does not exist in this workspace.`, 404);
+    const project = deps.artifacts?.findProject(agent) ? agent : null;
+    return json(c, deps.engine.conversations.latestOrCreate(agent, project));
+  });
+
+  // ---- the room (RUN-26, D-77) ------------------------------------------------------------------
+  // A thread the owner types into. Every exchange is an ordinary agent run carrying the thread's id, so the
+  // trace, the cost and the permissions are what they always were: posting a message may do exactly what
+  // starting that run may do, and nothing more (SEC-47).
+  app.get('/api/v1/conversations', (c) => {
+    const agent = c.req.query('agent');
+    const body: ConversationListResponse = { conversations: deps.engine.conversations.list(agent ?? undefined) };
+    return json(c, body);
+  });
+
+  app.post('/api/v1/conversations', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = CreateConversationRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'A conversation is { agent, project?, title? }.', 400, parsed.error.issues);
+    const ws = deps.workspace();
+    if (!ws.agents.has(parsed.data.agent)) return fail(c, 'not_found', `Agent "${parsed.data.agent}" does not exist in this workspace.`, 404);
+    if (parsed.data.project && deps.artifacts && !deps.artifacts.findProject(parsed.data.project)) {
+      return fail(c, 'not_found', `Project "${parsed.data.project}" does not exist.`, 404);
+    }
+    return json(c, deps.engine.conversations.create({
+      agentId: parsed.data.agent,
+      ...(parsed.data.project ? { project: parsed.data.project } : {}),
+      ...(parsed.data.title ? { title: parsed.data.title } : {}),
+    }), 201);
+  });
+
+  app.get('/api/v1/conversations/:id', (c) => {
+    const id = c.req.param('id');
+    const conversation = deps.engine.conversations.get(id);
+    if (!conversation) return fail(c, 'not_found', `There is no conversation "${id}".`, 404);
+    const body: ConversationResponse = {
+      conversation,
+      entries: deps.engine.conversations.thread(id),
+      header: threadHeader(deps, conversation.lastReadAt),
+    };
+    return json(c, body);
+  });
+
+  app.post('/api/v1/conversations/:id/messages', async (c) => {
+    const id = c.req.param('id');
+    const conversation = deps.engine.conversations.get(id);
+    if (!conversation) return fail(c, 'not_found', `There is no conversation "${id}".`, 404);
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return fail(c, 'validation', 'The request body must be JSON.', 400);
+    }
+    const parsed = PostMessageRequest.safeParse(body);
+    if (!parsed.success) return fail(c, 'validation', 'A message is { message, provider? }.', 400, parsed.error.issues);
+    // One exchange at a time. The next turn carries the earlier ones as messages, and the reply still being written
+    // is not among them yet: a second message posted now would be answered without it, silently. A run parked on a
+    // review or an approval is waiting on the owner, not answering, so it does not hold the thread.
+    const answering = deps.db.prepare(`SELECT id FROM runs WHERE conversation_id = ? AND state IN ('queued', 'running') ORDER BY started_at LIMIT 1`).get(id) as { id: string } | undefined;
+    if (answering) return fail(c, 'conflict', 'It is still answering your last message. Wait for it, or cancel that run.', 409, { runId: answering.id });
+    try {
+      const { runId } = deps.engine.startAgentRun({
+        agentId: conversation.agentId,
+        inputs: { input: parsed.data.message },
+        ...(conversation.project ? { project: conversation.project } : {}),
+        ...(parsed.data.provider ? { provider: parsed.data.provider } : {}),
+        conversation: id,
+      });
+      deps.engine.conversations.touch(id, parsed.data.message);
+      return json(c, { runId, conversationId: id }, 202);
+    } catch (e) {
+      return mapError(c, e);
+    }
+  });
+
+  // Reading the room is what "since you were last here" counts from.
+  app.post('/api/v1/conversations/:id/read', (c) => {
+    const conversation = deps.engine.conversations.markRead(c.req.param('id'));
+    return conversation ? json(c, conversation) : fail(c, 'not_found', `There is no conversation "${c.req.param('id')}".`, 404);
   });
 
   // What needs you, what is running, and what today cost (ui.md §Dashboard).
@@ -1430,6 +1537,26 @@ function budgetOverride(overrides: Record<string, unknown> | undefined): BudgetO
     if (typeof value === 'number' && Number.isFinite(value)) out[key] = value;
   }
   return Object.keys(out).length ? out : undefined;
+}
+
+/**
+ * What happened while the owner was away (D-77): counted from the runs, the queues and the ledger, so opening
+ * the room is free. The orchestrator's own words in the thread are the pulse's, and those were paid for when
+ * the pulse ran.
+ */
+function threadHeader(deps: AppDeps, since: string | null): ThreadHeader {
+  const reviews = deps.engine.reviews.list({ state: 'open' });
+  return {
+    since,
+    // The runs, counted in SQL over every top-level run, so nothing is capped and no waited child is counted twice.
+    ...threadActivity(deps.db, since),
+    needsYou: {
+      decisions: deps.engine.work.list({ state: 'needs-you', kind: 'decision' }).length,
+      reviews: reviews.filter((r) => r.blocking).length,
+      approvals: deps.engine.approvals.list('pending').length,
+      unrated: reviews.filter((r) => !r.blocking).length,
+    },
+  };
 }
 
 function agentSummary(agent: LoadedAgent, now: string[], card: { heartbeat?: AgentHeartbeat | undefined; spend: AgentSpend }): AgentSummary {

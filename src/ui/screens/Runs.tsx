@@ -129,7 +129,7 @@ export function Runs() {
   );
 }
 
-/** Cancel one run and refetch the queries that show it; the Dashboard and the town hall board pass their own keys. */
+/** Cancel one run and refetch the queries that show it; the Dashboard passes its own keys. */
 export function CancelButton({ runId, keys = ['runs'] }: { runId: string; keys?: string[] }) {
   const client = useQueryClient();
   const cancel = useMutation({

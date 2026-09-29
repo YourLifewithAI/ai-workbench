@@ -708,6 +708,121 @@ export const UpdateWorkRequest = z.object({
 });
 export type UpdateWorkRequest = z.infer<typeof UpdateWorkRequest>;
 
+// ---- the board (RUN-26, D-79) ----------------------------------------------------------------
+
+/** One evaluator's view of an agent, over every run of that agent: how many, how good, and the last word said. */
+export const RatingAggregate = z.object({
+  count: z.number().int(),
+  mean: z.number().nullable(),
+  latestWhy: z.string().nullable(),
+  latestAt: z.string().nullable(),
+});
+export type RatingAggregate = z.infer<typeof RatingAggregate>;
+
+/**
+ * What an agent's card says. `window` is the agent's own runs and its steps inside workflow runs since `since`;
+ * `spend` on the summary is today and this month against its own caps, children included (RUN-24); `ratings`
+ * are all-time, the orchestrator's estimate and the owner's own as two labelled numbers that decide nothing.
+ */
+export const AgentReport = z.object({
+  agent: AgentSummary,
+  orchestrator: z.boolean(),
+  /** running: something of its is going; waiting: something of its needs a person; failed: its last run did; idle; never: no run yet. */
+  state: z.enum(['running', 'waiting', 'failed', 'idle', 'never']),
+  window: z.object({
+    runs: z.number().int(),
+    steps: z.number().int(),
+    completed: z.number().int(),
+    failed: z.number().int(),
+    running: z.number().int(),
+    costUsd: z.number(),
+    modelCalls: z.number().int(),
+    tokensIn: z.number().int(),
+    tokensOut: z.number().int(),
+  }),
+  /** Its latest own run, summarised the way the run's page is (D-58): headline first. */
+  latest: z.object({
+    runId: z.string(), state: z.string(), startedAt: z.string(), finishedAt: z.string().nullable(), costUsd: z.number(), summary: z.array(z.string()),
+  }).nullable(),
+  ratings: z.object({ orchestrator: RatingAggregate, owner: RatingAggregate }),
+  needsYou: z.object({ reviews: z.number().int(), approvals: z.number().int(), decisions: z.number().int() }),
+});
+export type AgentReport = z.infer<typeof AgentReport>;
+
+export const FleetResponse = z.object({
+  since: z.string(),
+  orchestrator: AgentReport.nullable(),
+  agents: z.array(AgentReport),
+});
+export type FleetResponse = z.infer<typeof FleetResponse>;
+
+// ---- the room (RUN-26, D-77, D-78) ----------------------------------------------------------
+
+export const ConversationSummary = z.object({
+  id: z.string(),
+  title: z.string(),
+  agentId: z.string(),
+  project: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  /** What the header counts from: what happened while the owner was away. */
+  lastReadAt: z.string().nullable(),
+});
+export type ConversationSummary = z.infer<typeof ConversationSummary>;
+
+/** One line of a thread. An exchange and a pulse are both runs; a decision is the ledger's, answered in place. */
+export const ThreadEntry = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('exchange'), runId: z.string(), at: z.string(), state: z.string(), costUsd: z.number(),
+    children: z.number(), filed: z.array(WorkItem), you: z.string(), reply: z.string().nullable(), tainted: z.boolean(),
+    /** Why the run failed, in a short plain sentence (never a stack, at most 200 characters); null unless it failed. */
+    error: z.string().nullable(),
+  }),
+  z.object({
+    kind: z.literal('pulse'), runId: z.string(), at: z.string(), state: z.string(), costUsd: z.number(),
+    children: z.number(), filed: z.array(WorkItem), workflowId: z.string(), note: z.string().nullable(),
+    /** The pulse read something from outside the workspace (its run is externally tainted). */
+    tainted: z.boolean(),
+  }),
+  z.object({ kind: z.literal('decision'), at: z.string(), item: WorkItem }),
+]);
+export type ThreadEntry = z.infer<typeof ThreadEntry>;
+
+/** What happened since `lastReadAt`, computed from the runs — never written by a model, so opening is free. */
+export const ThreadHeader = z.object({
+  since: z.string().nullable(),
+  finished: z.number(),
+  failed: z.number(),
+  running: z.number(),
+  spentUsd: z.number(),
+  needsYou: z.object({ decisions: z.number(), reviews: z.number(), approvals: z.number(), unrated: z.number() }),
+});
+export type ThreadHeader = z.infer<typeof ThreadHeader>;
+
+export const ConversationResponse = z.object({
+  conversation: ConversationSummary,
+  entries: z.array(ThreadEntry),
+  header: ThreadHeader,
+});
+export type ConversationResponse = z.infer<typeof ConversationResponse>;
+
+export const ConversationListResponse = z.object({ conversations: z.array(ConversationSummary) });
+export type ConversationListResponse = z.infer<typeof ConversationListResponse>;
+
+export const CreateConversationRequest = z.object({
+  agent: z.string(),
+  project: z.string().optional(),
+  title: z.string().max(200).optional(),
+});
+export type CreateConversationRequest = z.infer<typeof CreateConversationRequest>;
+
+export const PostMessageRequest = z.object({
+  /** Trimmed before it is checked, so a message of nothing but whitespace is refused like an empty one. */
+  message: z.string().trim().min(1).max(20_000),
+  provider: z.literal('mock').optional(),
+});
+export type PostMessageRequest = z.infer<typeof PostMessageRequest>;
+
 export const DashboardResponse = z.object({
   /** Blocking gates: a run is standing still until one of these is decided. */
   needsYou: z.array(ReviewItem),

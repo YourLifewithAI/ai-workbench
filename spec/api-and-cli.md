@@ -201,3 +201,31 @@ One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` �
 > workflow has this agent as its first agent step, `heartbeat: { scheduleId, workflowId, workflowName, cron,
 > enabled, nextFireAt, lastFiredAt }`; an enabled schedule beats a paused one, the soonest to fire the rest.
 > `agent.delegate` and `workflow.run` outputs carry `detached`.
+
+> Amendment (RUN-26, 2026-09-12, D-77, D-78): the room's five routes. `GET /api/v1/conversations` (optionally
+> `?agent=`) lists threads newest first; `POST /api/v1/conversations` takes `{ agent, project?, title? }` and
+> refuses an agent or a project that does not exist; `GET /api/v1/conversations/:id` returns the thread — the
+> conversation, its `entries` (an `exchange` and a `pulse` are runs, a `decision` is the ledger's, answered in
+> place) and a `header` computed from what happened since `lastReadAt`, never written by a model: the top-level
+> runs that finished, failed or are still going (a child an agent waited for is inside its parent and not counted
+> again), and what the model calls made since then cost, counted in SQL over every run, not the newest page of them;
+> `POST /api/v1/conversations/:id/messages` takes `{ message, provider? }` and answers `202 { runId,
+> conversationId }` — it starts the agent run it always started, with the thread's id on it, so it may do
+> exactly what starting that run may do and no more (SEC-47) — or `409 conflict` with the running run's id in
+> `error.details.runId` while an earlier run of the same thread is still `queued` or `running` (the next turn
+> carries the earlier ones as messages, and a reply still being written is not among them; a run parked on a
+> review or an approval does not hold the thread); `POST /api/v1/conversations/:id/read` moves
+> `lastReadAt` to now, which is what the header counts from.
+
+> Amendment (RUN-26, 2026-09-29, D-79): the board. `GET /api/v1/fleet` (optionally `?since=`, default seven
+> days back; any date `Date.parse` reads, answered normalised to an ISO time in `since`, and `400` when it is
+> not one) returns `{ since, orchestrator, agents }`, an `AgentReport` each: the agent's summary (spend and
+> heartbeat as `GET /agents` gives them), a `state` (running, waiting, failed, idle, never), the `window` (its
+> own runs by state, the steps of workflow runs that ran and were its own, and its cost, calls and tokens, which
+> are the model calls made inside the window, counted once — a parent's card is not charged for the child it
+> waited for), its `latest` run summarised the way the run's page is, `ratings` all-time as two labelled
+> aggregates — the orchestrator's estimates and the owner's ratings, count, mean, and the last *why* — each
+> counting the latest word on a run's step, and leaving a Compare pick out of the owner's, and `needsYou` by
+> whose it is. A workflow run has no agent of its own, so a rating, an estimate, a review or an approval on one
+> of its steps belongs to the agent that ran the step. Counted in SQL grouped by agent; no model call. `GET /api/v1/conversations/latest?agent=` returns the agent's most recent thread, opening one
+> the first time (the orchestrator when no agent is named). `GET /api/v1/runs` takes `?agent=`.

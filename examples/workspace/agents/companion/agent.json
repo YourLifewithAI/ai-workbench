@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "companion",
   "name": "Companion",
-  "description": "The owner's own, and the village's orchestrator: directs the other agents, sees what they did, rates it as an estimate, remembers what it is told about the person, and works inside its own caps.",
+  "description": "The owner's own, and the orchestrator of the others: directs the other agents, sees what they did, rates it as an estimate, remembers what it is told about the person, and works inside its own caps.",
   "instructions": {
     "file": "instructions.md"
   },

@@ -1,23 +1,28 @@
-// What needs you, what is running, and what today cost (ui.md §Dashboard). One request, in that order: the
-// point of this screen is that a person coming back after a day can see the state of things without reading.
+// The board (ui.md §Dashboard, D-79): the orchestrator across the top — what happened since you were last here,
+// what needs you, the conversation — and every other agent as a card beneath it. One person coming back after a
+// day can see the state of things, and say something to the one agent that directs the rest, without reading.
 import { useEffect, useState } from 'react';
 import { describeCron } from '../lib/cron';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { money } from '../../shared/summary.js';
-import type { DashboardResponse, WorkItem } from '../../shared/api/index.js';
+import type { DashboardResponse } from '../../shared/api/index.js';
 import { api } from '../lib/api.js';
 import { ApprovalCard } from '../components/ApprovalCard.js';
+import { AgentCards } from '../components/AgentCards.js';
+import { DecisionCard, WorkRow, refocusNeedsYou } from '../components/DecisionCard.js';
 import { EmptyState } from '../components/EmptyState.js';
+import { OrchestratorBand } from '../components/OrchestratorBand.js';
 import { RunningRuns } from '../components/RunningRuns.js';
 import { Button } from '../components/ui/button.js';
-import { Badge, Card } from '../components/ui/card.js';
+import { Card } from '../components/ui/card.js';
 import { useLiveRuns } from './Runs.js';
 import { ScreenTitle, SectionTitle, Subheading } from '../components/ui/text.js';
 
 export function Dashboard() {
   const q = useQuery({ queryKey: ['dashboard'], queryFn: api.dashboard, refetchInterval: 5000 });
-  useLiveRuns(['dashboard']);
+  const fleet = useQuery({ queryKey: ['fleet'], queryFn: api.fleet, refetchInterval: 15_000 });
+  useLiveRuns(['dashboard', 'fleet', 'conversation', 'runs-for']);
   const client = useQueryClient();
   const navigate = useNavigate();
   const resume = useMutation({ mutationFn: (id: string) => api.resumeRun(id), onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }) });
@@ -28,7 +33,12 @@ export function Dashboard() {
   });
   const answer = useMutation({
     mutationFn: (input: { id: string; answer: string }) => api.updateWork(input.id, { answer: input.answer }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ['dashboard'] }),
+    // Whichever copy of the decision was answered, both go: the card here and the one in the orchestrator's thread.
+    onSuccess: () => Promise.all([
+      client.invalidateQueries({ queryKey: ['dashboard'] }),
+      client.invalidateQueries({ queryKey: ['conversation'] }),
+      client.invalidateQueries({ queryKey: ['fleet'] }),
+    ]).then(refocusNeedsYou),
   });
 
   const d = q.data;
@@ -68,9 +78,12 @@ export function Dashboard() {
       {q.isPending ? <p className="mt-4" role="status">Loading…</p> : null}
       {q.isError ? <p className="mt-4 text-red-700 dark:text-red-300" role="alert">Could not load the dashboard: {q.error.message}</p> : null}
 
+      {fleet.isError ? <p className="mt-4 text-red-700 dark:text-red-300" role="alert">Could not load the agents: {fleet.error.message}</p> : null}
+
       {d ? (
         <>
-          <SectionTitle className="mt-6">Needs you</SectionTitle>
+        <OrchestratorBand report={fleet.data?.orchestrator ?? null} live={{ decisions: d.decisions.length, reviews: d.needsYou.length, approvals: d.approvals.length, unrated: d.unreviewed }}>
+          <SectionTitle className="mt-6" id="needs-you" tabIndex={-1}>Needs you</SectionTitle>
           {pending.length ? (
             <p className="mt-1 hidden text-sm text-gray-600 md:block dark:text-gray-400">
               Keys: <kbd className="font-mono">a</kbd> allow · <kbd className="font-mono">d</kbd> deny · <kbd className="font-mono">j</kbd>/<kbd className="font-mono">k</kbd> move.
@@ -133,18 +146,7 @@ export function Dashboard() {
           {resume.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{resume.error.message}</p> : null}
           {answer.isError ? <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{answer.error.message}</p> : null}
 
-          {/* The ledger (D-75): what the orchestrator has filed, staffed and settled, newest first. */}
-          <SectionTitle className="mt-8">Work</SectionTitle>
-          {d.work.items.length === 0 ? (
-            <p className="mt-2 text-sm text-gray-700 dark:text-gray-300" data-testid="work-empty">Nothing on the ledger. The companion files work here as it directs the village; so can you.</p>
-          ) : (
-            <ul className="mt-2 space-y-1" data-testid="work-list">
-              {d.work.items.map((w) => <li key={w.id}><WorkRow item={w} /></li>)}
-            </ul>
-          )}
-          {d.work.open > d.work.items.length ? <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">{d.work.open} open in all.</p> : null}
-
-          <SectionTitle className="mt-8">Running</SectionTitle>
+          <SectionTitle className="mt-6">Running</SectionTitle>
           {d.running.length === 0 ? (
             <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
               Nothing is running. Start one from <Link to="/workflows" className="text-blue-700 underline underline-offset-4 dark:text-sky-300">Workflows</Link> or <Link to="/agents" className="text-blue-700 underline underline-offset-4 dark:text-sky-300">Agents</Link>.
@@ -152,6 +154,23 @@ export function Dashboard() {
           ) : (
             <RunningRuns runs={d.running} keys={['dashboard']} className="mt-2" />
           )}
+        </OrchestratorBand>
+
+          {/* The team (D-79): a card per agent from the fleet report, busiest first. */}
+          <SectionTitle className="mt-8">The agents</SectionTitle>
+          {fleet.isPending ? <p className="mt-2 text-sm" role="status">Reading the fleet…</p> : null}
+          {fleet.data ? <AgentCards agents={fleet.data.agents} /> : null}
+
+          {/* The ledger (D-75): what the orchestrator has filed, staffed and settled, newest first. */}
+          <SectionTitle className="mt-8">Work</SectionTitle>
+          {d.work.items.length === 0 ? (
+            <p className="mt-2 text-sm text-gray-700 dark:text-gray-300" data-testid="work-empty">Nothing on the ledger. The companion files work here as it directs the others; so can you.</p>
+          ) : (
+            <ul className="mt-2 space-y-1" data-testid="work-list">
+              {d.work.items.map((w) => <li key={w.id}><WorkRow item={w} /></li>)}
+            </ul>
+          )}
+          {d.work.open > d.work.items.length ? <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">{d.work.open} open in all.</p> : null}
 
           <SectionTitle className="mt-8">Today and this month</SectionTitle>
           <Card className="mt-2">
@@ -222,47 +241,4 @@ function waitingTitle(d: DashboardResponse): string {
   if (d.unreviewed > 0) return `Nothing is blocked. ${d.unreviewed} output${d.unreviewed === 1 ? '' : 's'} would like a rating when you have a moment.`;
   if (d.findings > 0) return 'Nothing is blocked.';
   return 'Nothing is waiting on you.';
-}
-
-/** One decision as a card: the question, the case, the options as buttons, the orchestrator's lean marked (D-75). */
-function DecisionCard({ item, onAnswer, pending }: { item: WorkItem; onAnswer: (answer: string) => void; pending: boolean }) {
-  return (
-    <Card className="border-l-4 border-l-blue-700 dark:border-l-sky-400" data-testid={`decision-${item.id}`}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <Subheading as="h3">{item.title}</Subheading>
-          {item.detail ? <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">{item.detail}</p> : null}
-        </div>
-        <div className="flex gap-2">
-          <Badge tone="busy">decision</Badge>
-          {item.trust === 'untrusted' ? <Badge tone="neutral">written by a run that read outside</Badge> : null}
-        </div>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {item.options.map((o) => (
-          <Button key={o.id} size="sm" variant={o.id === item.lean ? 'default' : 'secondary'} onClick={() => onAnswer(o.id)} disabled={pending} title={o.detail ?? undefined}>
-            {o.label}{o.id === item.lean ? ' (its lean)' : ''}<span className="sr-only"> — answer to: {item.title}</span>
-          </Button>
-        ))}
-      </div>
-    </Card>
-  );
-}
-
-const STATE_TONE: Record<WorkItem['state'], 'good' | 'bad' | 'busy' | 'neutral'> = {
-  backlog: 'neutral', staffed: 'busy', 'in-review': 'busy', 'needs-you': 'bad', decided: 'good', done: 'good', dropped: 'neutral',
-};
-
-function WorkRow({ item }: { item: WorkItem }) {
-  return (
-    <div className="flex flex-wrap items-center gap-2 text-sm">
-      <Badge tone={STATE_TONE[item.state]}>{item.state}</Badge>
-      <span className="font-medium">{item.title}</span>
-      <span className="text-xs text-gray-600 dark:text-gray-400">
-        {item.kind}{item.project ? ` · ${item.project}` : ''}{item.assignee ? ` · ${item.assignee}` : ''}
-        {item.trust === 'untrusted' ? ' · written by a run that read outside' : ''}
-        {item.answer ? ` · answered: ${item.options.find((o) => o.id === item.answer)?.label ?? item.answer}` : ''}
-      </span>
-    </div>
-  );
 }

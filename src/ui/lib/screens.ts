@@ -1,6 +1,6 @@
 // The twelve screens, in navigation order (ui.md §Navigation). This is the one list: the sidebar, the phone's
-// "More", the village (RUN-19) and the router all read it, and the shell e2e asserts these labels reach a heading.
-// `summary` is one sentence — it is what the village shows when a building is hovered or focused.
+// "More" and the router all read it, and the shell e2e asserts these labels reach a heading. `summary` is one
+// sentence — a placeholder screen shows it, and it is global text.
 export interface Screen { path: string; label: string; shipsIn: string; summary: string }
 
 export const SCREENS: Screen[] = [

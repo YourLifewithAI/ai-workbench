@@ -50,6 +50,10 @@ at a time.
 
 ## D. The village
 
+> Withdrawn 2026-09-29 (D-79, RUN-26): the owner chose a board over the map. V1 shipped and is removed by RUN-26;
+> V2 is withdrawn; V3 survives only as RUN-21's agent editor and terminal-optional screens, without the rooms.
+> The rows stay as the record.
+
 Decided with the owner on 2026-09-06 (D-71), after the first owner-run verification.
 
 | # | Item | What | Size |
@@ -64,4 +68,4 @@ Decided with the owner on 2026-09-06 (D-71), after the first owner-run verificat
 
 F1 → F7 → F2 → F3 → F4 → F8 → F9 → F6, then L1 → L2 → L3 → L4 → L6 → L7 → L5, then F5 as a run. F1 first
 because nothing else is usable on one key without it; F5 last because it is the largest and the one most
-worth the owner's eye before it starts. Then, decided 2026-09-06: N-3 as a fix, and V1 → V2 → V3 as runs.
+worth the owner's eye before it starts. Then, decided 2026-09-06: N-3 as a fix, and V1 → V2 → V3 as runs. *(V1 shipped as RUN-19; V1–V3 were withdrawn on 2026-09-29 — RUN-26, D-79 — and the board took their place.)*

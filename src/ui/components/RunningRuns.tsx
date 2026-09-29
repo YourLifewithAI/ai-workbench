@@ -1,5 +1,5 @@
-// Every running run, with what it has spent and a Cancel button (ui.md §UX rules: "everywhere it appears"). The
-// Dashboard and the village's town hall board show the same list, so it is drawn once.
+// Every running run, with what it has spent and a Cancel button (ui.md §UX rules: "everywhere it appears").
+// Drawn once, shown wherever a screen says what is in flight.
 import { Link } from 'react-router-dom';
 import type { RunSummary } from '../../shared/api/index.js';
 import { cn } from '../lib/cn.js';

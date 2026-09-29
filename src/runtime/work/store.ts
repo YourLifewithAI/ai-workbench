@@ -38,6 +38,8 @@ export interface ListWorkFilter {
   project?: string | undefined;
   kind?: WorkKind | undefined;
   assignee?: string | undefined;
+  /** What one run filed: the thread shows an exchange's items under it (D-77). */
+  run?: string | undefined;
   limit?: number | undefined;
 }
 
@@ -102,6 +104,7 @@ export class WorkStore {
     if (filter.project) { clauses.push('project = ?'); params.push(filter.project); }
     if (filter.kind) { clauses.push('kind = ?'); params.push(filter.kind); }
     if (filter.assignee) { clauses.push('assignee = ?'); params.push(filter.assignee); }
+    if (filter.run) { clauses.push('run_id = ?'); params.push(filter.run); }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const rows = this.db.prepare(`SELECT * FROM work_items ${where} ORDER BY updated_at DESC LIMIT ?`).all(...params, Math.max(1, Math.min(200, filter.limit ?? 50))) as Row[];
     return rows.map((r) => this.toItem(r));

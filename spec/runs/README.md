@@ -119,3 +119,23 @@ Everything an agent needs is in at most ten bounded files. Done is a command, no
 > agent's card. What RUN-24 was going to hold moves to **RUN-25**: `memory.curate`, `memory.facts`,
 > `project.create`, cases from runs, the `human` evaluator, "agrees with you N of M". RUN-21 (the rooms) stays
 > next after these.
+
+> Amendment (owner decision, 2026-09-12): the owner started the workbench, looked for the orchestrator, and did
+> not find it: "I don't see anywhere in the UI interface by which I would strike up a conversation with the
+> orchestrator, let alone have it report back to me letting me know what the various agents have been doing."
+> **RUN-26** (`run/26-room`, D-77, D-78) is the answer and goes next, ahead of RUN-25 and RUN-21: the room where
+> you talk — a thread whose exchanges are runs, the pulse's notes and the ledger's decisions in the same stream,
+> a header that says what happened since you were last here, and the front door. RUN-25 (`memory.curate`,
+> `memory.facts`, `project.create`, cases from runs, the `human` evaluator, "agrees with you N of M") and RUN-21
+> (the rooms) keep their places after it.
+
+> Amendment (owner decision, 2026-09-29): the first draft of RUN-26 answered with a house in the village and
+> the room as the front door. The owner, three weeks into living with the map: "Let's take the graphical
+> interface out of this altogether. Can we turn this into a dashboard instead, with an orchestrator and various
+> subagents underneath it. Ideally each agent gets a card that I can select that tells me what they've been
+> doing, how much they've been spending on token usage, how the Orchestrator is rating that agent's activity,
+> etc." **RUN-26** is now *the board* (D-79): the orchestrator's band across the top with the thread built on
+> D-77 and D-78, a card per agent beneath it from one computed fleet report, and the village withdrawn from the
+> codebase. **RUN-20** (the villagers) and **RUN-22** (the diorama) leave the queue with it; **RUN-21** keeps
+> its agent editor and the terminal-optional rooms (N-1, N-2) and loses the building metaphor. RUN-25 is
+> unchanged and follows.

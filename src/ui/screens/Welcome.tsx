@@ -66,11 +66,11 @@ export function Welcome() {
           )}
         </Step>
 
-        <Step n={5} title="Meet your companion" done={false} why="One agent that is yours: it remembers what you tell it about yourself, files each exchange as a note in the Library, and spends inside its own daily and monthly caps within the workspace's.">
+        <Step n={5} title="Meet your companion" done={false} why="One agent that is yours, and the one that directs the others: you talk to it on the Dashboard, it remembers what you tell it about yourself, and it spends inside its own daily and monthly caps within the workspace's.">
           <p className="text-sm text-gray-700 dark:text-gray-300">
-            It reads <span className="font-mono text-xs">about.md</span> in the companion project as your word about yourself; that page is yours to fill in from the Library.
+            It reads <span className="font-mono text-xs">about.md</span> in the companion project as your word about yourself; that page is yours to fill in from the Library. The other agents are cards beneath it, each saying what it has done and what it cost.
           </p>
-          <Button className="mt-3" variant="secondary" onClick={() => { setWelcomeDone(true); navigate('/agents/companion?project=companion'); }}>Open the companion</Button>
+          <Button className="mt-3" variant="secondary" onClick={() => { setWelcomeDone(true); navigate('/dashboard'); }}>Talk to the companion</Button>
         </Step>
       </ol>
 

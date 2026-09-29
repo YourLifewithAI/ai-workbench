@@ -68,13 +68,16 @@ test('Welcome runs the example and reaches its trace; Settings is read-only and 
   await expectNoA11yViolations(page, 'Settings');
 });
 
-test('Welcome names the companion and opens it with its project chosen (F6)', async ({ page }) => {
+test('Welcome names the companion and takes you to where you talk to it (F6, RUN-26)', async ({ page }) => {
   await page.goto(base() + '/welcome#token=' + token());
   await expect(page.getByRole('heading', { name: /Meet your companion/ })).toBeVisible();
-  await page.getByRole('button', { name: 'Open the companion' }).click();
-  await expect(page.getByRole('heading', { name: 'Companion' })).toBeVisible();
-  await expect(page.getByLabel('Target project')).toHaveValue('companion');
-  await expectNoA11yViolations(page, 'Companion');
+  await page.getByRole('button', { name: 'Talk to the companion' }).click();
+  // The board: the orchestrator's band, the companion in its project, and a composer to say something in.
+  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+  const band = page.getByTestId('orchestrator-band');
+  await expect(band.getByRole('link', { name: 'Companion' })).toHaveAttribute('href', '/agents/companion?project=companion');
+  await expect(page.getByLabel('Message to the orchestrator')).toBeVisible({ timeout: 20_000 });
+  await expectNoA11yViolations(page, 'the board from Welcome');
 });
 
 test('keyboard-only navigation reaches every route; both themes and reduced motion apply', async ({ page }) => {

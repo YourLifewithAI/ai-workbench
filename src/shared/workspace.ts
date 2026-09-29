@@ -27,6 +27,9 @@ export const WorkbenchConfig = z.object({
     maxToolResultChars: z.number().int().positive(),
     memoryItems: z.number().int().nonnegative(),
     knowledgeChunks: z.number().int().nonnegative(),
+    /** How much of a thread the next turn carries (D-78): pairs, and the characters they may fill. */
+    conversationTurns: z.number().int().nonnegative().default(8),
+    conversationChars: z.number().int().nonnegative().default(12_000),
   }),
   search: z.object({ provider: z.enum(['brave', 'searxng', 'mock']), searxng: z.object({ url: z.string().url() }).optional() }),
   tools: z.object({ http: z.object({ maxResponseBytes: z.number().int().positive(), timeoutMs: z.number().int().positive() }) }),

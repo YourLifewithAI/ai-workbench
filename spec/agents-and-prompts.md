@@ -106,6 +106,23 @@ it with the project chosen. It is a recipe for "a space of my own" until project
 > files `pulse/<runId>.md`. The companion still reads nothing outside the workspace; a researcher it lets go
 > does, and its output taints whoever reads it. The card shows the loop (the heartbeat) and the spend.
 
+> Amendment (RUN-26, 2026-09-12, D-78): **a thread is context with provenance.** A run started with a
+> `conversation` carries the last completed turns of that thread — `context.conversationTurns` pairs (8) within
+> `context.conversationChars` (12,000), the oldest dropped whole — to the model as *messages* before the task,
+> user and assistant in turn, and never as a `## ` section: the instruction sections stay the agent's, the
+> owner's page and the project's goals (SEC-47). `promptVersion` does not move for it — history is input, as
+> the task is. A carried reply that came from an externally tainted run marks the carrying turn external, as
+> `artifact.read` of a tainted version does, so what that turn remembers is `untrusted`; a reply from a run that
+> read private content makes it private-tainted, so D-29's approval applies to its outbound requests. A resumed
+> turn is handed its thread again (the turns before it) and keeps its taint, as a fresh start would. The newest
+> pair is always carried, cut to the budget with a `[…clipped]` mark when it is larger, and older pairs are added
+> whole while they fit. The turn's first event, `run-started`, names the thread — `thread: { conversationId,
+> carried, taintedFrom, privateFrom }` — so the trace says which turn tainted it. The taint is sticky: once one
+> turn read the web, every later turn of the thread is tainted, and a person starts a new conversation (the *New conversation* button on the board) to shed it; a privately-tainted reply is carried the same way.
+> Nothing of a thread reaches a delegated child (D-48), and a run is never both a child and a turn. The
+> companion's description calls it the orchestrator of the others; its *the village* section keeps its name, the
+> metaphor being the agent's, not the screen's.
+
 ## Import trust (D-34)
 
 Importing an agent validates `schemaVersion` (mismatch is refused with a message naming the versions), then rewrites `permissions` to **requested** — the one word used everywhere for this state. Nothing in a file grants anything; grants are made in the Tools screen and stored in the workspace, not in the agent.

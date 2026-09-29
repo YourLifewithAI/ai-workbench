@@ -69,7 +69,10 @@ test('@run-23 the owner\'s page is chosen on Settings, and a project that does n
   await page.getByRole('button', { name: 'Save your page' }).click();
   await expect.poll(async () => ((await (await request.get(base() + '/api/v1/settings', { headers: auth() })).json()) as { owner: { profile: string | null } }).owner.profile).toBe('anthology/bible.md');
 
-  // And back, so the other suites read the page they expect.
+  // And back, so the other suites read the page they expect. The form is keyed on the saved value, so once the
+  // save's refetch lands it is a new instance whose Save is disabled (the input equals what is saved). Typing
+  // before that lands types into the old instance, which the refetch then replaces: wait for the new one.
+  await expect(page.getByRole('button', { name: 'Save your page' })).toBeDisabled();
   await input.fill('companion/about.md');
   await page.getByRole('button', { name: 'Save your page' }).click();
   await expect.poll(async () => ((await (await request.get(base() + '/api/v1/settings', { headers: auth() })).json()) as { owner: { profile: string | null } }).owner.profile).toBe('companion/about.md');

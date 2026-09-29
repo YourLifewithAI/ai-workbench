@@ -6,11 +6,12 @@ Models are a replaceable substrate. Everything private — config, agents, runs,
 workspace directory you own. The runtime is one process on one port that never faces the public internet, and
 every capability it has is denied until you grant it.
 
-On a desktop the workbench opens onto a village: one building for each part of it, standing on a small floating
-world. Hover a house to read what it is for; enter it to work there. A phone gets the same twelve screens as a
-list. Restyling the village is editing a file — [`docs/village.md`](docs/village.md) says which.
+The workbench opens onto a board: the orchestrator across the top — what happened since you were last here,
+the conversation with it, what needs you — and every other agent as a card beneath it that says what it has
+been doing, what it has spent, and how the orchestrator rated its work beside how you did. The same board
+stacks on a phone.
 
-**Status:** RUN-00 … RUN-19, RUN-23 and RUN-24 are built. See [`STATUS.md`](STATUS.md) for what is verified and what is not, and
+**Status:** RUN-00 … RUN-18, RUN-23, RUN-24 and RUN-26 are built; RUN-19's village was built and then withdrawn in RUN-26. See [`STATUS.md`](STATUS.md) for what is verified and what is not, and
 [`runlog/`](runlog/) for what each run actually did.
 
 ## Ten minutes
@@ -103,7 +104,7 @@ Ollama and LM Studio. Adding one is writing an adapter that passes the contract 
   something that cannot be undone. They are different queues on purpose.
 - **Evaluate** compares models on your own work: one step, N models, side by side, and a pick that becomes data.
 - **The phone**: the UI installs to a Home Screen and can send you a notification when something needs you.
-- **The companion** is the one agent you work with most, and the village's orchestrator: it directs the
+- **The companion** is the one agent you work with most, and the orchestrator of the others: it directs the
   others, sees what they did as facts, rates it as an estimate beside your rating, learns you, and reads your
   page — a document every agent gets as your own word. It cannot grant a permission or touch a file under
   `agents/`; everything else it does on its own budget, recorded with its reasoning. On a loop — the pulse,

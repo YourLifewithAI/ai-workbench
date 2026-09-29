@@ -17,13 +17,15 @@ import { ApprovalStore, type ApprovalDecision } from '../approvals/store.js';
 import { ToolExecutor, type ApprovalHost } from '../tools/executor.js';
 import { builtinTools } from '../tools/registry.js';
 import type { PermissionsToolDeps } from '../tools/builtin/permissions.js';
-import type { SpendResponse } from '../../shared/api/index.js';
+import type { SpendResponse, AgentSummary, FleetResponse } from '../../shared/api/index.js';
 import { gitExec } from '../repos/git.js';
 import { searchProvider, type MockSearchFixture } from '../search/index.js';
 import { RunTaint } from './taint.js';
 import { MemoryStore } from '../memory/store.js';
 import { EvaluationStore } from '../evaluation/store.js';
 import { WorkStore } from '../work/store.js';
+import { ConversationStore, type HistoryMessage } from '../conversations/store.js';
+import { fleetReport } from '../orchestrator/fleet.js';
 import { ExperimentRunner } from '../evaluation/runner.js';
 import { DEFAULT_LIMITS, type Sandbox } from '../sandbox/deno.js';
 import type { McpHost } from '../mcp/host.js';
@@ -98,6 +100,16 @@ export interface StartAgentRunInput {
   budget?: BudgetOverride | undefined;
   /** Set when this run is a delegation: it nests in the parent's trace and counts against the parent (D-12). */
   parent?: { runId: string; stepId: string; depth: number; detached?: boolean | undefined } | undefined;
+  /** The thread this exchange belongs to (D-77): the run is the message, and the thread is a view over runs. */
+  conversation?: string | undefined;
+}
+
+/** What a run's first trace event says of the thread it was handed: which turns, and which of them tainted it. */
+interface ThreadProvenance {
+  conversationId: string;
+  carried: { runId: string; role: 'user' | 'assistant'; chars: number }[];
+  taintedFrom: string[];
+  privateFrom: string[];
 }
 
 export interface StartWorkflowRunInput {
@@ -113,7 +125,7 @@ export interface StartWorkflowRunInput {
 interface RunRow {
   id: string; kind: string; state: RunState; agent_id: string | null; workflow_id: string | null; workflow_version: string | null; project_id: string | null;
   inputs_json: string; outputs_json: string | null; budgets_json: string; spent_json: string;
-  started_at: string; finished_at: string | null; error_json: string | null;
+  started_at: string; finished_at: string | null; error_json: string | null; conversation_id: string | null;
 }
 interface StepRow { step_id: string; kind: string; state: string; model_id: string | null; parent_step_id: string | null; map_index: number | null; cost_usd: number; started_at: string | null; finished_at: string | null }
 
@@ -140,6 +152,8 @@ export class Engine {
   readonly evaluation: EvaluationStore;
   /** The ledger the orchestrator keeps (D-75). */
   readonly work: WorkStore;
+  /** The room's threads (D-77): a conversation is a row, and every exchange in it is one of these runs. */
+  readonly conversations: ConversationStore;
   readonly experiments: ExperimentRunner;
   private push: { notify: (kind: PushEventKind, ids: { id: string; runId: string }) => Promise<unknown> } | null = null;
 
@@ -153,6 +167,32 @@ export class Engine {
     return taint;
   }
 
+  /**
+   * What a thread hands a turn, and what it hands it with (D-78): the last turns as messages, oldest first, and
+   * the trust they carry. A reply written by a run that had read the web is that web page one turn removed, so
+   * the turn that quotes it has read the web too — the rule `artifact.read` follows for a document a tainted run
+   * wrote (D-73) — and a reply from a run that had read private content puts private content in front of this
+   * one, which is what D-29's outbound rule asks about. A run that is starting and a run that is resuming are
+   * both handed their thread here, so neither can skip it; `before` bounds a resumed run to the turns that
+   * came before it. `thread` names the turns that did the tainting: it goes in the run's first trace event.
+   */
+  private historyFor(conversationId: string | null | undefined, taint: RunTaint, before?: string): { messages: { role: 'user' | 'assistant'; text: string }[]; thread: ThreadProvenance | null } {
+    if (!conversationId) return { messages: [], thread: null };
+    const context = this.deps.workspace().config.context;
+    const carried = this.conversations.history(conversationId, {
+      turns: context.conversationTurns, chars: context.conversationChars, ...(before ? { before } : {}),
+    });
+    const from = (pick: (m: HistoryMessage) => boolean): string[] => [...new Set(carried.filter(pick).map((m) => m.runId))];
+    const taintedFrom = from((m) => m.tainted);
+    const privateFrom = from((m) => m.privateTainted);
+    if (taintedFrom.length) taint.markExternal('the thread carried a reply from a run that had read the web');
+    if (privateFrom.length) taint.markPrivate('the thread carried a reply from a run that had read private content');
+    return {
+      messages: carried.map((m) => ({ role: m.role, text: m.text })),
+      thread: { conversationId, carried: carried.map((m) => ({ runId: m.runId, role: m.role, chars: m.text.length })), taintedFrom, privateFrom },
+    };
+  }
+
   constructor(private readonly deps: EngineDeps) {
     if (!deps.artifacts) throw new Error('The engine needs the Library: tools file their output there, and the broker checks paths against it.');
     const artifacts = deps.artifacts;
@@ -161,6 +201,7 @@ export class Engine {
     this.memory = new MemoryStore(deps.db, deps.events);
     this.evaluation = new EvaluationStore(deps.db);
     this.work = new WorkStore(deps.db);
+    this.conversations = new ConversationStore(deps.db, this.work);
     // Closes over `this` like the tool hosts: an experiment starts ordinary runs, so every trial has a trace.
     this.experiments = new ExperimentRunner({
       db: deps.db, log: deps.log, store: this.evaluation,
@@ -574,6 +615,19 @@ export class Engine {
   }
 
   /** What the orchestrator sees (SEC-42): ids, numbers, the summary lines — never a task, an output or a document. */
+  /** The board's report (D-79): counted here, with what waits on a person, so the API never touches the database. */
+  fleet(summaries: Map<string, AgentSummary>, since?: string | undefined): FleetResponse {
+    return fleetReport({
+      db: this.deps.db, workspace: () => this.deps.workspace(),
+      runDetail: (id) => this.getRun(id), events: (id) => this.deps.events.list(id),
+      summaries,
+      reviews: this.reviews.list({ state: 'open' }).map((r) => ({ runId: r.runId, stepId: r.stepId, blocking: r.blocking })),
+      approvals: this.approvals.list('pending').map((a) => ({ runId: a.runId, stepId: a.stepId })),
+      decisions: this.work.list({ state: 'needs-you', kind: 'decision' }).map((d) => ({ runId: d.runId })),
+      ...(this.deps.now ? { now: this.deps.now } : {}),
+    }, { since });
+  }
+
   runFacts(filter: RunFactsFilter = {}): RunFacts {
     return gatherRunFacts({
       db: this.deps.db, workspace: () => this.deps.workspace(),
@@ -684,6 +738,11 @@ export class Engine {
   // ---- starting ------------------------------------------------------------------------------------------
 
   startAgentRun(input: StartAgentRunInput): { runId: string; done: Promise<void> } {
+    // A delegated child gets a brief and never the transcript (D-48), so a run is a turn of a thread or a child
+    // of a run, not both: refused here rather than left to whoever wires the next caller.
+    if (input.conversation && input.parent) {
+      throw new ValidationError('A delegated child never carries a thread (D-48): a run is started with a conversation or with a parent, not both.');
+    }
     const ws = this.deps.workspace();
     const agent = ws.agents.get(input.agentId);
     if (!agent) {
@@ -696,15 +755,23 @@ export class Engine {
     const { own, narrowing } = this.ownCapsOf(agent.definition.id, agent.definition.budgets);
     const budgets = narrowBudgets(narrowBudgets(ws.config.budgets, narrowing), input.budget);
     const now = new Date().toISOString();
-    this.deps.db.prepare(`INSERT INTO runs (id, kind, state, agent_version, agent_id, project_id, parent_run_id, parent_step_id, depth, inputs_json, budgets_json, spent_json, started_at)
-      VALUES (?, 'agent', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    this.deps.db.prepare(`INSERT INTO runs (id, kind, state, agent_version, agent_id, project_id, parent_run_id, parent_step_id, depth, conversation_id, inputs_json, budgets_json, spent_json, started_at)
+      VALUES (?, 'agent', 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(runId, agent.version, agent.definition.id, input.project ?? null, input.parent?.runId ?? null, input.parent?.stepId ?? null, input.parent?.depth ?? 0,
-        this.persist(input.inputs), this.persist(budgets), this.persist(EMPTY_SPENT), now);
+        input.conversation ?? null, this.persist(input.inputs), this.persist(budgets), this.persist(EMPTY_SPENT), now);
     this.recordAgentVersion(agent, now);
+
+    const taint = this.trackTaint(runId, new RunTaint(this.deps.db, runId));
+    // A child inherits its parent's taint: what the parent read, the child could be quoting to it (D-29).
+    if (input.parent) taint.inherit(RunTaint.load(this.deps.db, input.parent.runId));
+    // The thread is worked out before the run says it has started, so that the event can name the turns that
+    // tainted it (D-78). Only a turn of a thread has one; a child never does.
+    const { messages: history, thread } = this.historyFor(input.conversation, taint);
     this.deps.events.append(runId, null, 'run-started', {
       kind: 'agent', agentId: agent.definition.id, agentVersion: agent.version, inputs: input.inputs,
       project: input.project ?? null, budgets, provider: input.provider ?? this.deps.providerOverride ?? null,
       ...(input.parent ? { parentRunId: input.parent.runId, parentStepId: input.parent.stepId, depth: input.parent.depth } : {}),
+      ...(thread ? { thread } : {}),
     });
     // The parent's trace shows the child as an event of its own, so a delegation is not a gap in the story.
     if (input.parent) {
@@ -712,10 +779,6 @@ export class Engine {
         kind: 'agent', childRunId: runId, agentId: agent.definition.id, depth: input.parent.depth, delegated: true, detached: input.parent.detached === true,
       });
     }
-
-    const taint = this.trackTaint(runId, new RunTaint(this.deps.db, runId));
-    // A child inherits its parent's taint: what the parent read, the child could be quoting to it (D-29).
-    if (input.parent) taint.inherit(RunTaint.load(this.deps.db, input.parent.runId));
 
     return this.schedule(runId, budgets, now, async (budget, signal) => {
       const task = typeof input.inputs['input'] === 'string' ? (input.inputs['input'] as string) : JSON.stringify(input.inputs);
@@ -728,6 +791,7 @@ export class Engine {
           ...(input.provider ?? this.deps.providerOverride ? { provider: (input.provider ?? this.deps.providerOverride) as 'mock' } : {}),
           ...(input.modelOverride ? { modelOverride: input.modelOverride } : {}),
           ...(feedback ? { feedback } : {}),
+          ...(history.length ? { history } : {}),
           scratchDir: `${ws.paths.runs}/${runId}`,
           taint, budget, signal,
         });
@@ -974,8 +1038,17 @@ export class Engine {
     const agent = this.deps.workspace().agents.get(row.agent_id);
     if (!agent) throw new NotFoundError(`Agent "${row.agent_id}" is no longer in this workspace, so this run cannot be resumed.`);
     const inputs = JSON.parse(row.inputs_json) as Record<string, unknown>;
+    // A resumed run is the same run: whatever tainted it is still true (what it read is in `runs`, and the rule
+    // for an outbound request reads the same tracker), and a turn of a thread is handed its thread again, the
+    // turns that came before it, with the same marking a fresh start would give (D-78).
+    const taint = this.trackTaint(row.id, RunTaint.load(this.deps.db, row.id));
+    const { messages: history, thread } = this.historyFor(row.conversation_id, taint, row.id);
+    // Only now does the row say it is running: worked out first, so a failure above cannot leave a row stuck
+    // running that the thread would then treat as still answering.
     this.deps.db.prepare("UPDATE runs SET state = 'running', finished_at = NULL, error_json = NULL WHERE id = ?").run(row.id);
-    this.deps.events.append(row.id, null, 'run-started', { kind: 'agent', agentId: agent.definition.id, agentVersion: agent.version, resumed: true });
+    this.deps.events.append(row.id, null, 'run-started', {
+      kind: 'agent', agentId: agent.definition.id, agentVersion: agent.version, resumed: true, ...(thread ? { thread } : {}),
+    });
 
     return this.schedule(row.id, budgets, new Date().toISOString(), async (budget, signal) => {
       const task = typeof inputs['input'] === 'string' ? (inputs['input'] as string) : JSON.stringify(inputs);
@@ -983,7 +1056,8 @@ export class Engine {
         runId: row.id, stepId: 'main', agent, task,
         ...(row.project_id ? { project: row.project_id } : {}),
         ...(this.deps.providerOverride ? { provider: this.deps.providerOverride } : {}),
-        budget, signal,
+        ...(history.length ? { history } : {}),
+        taint, budget, signal,
       });
       return { output: outcome.output };
     });
@@ -1087,12 +1161,13 @@ export class Engine {
     };
   }
 
-  listRuns(filter: { state?: string | undefined; kind?: string | undefined; project?: string | undefined; limit?: number | undefined } = {}): RunSummary[] {
+  listRuns(filter: { state?: string | undefined; kind?: string | undefined; project?: string | undefined; agent?: string | undefined; limit?: number | undefined } = {}): RunSummary[] {
     const clauses: string[] = [];
     const params: unknown[] = [];
     if (filter.state) { clauses.push('state = ?'); params.push(filter.state); }
     if (filter.kind) { clauses.push('kind = ?'); params.push(filter.kind); }
     if (filter.project) { clauses.push('project_id = ?'); params.push(filter.project); }
+    if (filter.agent) { clauses.push('agent_id = ?'); params.push(filter.agent); }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const rows = this.deps.db.prepare(`SELECT * FROM runs ${where} ORDER BY started_at DESC LIMIT ?`).all(...params, filter.limit ?? 100) as RunRow[];
     return rows.map((r) => this.summary(r));

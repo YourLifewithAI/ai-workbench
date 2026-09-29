@@ -92,6 +92,11 @@ export interface AgentStepInput {
   workflow?: { id: string; stepId: string; upstream: string[]; downstream: string[] } | undefined;
   /** What the human said when they rejected the previous attempt, appended to the task rather than the system. */
   feedback?: string | undefined;
+  /**
+   * Earlier turns of this thread (D-78), oldest first: they go to the model as messages, before the task, and
+   * never into a `## ` section — instructions stay the agent's, the owner's page and the project's goals.
+   */
+  history?: { role: 'user' | 'assistant'; text: string }[] | undefined;
   /** A workflow's `permissions` block: a ceiling over every step, never a widening. */
   workflowCeiling?: Permissions | undefined;
   /** Where this run's tools keep their scratch. */
@@ -173,12 +178,17 @@ export class StepRunner {
     if (memory.trusted.length || memory.untrusted.length) input.taint?.markPrivate('the prompt carried a memory section');
     // An untrusted item in the prompt is external content, whatever else this run has done (D-17).
     if (memory.untrusted.length) input.taint?.markExternal('the prompt carried untrusted memory');
-    // Every URL the step was handed is one it may follow later without asking.
+    // Every URL the step was handed is one it may follow later without asking — in the task, and in anything the
+    // thread carried forward.
     input.taint?.observe(input.task);
+    for (const message of input.history ?? []) input.taint?.observe(message.text);
     const task = input.feedback
       ? `${input.task}\n\n---\nA human reviewed your previous attempt and asked for this instead:\n\n${input.feedback}`
       : input.task;
-    const transcript: Message[] = [{ role: 'user', content: [{ type: 'text', text: task }] }];
+    const transcript: Message[] = [
+      ...(input.history ?? []).map((m): Message => ({ role: m.role, content: [{ type: 'text', text: m.text }] })),
+      { role: 'user', content: [{ type: 'text', text: task }] },
+    ];
     const projectCeiling = this.ceilingFor(input.project ?? null);
     const available = this.deps.tools?.availableTo(agent, input.workflowCeiling, projectCeiling) ?? [];
     const specs = available.map(toolSpec);

@@ -75,10 +75,11 @@ These prove behaviour, not appearance, so a redesign cannot invalidate them. Do 
 
 - [ ] **O-6 The companion, for real — and the C-6 rerun**
 
-  Library → *companion* → `about.md` → *Edit*, write a few true lines, save. Agents → Companion,
-  **project set to `companion`**, tell it something you want remembered, mock unticked.
+  Library → *companion* → `about.md` → *Edit*, write a few true lines, save. Dashboard → the orchestrator's
+  band (the companion, project `companion`): tell it something you want remembered; the band sends to the real
+  model unless the workbench was started with the mock.
 
-  **Expect:** A visible reply on the run page, the reply filed in the Library under `notes/…`, a
+  **Expect:** A visible reply in the band's thread (and the run's page one click away, *its trace*), the reply filed in the Library under `notes/…`, a
   `user`-scope item in Memory written by that run, and `## profile` in the compiled prompt carrying
   your `about.md` (from RUN-23 the page reaches every agent as the profile section, not as goals).
 
