@@ -211,3 +211,12 @@ One event per line: `{ seq, runId, stepId, type, ts, schemaVersion, payload }` �
 > conversationId }` — it starts the agent run it always started, with the thread's id on it, so it may do
 > exactly what starting that run may do and no more (SEC-47); `POST /api/v1/conversations/:id/read` moves
 > `lastReadAt` to now, which is what the header counts from.
+
+> Amendment (RUN-26, 2026-09-29, D-79): the board. `GET /api/v1/fleet` (optionally `?since=`, default seven
+> days back) returns `{ since, orchestrator, agents }`, an `AgentReport` each: the agent's summary (spend and
+> heartbeat as `GET /agents` gives them), a `state` (running, waiting, failed, idle, never), the `window` (its
+> own runs by state, its steps inside workflow runs, cost, calls, tokens), its `latest` run summarised the way
+> the run's page is, `ratings` all-time as two labelled aggregates — the orchestrator's estimates and the owner's
+> ratings, count, mean, and the last *why* — and `needsYou` by whose run it is. Counted in SQL grouped by agent;
+> no model call. `GET /api/v1/conversations/latest?agent=` returns the agent's most recent thread, opening one
+> the first time (the orchestrator when no agent is named). `GET /api/v1/runs` takes `?agent=`.

@@ -6,7 +6,7 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import {
-  RerunRequest, ApprovalDecisionRequest, CompareRequest, CreateWorkflowRequest, EstimateRequest, FindingDecisionRequest, SaveWorkflowRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetReposRequest, SetPriceRequest, SetEnabledRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type AgentHeartbeat, type AgentSpend, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type ScheduleSummary, type ConversationListResponse, type ConversationResponse, CreateConversationRequest, PostMessageRequest, type ThreadHeader, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type DeleteWorkflowResponse, type EstimateResponse, type SpendResponse, type PermissionFinding, type PermissionFindingsResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary, SaveProjectSpaceRequest, type ProjectSpaceResponse } from '../../shared/api/index.js';
+  RerunRequest, ApprovalDecisionRequest, CompareRequest, CreateWorkflowRequest, EstimateRequest, FindingDecisionRequest, SaveWorkflowRequest, SetCredentialRequest, TrustPluginRequest, UpdateSettingsRequest, ComparePickRequest, CreateDatasetRequest, CreateExperimentRequest, CreateMemoryRequest, CreateProjectRequest, CreateRunRequest, MemoryScope, PutDocumentRequest, RateRequest, ReviewDecisionRequest, SetGrantRequest, SetReposRequest, SetPriceRequest, SetEnabledRequest, SetNetworkModeRequest, SubscribePushRequest, UpsertScheduleRequest, type AgentDetail, type AgentListResponse, type AgentSummary, type AgentHeartbeat, type AgentSpend, type ApiError, type CompareResponse, type DashboardResponse, type ImportResult, type PluginStatusSummary, type DeleteMemoryResponse, type McpServerSummary, type EgressRecord, type HealthResponse, type IngestKnowledgeResponse, type KnowledgeSearchResponse, type MemoryResponse, type MemoryTracesResponse, type ModelListResponse, type PrivacyResponse, type ReloadAgentsResponse, type ApprovalListResponse, type GrantCell, type PushSubscriptionsResponse, type ReviewListResponse, type ScheduleListResponse, type ScheduleSummary, type ConversationListResponse, type ConversationResponse, type FleetResponse, CreateConversationRequest, PostMessageRequest, type ThreadHeader, type SettingsResponse, type ToolDenial, type ToolsResponse, type ToolSummary, type AgentGrantSummary, type DeleteWorkflowResponse, type EstimateResponse, type SpendResponse, type PermissionFinding, type PermissionFindingsResponse, type WorkflowDetail, type WorkflowListResponse, type WorkflowSummary, SaveProjectSpaceRequest, type ProjectSpaceResponse } from '../../shared/api/index.js';
 import type { ArtifactStore } from '../artifacts/store.js';
 import { WorkspaceError } from '../util/errors.js';
 import type { EventRecord } from '../../shared/events.js';
@@ -27,6 +27,7 @@ import type { Logger } from '../log/index.js';
 import type { BrokenAgent, Workspace } from '../workspace/loader.js';
 import type { LoadedAgent } from '../../shared/agent.js';
 import { validateWorkflow, type LoadedWorkflow } from '../../shared/workflow.js';
+import { ORCHESTRATOR_AGENT } from '../orchestrator/fleet.js';
 import { WorkflowWriteError } from '../workspace/workflows.js';
 import { toolSpec } from '../../shared/tool.js';
 import { z } from 'zod';
@@ -199,7 +200,7 @@ export function createApp(deps: AppDeps): Hono {
     const limitRaw = c.req.query('limit');
     const limit = limitRaw !== undefined ? Number(limitRaw) : undefined;
     if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 1000)) return fail(c, 'validation', '`limit` must be an integer between 1 and 1000.', 400);
-    const runs = deps.engine.listRuns({ state: c.req.query('state'), kind: c.req.query('kind'), project: c.req.query('project'), limit });
+    const runs = deps.engine.listRuns({ state: c.req.query('state'), kind: c.req.query('kind'), project: c.req.query('project'), agent: c.req.query('agent'), limit });
     return json(c, { runs });
   });
 
@@ -660,6 +661,27 @@ export function createApp(deps: AppDeps): Hono {
     if (!parsed.success) return fail(c, 'validation', 'Expected some of { state, assignee, detail, answer, note }.', 400, parsed.error.issues);
     const item = deps.engine.work.update(c.req.param('id'), parsed.data);
     return item ? json(c, item) : fail(c, 'not_found', `There is no work item "${c.req.param('id')}".`, 404);
+  });
+
+  // ---- the board (RUN-26, D-79) -----------------------------------------------------------------
+  // What every card says, computed: counted in SQL by agent, one summary line per agent, no model call.
+  app.get('/api/v1/fleet', (c) => {
+    const since = c.req.query('since');
+    if (since !== undefined && Number.isNaN(Date.parse(since))) return fail(c, 'validation', '`since` must be an ISO timestamp.', 400);
+    const ws = deps.workspace();
+    const schedules = deps.scheduler.list();
+    const summaries = new Map([...ws.agents.values()].map((a) => [a.definition.id, agentSummary(a, deps.modelsNow(a.definition.modelPolicy), onTheCard(a, ws, schedules, deps))]));
+    const body: FleetResponse = deps.engine.fleet(summaries, since);
+    return json(c, body);
+  });
+
+  // The thread the board lands in: the agent's most recent, or a new one the first time.
+  app.get('/api/v1/conversations/latest', (c) => {
+    const agent = c.req.query('agent') ?? ORCHESTRATOR_AGENT;
+    const ws = deps.workspace();
+    if (!ws.agents.has(agent)) return fail(c, 'not_found', `Agent "${agent}" does not exist in this workspace.`, 404);
+    const project = deps.artifacts?.findProject(agent) ? agent : null;
+    return json(c, deps.engine.conversations.latestOrCreate(agent, project));
   });
 
   // ---- the room (RUN-26, D-77) ------------------------------------------------------------------

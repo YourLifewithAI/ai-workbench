@@ -708,6 +708,54 @@ export const UpdateWorkRequest = z.object({
 });
 export type UpdateWorkRequest = z.infer<typeof UpdateWorkRequest>;
 
+// ---- the board (RUN-26, D-79) ----------------------------------------------------------------
+
+/** One evaluator's view of an agent, over every run of that agent: how many, how good, and the last word said. */
+export const RatingAggregate = z.object({
+  count: z.number().int(),
+  mean: z.number().nullable(),
+  latestWhy: z.string().nullable(),
+  latestAt: z.string().nullable(),
+});
+export type RatingAggregate = z.infer<typeof RatingAggregate>;
+
+/**
+ * What an agent's card says. `window` is the agent's own runs and its steps inside workflow runs since `since`;
+ * `spend` on the summary is today and this month against its own caps, children included (RUN-24); `ratings`
+ * are all-time, the orchestrator's estimate and the owner's own as two labelled numbers that decide nothing.
+ */
+export const AgentReport = z.object({
+  agent: AgentSummary,
+  orchestrator: z.boolean(),
+  /** running: something of its is going; waiting: something of its needs a person; failed: its last run did; idle; never: no run yet. */
+  state: z.enum(['running', 'waiting', 'failed', 'idle', 'never']),
+  window: z.object({
+    runs: z.number().int(),
+    steps: z.number().int(),
+    completed: z.number().int(),
+    failed: z.number().int(),
+    running: z.number().int(),
+    costUsd: z.number(),
+    modelCalls: z.number().int(),
+    tokensIn: z.number().int(),
+    tokensOut: z.number().int(),
+  }),
+  /** Its latest own run, summarised the way the run's page is (D-58): headline first. */
+  latest: z.object({
+    runId: z.string(), state: z.string(), startedAt: z.string(), finishedAt: z.string().nullable(), costUsd: z.number(), summary: z.array(z.string()),
+  }).nullable(),
+  ratings: z.object({ orchestrator: RatingAggregate, owner: RatingAggregate }),
+  needsYou: z.object({ reviews: z.number().int(), approvals: z.number().int(), decisions: z.number().int() }),
+});
+export type AgentReport = z.infer<typeof AgentReport>;
+
+export const FleetResponse = z.object({
+  since: z.string(),
+  orchestrator: AgentReport.nullable(),
+  agents: z.array(AgentReport),
+});
+export type FleetResponse = z.infer<typeof FleetResponse>;
+
 // ---- the room (RUN-26, D-77, D-78) ----------------------------------------------------------
 
 export const ConversationSummary = z.object({

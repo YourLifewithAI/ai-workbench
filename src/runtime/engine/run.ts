@@ -17,7 +17,7 @@ import { ApprovalStore, type ApprovalDecision } from '../approvals/store.js';
 import { ToolExecutor, type ApprovalHost } from '../tools/executor.js';
 import { builtinTools } from '../tools/registry.js';
 import type { PermissionsToolDeps } from '../tools/builtin/permissions.js';
-import type { SpendResponse } from '../../shared/api/index.js';
+import type { SpendResponse, AgentSummary, FleetResponse } from '../../shared/api/index.js';
 import { gitExec } from '../repos/git.js';
 import { searchProvider, type MockSearchFixture } from '../search/index.js';
 import { RunTaint } from './taint.js';
@@ -25,6 +25,7 @@ import { MemoryStore } from '../memory/store.js';
 import { EvaluationStore } from '../evaluation/store.js';
 import { WorkStore } from '../work/store.js';
 import { ConversationStore } from '../conversations/store.js';
+import { fleetReport } from '../orchestrator/fleet.js';
 import { ExperimentRunner } from '../evaluation/runner.js';
 import { DEFAULT_LIMITS, type Sandbox } from '../sandbox/deno.js';
 import type { McpHost } from '../mcp/host.js';
@@ -580,6 +581,19 @@ export class Engine {
   }
 
   /** What the orchestrator sees (SEC-42): ids, numbers, the summary lines — never a task, an output or a document. */
+  /** The board's report (D-79): counted here, with what waits on a person, so the API never touches the database. */
+  fleet(summaries: Map<string, AgentSummary>, since?: string | undefined): FleetResponse {
+    return fleetReport({
+      db: this.deps.db, workspace: () => this.deps.workspace(),
+      runDetail: (id) => this.getRun(id), events: (id) => this.deps.events.list(id),
+      summaries,
+      reviews: this.reviews.list({ state: 'open' }).map((r) => ({ runId: r.runId, blocking: r.blocking })),
+      approvals: this.approvals.list('pending').map((a) => ({ runId: a.runId })),
+      decisions: this.work.list({ state: 'needs-you', kind: 'decision' }).map((d) => ({ runId: d.runId })),
+      ...(this.deps.now ? { now: this.deps.now } : {}),
+    }, { since });
+  }
+
   runFacts(filter: RunFactsFilter = {}): RunFacts {
     return gatherRunFacts({
       db: this.deps.db, workspace: () => this.deps.workspace(),
@@ -1104,12 +1118,13 @@ export class Engine {
     };
   }
 
-  listRuns(filter: { state?: string | undefined; kind?: string | undefined; project?: string | undefined; limit?: number | undefined } = {}): RunSummary[] {
+  listRuns(filter: { state?: string | undefined; kind?: string | undefined; project?: string | undefined; agent?: string | undefined; limit?: number | undefined } = {}): RunSummary[] {
     const clauses: string[] = [];
     const params: unknown[] = [];
     if (filter.state) { clauses.push('state = ?'); params.push(filter.state); }
     if (filter.kind) { clauses.push('kind = ?'); params.push(filter.kind); }
     if (filter.project) { clauses.push('project_id = ?'); params.push(filter.project); }
+    if (filter.agent) { clauses.push('agent_id = ?'); params.push(filter.agent); }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const rows = this.deps.db.prepare(`SELECT * FROM runs ${where} ORDER BY started_at DESC LIMIT ?`).all(...params, filter.limit ?? 100) as RunRow[];
     return rows.map((r) => this.summary(r));

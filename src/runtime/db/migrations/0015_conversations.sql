@@ -13,3 +13,6 @@ CREATE TABLE IF NOT EXISTS conversations (
 
 ALTER TABLE runs ADD COLUMN conversation_id TEXT;
 CREATE INDEX IF NOT EXISTS runs_conversation_idx ON runs(conversation_id, started_at);
+
+-- RUN-26 (D-79): the board counts an agent's runs in a window. Nothing indexed runs by agent before it.
+CREATE INDEX IF NOT EXISTS runs_agent_idx ON runs(agent_id, started_at);
